@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "PaperPilot Pro - 一体化学术科研智能助手",
+  "version": "1.0.0",
+  "description": "打通谷歌学术与期刊页的闭环检索与直链工具，内置自然指数高亮、本地无感双滑块过滤、去重折叠、跨域PDF探测、影响因子与分区展示及本地AI文献总结。",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "lib/svg-icons.js",
+        "content/scholar.js"
+      ],
+      "css": [
+        "content/scholar.css"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "lib/svg-icons.js",
+        "content/journal.js"
+      ],
+      "css": [
+        "content/journal.css"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
