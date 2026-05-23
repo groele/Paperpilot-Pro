@@ -121,15 +121,15 @@
           </div>
 
           <!-- Switch: Badges -->
-          <div class="pp-popup-setting-item">
+          <div class="pp-popup-setting-item pp-popup-setting-item-prominent">
             <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">学术指标与状态徽章</span>
+              <span class="pp-popup-setting-lbl pp-popup-setting-lbl-prominent">学术指标与状态徽章</span>
               <label class="pp-popup-switch">
                 <input type="checkbox" id="setting-enable-badges">
                 <span class="pp-popup-switch-slider"></span>
               </label>
             </div>
-            <p class="pp-popup-setting-desc">在文献标题旁追加高亮的 Nature Index 标注、准确被引次数及 PDF 直链图标徽章。</p>
+            <p class="pp-popup-setting-desc">在文献标题旁追加 Nature Index、影响因子、分区、被引量与预警等学术状态徽章。</p>
           </div>
 
           <!-- Switch: Metacard -->
@@ -179,7 +179,7 @@
                 <span class="pp-popup-switch-slider"></span>
               </label>
             </div>
-            <p class="pp-popup-setting-desc">在检索结果与详情页渲染「一键 BibTeX」快捷复制按钮。</p>
+            <p class="pp-popup-setting-desc">在谷歌学术搜索结果条目旁渲染「一键 BibTeX」快捷复制按钮。</p>
           </div>
 
           <!-- Switch: Enable Scholar Copy DOI Button -->
@@ -203,7 +203,7 @@
                 <span class="pp-popup-switch-slider"></span>
               </label>
             </div>
-            <p class="pp-popup-setting-desc">在期刊详情页悬浮卡 / PaperPilot 工具箱中显示 DOI 复制入口。</p>
+            <p class="pp-popup-setting-desc">在期刊详情页悬浮卡中保留 DOI 字段复制与无 PDF 时的一键 DOI 复制入口。</p>
           </div>
 
           <!-- Switch: Enable PDF Download Button -->
@@ -326,19 +326,6 @@
             <p class="pp-popup-setting-desc">在学术检索结果标题旁高亮标注文献被引用量。</p>
           </div>
 
-          <!-- Switch: PDF Direct Link Badge -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">显示 PDF 直链徽章</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-pdf-badge">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
-            </div>
-            <p class="pp-popup-setting-desc">在检索结果标题旁及悬浮卡中展示 PDF 全文嗅探直链徽章与状态。</p>
-          </div>
-
-
           <div class="pp-popup-section-hdr" style="font-size: 11px; font-weight: 800; color: var(--primary); letter-spacing: 0.5px; border-bottom: 1px solid var(--divider-color); padding-bottom: 4px; margin-top: 6px; margin-bottom: 4px; text-transform: uppercase;">直链与文件规范配置</div>
 
           <!-- Switch 1 -->
@@ -363,6 +350,12 @@
               <option value="4">{Title} ({Year})</option>
             </select>
             <p class="pp-popup-setting-desc">支持多字段批量规范命名，一键下载时自动提取元数据替换并保存。</p>
+          </div>
+
+          <div class="pp-popup-setting-item">
+            <span class="pp-popup-setting-lbl">PDF 下载子目录</span>
+            <input type="text" class="pp-popup-input" id="setting-pdf-download-dir" placeholder="PaperPilot Pro">
+            <p class="pp-popup-setting-desc">保存到 Chrome 默认下载目录下的指定子目录，例如 PaperPilot Pro 或 Papers/Exciton。</p>
           </div>
 
           <!-- Select 3: 外观模式 -->

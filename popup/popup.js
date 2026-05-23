@@ -16,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const configRedirect = document.getElementById("setting-auto-redirect");
   const configPdfNaming = document.getElementById("setting-pdf-naming");
+  const configPdfDownloadDir = document.getElementById("setting-pdf-download-dir");
   const configAiProvider = document.getElementById("setting-ai-provider");
   const configAiKey = document.getElementById("setting-ai-key");
   const configAiPrompt = document.getElementById("setting-ai-prompt");
@@ -43,7 +44,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const configCasBadge = document.getElementById("setting-enable-cas-badge");
   const configJcrBadge = document.getElementById("setting-enable-jcr-badge");
   const configCiteBadge = document.getElementById("setting-enable-cite-badge");
-  const configPdfBadge = document.getElementById("setting-enable-pdf-badge");
 
   // Feature status dots
   const statusNi = document.getElementById("status-ni");
@@ -101,6 +101,7 @@ document.addEventListener("DOMContentLoaded", () => {
   chrome.storage.local.get([
     "auto_redirect",
     "pdf_naming",
+    "pdf_download_dir",
     "ai_provider",
     "ai_api_key",
     "ai_prompt",
@@ -125,11 +126,11 @@ document.addEventListener("DOMContentLoaded", () => {
     "enable_if_badge",
     "enable_cas_badge",
     "enable_jcr_badge",
-    "enable_cite_badge",
-    "enable_pdf_badge"
+    "enable_cite_badge"
   ], (config) => {
     if (config.auto_redirect !== undefined) configRedirect.checked = config.auto_redirect;
     if (config.pdf_naming !== undefined) configPdfNaming.value = config.pdf_naming;
+    configPdfDownloadDir.value = config.pdf_download_dir !== undefined ? config.pdf_download_dir : "PaperPilot Pro";
     if (config.ai_provider !== undefined) configAiProvider.value = config.ai_provider;
     if (config.ai_api_key !== undefined) configAiKey.value = config.ai_api_key;
     if (config.ai_prompt !== undefined) configAiPrompt.value = config.ai_prompt;
@@ -176,7 +177,6 @@ document.addEventListener("DOMContentLoaded", () => {
     configCasBadge.checked = config.enable_cas_badge !== false;
     configJcrBadge.checked = config.enable_jcr_badge !== false;
     configCiteBadge.checked = config.enable_cite_badge !== false;
-    configPdfBadge.checked = config.enable_pdf_badge !== false;
 
     // Update the visual status grid
     updateFeatureStatusGrid();
@@ -194,6 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   configRedirect.onchange = () => saveSetting("auto_redirect", configRedirect.checked, "自动重定向设置已同步");
   configPdfNaming.onchange = () => saveSetting("pdf_naming", configPdfNaming.value, "文件命名模板保存成功");
+  configPdfDownloadDir.oninput = () => saveSetting("pdf_download_dir", configPdfDownloadDir.value.trim(), "PDF 下载子目录已保存");
   configAiProvider.onchange = () => saveSetting("ai_provider", configAiProvider.value, "AI 提供商已切换");
   configAiKey.oninput = () => saveSetting("ai_api_key", configAiKey.value, "API 密钥已更新保存");
   configAiPrompt.oninput = () => saveSetting("ai_prompt", configAiPrompt.value, "自定义提示词已更新");
@@ -249,7 +250,6 @@ document.addEventListener("DOMContentLoaded", () => {
   configCasBadge.onchange = () => saveSetting("enable_cas_badge", configCasBadge.checked, "中科院分区徽章显示已同步");
   configJcrBadge.onchange = () => saveSetting("enable_jcr_badge", configJcrBadge.checked, "JCR 分区指标显示已同步");
   configCiteBadge.onchange = () => saveSetting("enable_cite_badge", configCiteBadge.checked, "被引量徽章显示已同步");
-  configPdfBadge.onchange = () => saveSetting("enable_pdf_badge", configPdfBadge.checked, "PDF 直链徽章显示已同步");
 
   // 4. Load academic footprints history
   function loadFootprints() {

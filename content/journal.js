@@ -17,6 +17,75 @@
     toasts.forEach(t => t.setAttribute("data-pp-theme", currentTheme));
   }
 
+  function flattenJsonLd(value, output = []) {
+    if (!value) return output;
+    if (Array.isArray(value)) {
+      value.forEach(item => flattenJsonLd(item, output));
+      return output;
+    }
+    if (typeof value !== "object") return output;
+
+    output.push(value);
+    if (value["@graph"]) flattenJsonLd(value["@graph"], output);
+    return output;
+  }
+
+  function getJsonLdNodes() {
+    const nodes = [];
+    document.querySelectorAll('script[type="application/ld+json"]').forEach(script => {
+      try {
+        flattenJsonLd(JSON.parse(script.textContent || ""), nodes);
+      } catch (_) {}
+    });
+    return nodes;
+  }
+
+  function getJsonLdArticle() {
+    const articleTypes = new Set([
+      "ScholarlyArticle",
+      "MedicalScholarlyArticle",
+      "Report",
+      "Article",
+      "CreativeWork",
+      "TechArticle"
+    ]);
+
+    return getJsonLdNodes().find(node => {
+      const rawType = node["@type"];
+      const types = Array.isArray(rawType) ? rawType : [rawType];
+      return types.some(type => articleTypes.has(String(type || "").replace(/^schema:/i, ""))) &&
+             (node.headline || node.name || node.doi || node.identifier);
+    }) || null;
+  }
+
+  function normalizeJsonLdText(value) {
+    if (!value) return "";
+    if (typeof value === "string") return value.trim();
+    if (typeof value === "object") {
+      return (value.name || value.headline || value.value || value["@value"] || "").trim?.() || "";
+    }
+    return String(value).trim();
+  }
+
+  function extractJsonLdDoi(article) {
+    if (!article) return "";
+    const doiRegex = /\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+\b/i;
+    const candidates = [
+      article.doi,
+      article.identifier,
+      article.sameAs,
+      article.url,
+      article.mainEntityOfPage
+    ];
+
+    for (const candidate of candidates.flat()) {
+      const text = normalizeJsonLdText(candidate);
+      const match = text.match(doiRegex);
+      if (match) return match[0];
+    }
+    return "";
+  }
+
   function hasAcademicMetadata() {
     const path = window.location.pathname.toLowerCase();
     const host = window.location.hostname.toLowerCase();
@@ -39,13 +108,15 @@
     // 2. High-confidence Academic Metadata tags (og:type removed)
     const academicKeys = [
       "citation_title", "citation_doi", "citation_journal_title", "citation_author",
-      "dc.identifier.doi", "prism.doi"
+      "citation_publication_date", "dc.identifier.doi", "dc.identifier", "dc.title",
+      "dc.date", "dc.creator", "prism.doi", "prism.publicationName", "prism.coverDate",
+      "bepress_citation_doi", "eprints.title", "wkhealth_title"
     ];
     const hasMetaTags = academicKeys.some(key => {
       const el = document.querySelector(`meta[name="${key}"], meta[property="${key}"]`);
       return el && el.content && el.content.trim().length > 0;
     });
-    if (hasMetaTags) return true;
+    if (hasMetaTags || getJsonLdArticle()) return true;
 
     // 3. Fallback: known academic publisher domain AND specific article indicators
     const academicDomains = [
@@ -55,7 +126,14 @@
       "plos.org", "journals.plos.org", "mdpi.com", "frontiersin.org", "tandfonline.com",
       "sagepub.com", "oup.com", "academic.oup.com", "cambridge.org", "rsc.org",
       "aps.org", "journals.aps.org", "pnas.org", "jbc.org", "aip.org",
-      "biomedcentral.com", "ncbi.nlm.nih.gov"
+      "pubs.aip.org", "iopscience.iop.org", "optica.org", "spiedigitallibrary.org",
+      "royalsocietypublishing.org", "annualreviews.org", "nejm.org", "jamanetwork.com",
+      "bmj.com", "lww.com", "karger.com", "hindawi.com", "degruyter.com", "emerald.com",
+      "dl.acm.org", "asa.scitation.org", "scitation.org", "jstage.jst.go.jp", "copernicus.org",
+      "egusphere.copernicus.org", "agu.org", "physiology.org", "ahajournals.org",
+      "asm.org", "aacrjournals.org", "psychiatryonline.org", "thieme-connect.de",
+      "ametsoc.org", "worldscientific.com", "jto.org", "jci.org", "jps.jp",
+      "biomedcentral.com", "ncbi.nlm.nih.gov", "pubmed.ncbi.nlm.nih.gov"
     ];
 
     const isAcademicHost = academicDomains.some(domain => host.includes(domain));
@@ -158,7 +236,6 @@
       }
       const shouldRedraw = changes.enable_metacard ||
                            changes.enable_metrics_display ||
-                           changes.enable_bibtex_btn ||
                            changes.enable_copy_doi_btn ||
                            changes.enable_scholar_copy_doi_btn ||
                            changes.enable_journal_copy_doi_btn ||
@@ -186,6 +263,7 @@
 
   // Dublin Core & Highwire standard academic metadata extraction
   function extractPageMetadata() {
+    const jsonLdArticle = getJsonLdArticle();
     const getMeta = (names) => {
       for (let name of names) {
         const el = document.querySelector(`meta[name="${name}"], meta[property="${name}"]`);
@@ -195,7 +273,10 @@
     };
 
     // DOI Sniffer
-    let doi = getMeta(["citation_doi", "dc.identifier", "prism.doi", "doi", "dc.identifier.doi"]);
+    let doi = getMeta([
+      "citation_doi", "dc.identifier", "prism.doi", "doi", "dc.identifier.doi",
+      "bepress_citation_doi", "eprints.id_number"
+    ]) || extractJsonLdDoi(jsonLdArticle);
     if (!doi) {
       // Fallback: search page body / url for standard DOI format
       const doiRegex = /\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+\b/i;
@@ -216,22 +297,33 @@
     }
 
     // Title Sniffer
-    let title = getMeta(["citation_title", "dc.title", "prism.title", "og:title", "twitter:title"]);
+    let title = getMeta([
+      "citation_title", "dc.title", "prism.title", "og:title", "twitter:title",
+      "bepress_citation_title", "eprints.title", "wkhealth_title"
+    ]) || normalizeJsonLdText(jsonLdArticle?.headline || jsonLdArticle?.name);
     if (!title) {
-      title = document.title.split(" - ")[0].split(" | ")[0].split(" - Nature")[0].trim();
+      const titleEl = document.querySelector("h1, [data-test='article-title'], [data-testid='article-title'], .article-title, .c-article-title, .publicationContentTitle");
+      title = (titleEl?.textContent || document.title).split(" - ")[0].split(" | ")[0].split(" - Nature")[0].trim();
     }
 
     // Abstract Sniffer
-    let abstract = getMeta(["citation_abstract", "dc.description", "description", "og:description"]);
+    let abstract = getMeta([
+      "citation_abstract", "dc.description", "description", "og:description",
+      "twitter:description", "bepress_citation_abstract", "eprints.abstract"
+    ]) || normalizeJsonLdText(jsonLdArticle?.abstract || jsonLdArticle?.description);
     if (!abstract || abstract.length < 50) {
-      const abstractEl = document.querySelector(".abstract, [class*='abstract'], #abstract, article.abstract, .abstract-content");
+      const abstractEl = document.querySelector(".abstract, [class*='abstract'], #abstract, article.abstract, .abstract-content, #abstract-content, [data-test='abstract'], [data-testid='abstract']");
       if (abstractEl) {
         abstract = abstractEl.innerText.replace(/abstract/i, "").trim();
       }
     }
 
     // Journal Venue name
-    let journal = getMeta(["citation_journal_title", "prism.publicationName", "citation_publisher", "og:site_name"]);
+    let journal = getMeta([
+      "citation_journal_title", "citation_conference_title", "prism.publicationName",
+      "citation_publisher", "dc.source", "og:site_name", "bepress_citation_journal_title",
+      "eprints.publication"
+    ]) || normalizeJsonLdText(jsonLdArticle?.isPartOf || jsonLdArticle?.publisher);
     if (!journal) {
       const host = window.location.hostname.toLowerCase();
       if (host.includes("nature.com")) journal = "Nature";
@@ -253,15 +345,22 @@
     });
 
     if (authors.length === 0) {
-      const authorsMeta = getMeta(["citation_authors"]);
+      const authorsMeta = getMeta(["citation_authors", "dc.creator", "bepress_citation_author", "eprints.creators_name"]);
       if (authorsMeta) {
         authors = authorsMeta.split(/[,;]/).map(a => a.trim());
       }
     }
+    if (authors.length === 0 && jsonLdArticle?.author) {
+      const jsonAuthors = Array.isArray(jsonLdArticle.author) ? jsonLdArticle.author : [jsonLdArticle.author];
+      authors = jsonAuthors.map(normalizeJsonLdText).filter(Boolean);
+    }
 
     // Year
     let year = new Date().getFullYear();
-    const dateStr = getMeta(["citation_publication_date", "citation_date", "prism.coverDate", "dc.date"]);
+    const dateStr = getMeta([
+      "citation_publication_date", "citation_date", "prism.coverDate", "dc.date",
+      "article:published_time", "date", "bepress_citation_publication_date", "eprints.date"
+    ]) || normalizeJsonLdText(jsonLdArticle?.datePublished || jsonLdArticle?.dateCreated);
     if (dateStr) {
       const yrMatch = dateStr.match(/\b(19|20)\d{2}\b/);
       if (yrMatch) year = parseInt(yrMatch[0]);
@@ -349,6 +448,24 @@
       }
     }
 
+    // ACS / RSC / Wiley / Taylor / SAGE often expose PDF paths that keep the DOI suffix.
+    if (href.includes("/doi/pdf/") || href.includes("/doi/epdf/") || href.includes("/doi/full/") || href.includes("/doi/abs/")) {
+      return url
+        .replace(/\/doi\/pdf\//i, "/doi/")
+        .replace(/\/doi\/epdf\//i, "/doi/")
+        .replace(/\/doi\/full\//i, "/doi/")
+        .replace(/\/doi\/abs\//i, "/doi/")
+        .replace(/\.pdf([?#].*)?$/i, "$1");
+    }
+
+    // PNAS / Science / BMJ style PDF endpoints often map back to the same path without .full.pdf/.pdf.
+    if (href.includes(".full.pdf")) {
+      return url.replace(/\.full\.pdf([?#].*)?$/i, "$1");
+    }
+    if (href.endsWith(".pdf") || href.includes(".pdf?")) {
+      return url.replace(/\.pdf([?#].*)?$/i, "$1");
+    }
+
     // Rule 6: Embedded DOI in URL path
     const doiRegex = /\b10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+\b/i;
     const urlDoi = url.match(doiRegex);
@@ -370,7 +487,6 @@
     chrome.storage.local.get([
       "enable_metacard",
       "enable_metrics_display",
-      "enable_bibtex_btn",
       "enable_copy_doi_btn",
       "enable_journal_copy_doi_btn",
       "pdf_landing_cache",
@@ -400,7 +516,6 @@
       const isNi = checkNatureIndexMatch(paperMeta.journal);
 
       const enable_metrics_display = config.enable_metrics_display !== false;
-      const enable_bibtex_btn = config.enable_bibtex_btn !== false;
       const enable_pdf_download_btn = config.enable_pdf_download_btn !== false;
       const enable_ai_summary_btn = config.enable_ai_summary_btn !== false;
 
@@ -580,18 +695,6 @@
               </button>
             ` : ''}
             
-            ${enable_bibtex_btn ? `
-            <button class="pp-jc-action-btn" id="pp-jc-btn-clean-bib">
-              ${window.PP_ICONS.cite} BibTeX 清洗复制
-            </button>
-            ` : ''}
-            
-            ${enable_journal_copy_doi_btn ? `
-            <button class="pp-jc-action-btn" id="pp-jc-btn-scihub-search">
-              ${window.PP_ICONS.copy} 复制 DOI
-            </button>
-            ` : ''}
-            
             ${enable_ai_summary_btn ? `
             <!-- AI Summarize -->
             <button class="pp-jc-action-btn pp-jc-action-btn-ai" id="pp-jc-btn-ai-sum">
@@ -622,8 +725,6 @@
     const copyDoiBtn = cardEl.querySelector("#pp-jc-btn-copy-doi");
     const downloadBtn = cardEl.querySelector("#pp-jc-btn-download");
     const scihubJumpBtn = cardEl.querySelector("#pp-jc-btn-scihub-jump");
-    const scihubSearchBtn = cardEl.querySelector("#pp-jc-btn-scihub-search");
-    const bibBtn = cardEl.querySelector("#pp-jc-btn-clean-bib");
     const aiBtn = cardEl.querySelector("#pp-jc-btn-ai-sum");
     const helpBtn = cardEl.querySelector("#pp-jc-btn-help");
     const openLandingBtn = cardEl.querySelector("#pp-jc-btn-open-landing");
@@ -701,17 +802,21 @@
           // Clean characters invalid in filename
           const cleanName = name.replace(/[\/\\:*?"<>|]/g, "_").substring(0, 100) + ".pdf";
           
-          // Trigger file download via a standard browser download link
           showToast("正在请求下载并自动批量规范重命名...");
-          const link = document.createElement("a");
-          link.href = paperMeta.pdfUrl;
-          link.download = cleanName;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-
-          // Add to footprints database as downloaded
-          logFootprint("downloaded");
+          chrome.runtime.sendMessage({
+            action: "DOWNLOAD_PDF",
+            url: paperMeta.pdfUrl,
+            filename: cleanName
+          }, (response) => {
+            if (response && response.success) {
+              const savedPath = response.filename ? `：${response.filename}` : "";
+              showToast(`PDF 下载任务已创建${savedPath}`);
+              logFootprint("downloaded");
+            } else {
+              const error = response && response.error ? response.error : "未知错误";
+              showToast(`PDF 下载失败：${error}`);
+            }
+          });
         });
       };
     }
@@ -762,31 +867,6 @@
     };
 
     if (scihubJumpBtn) scihubJumpBtn.onclick = () => handleCopyDoi(scihubJumpBtn);
-    if (scihubSearchBtn) scihubSearchBtn.onclick = () => handleCopyDoi(scihubSearchBtn);
-
-    // BibTeX clean generator (highly elegant and strict AuthorYearTitle key names)
-    if (bibBtn) {
-      bibBtn.onclick = () => {
-        const firstAuthorSurname = paperMeta.authors.length > 0 ? 
-          paperMeta.authors[0].split(/\s+/).pop().replace(/[^a-zA-Z]/g, "") : "Unknown";
-        const firstWordOfTitle = paperMeta.title.split(/\s+/)[0].replace(/[^a-zA-Z]/g, "");
-        const cleanKey = `${firstAuthorSurname}${paperMeta.year}${firstWordOfTitle}`;
-
-        // Build clean BibTeX
-        const bibText = `@article{${cleanKey},\n` +
-          `  title={${paperMeta.title}},\n` +
-          `  author={${paperMeta.authors.join(" and ")}},\n` +
-          `  journal={${paperMeta.journal}},\n` +
-          `  year={${paperMeta.year}},\n` +
-          `  doi={${paperMeta.doi}}\n` +
-          `}`;
-
-        navigator.clipboard.writeText(bibText).then(() => {
-          showToast("BibTeX 已清洗，作者、标题首词已自动规范拼写并复制！");
-          logFootprint("copied_bibtex");
-        });
-      };
-    }
 
     // Client-side AI summarize
     if (aiBtn) {

@@ -48,8 +48,7 @@
     "enable_if_badge",
     "enable_cas_badge",
     "enable_jcr_badge",
-    "enable_cite_badge",
-    "enable_pdf_badge"
+    "enable_cite_badge"
   ];
 
   let maxCites = 100;
@@ -66,6 +65,7 @@
     toolbarObserver: null,
     toolbarObserverAttached: false,
     toolbarObserverTarget: null,
+    toolbarWatchdog: null,
     isInternalUpdating: false,
     refreshTimer: null,
     saveTimer: null,
@@ -110,20 +110,32 @@
   }
 
   function isScholarPage() {
-    return !!(
+    const host = location.hostname.toLowerCase();
+    const path = location.pathname.toLowerCase();
+    const scholarLikeHost = [
+      "scholar", "xueshu", "x-mol", "lanfanshu", "cljtscd", "panda985"
+    ].some(keyword => host.includes(keyword));
+    const hasScholarDom = !!(
       document.getElementById("gs_top") ||
       document.getElementById("gs_hdr") ||
       document.getElementById("gs_res_ccl") ||
+      document.getElementById("gs_res_ccl_mid") ||
       document.querySelector(".gs_rt") ||
-      location.hostname.includes("scholar")
+      document.querySelector(".gs_r.gs_or") ||
+      document.querySelector("a[href*='/scholar?cites='], a[href*='cites=']")
     );
+
+    return hasScholarDom || (scholarLikeHost && (path.includes("scholar") || path.includes("xueshu") || document.querySelector(".gs_r, .gs_rt")));
   }
 
   // =========================================================
   // DOM Fetch Helpers
   // =========================================================
   function getResultsContainer() {
-    return document.getElementById("gs_res_ccl_mid") || document.getElementById("gs_res_ccl");
+    return document.getElementById("gs_res_ccl_mid") ||
+           document.getElementById("gs_res_ccl") ||
+           document.querySelector(".gs_r.gs_or.gs_scl")?.parentElement ||
+           document.querySelector(".gs_rt")?.closest(".gs_r")?.parentElement;
   }
 
   function getSidebar() {
@@ -134,14 +146,17 @@
   }
 
   function getToolbar() {
-    return document.querySelector('#gs_ab_md')
-        || document.querySelector('#gs_ab')
-        || document.querySelector('#gs_bdy');
+    return document.querySelector('#gs_ab_md') ||
+           document.querySelector('#gs_ab .gs_ab_mdw')?.parentElement ||
+           document.querySelector('#gs_ab') ||
+           document.querySelector('.gs_ab_mdw')?.parentElement ||
+           null;
   }
 
-  function getToolbarHost() {
-    return getToolbar()
-        || (getResultsContainer() && getResultsContainer().parentElement);
+  function getToolbarMountNode() {
+    const toolbar = getToolbar();
+    if (!toolbar) return null;
+    return toolbar.querySelector('.gs_ab_mdw') || toolbar;
   }
 
   function isResultArticle(el) {
@@ -311,8 +326,7 @@
         enable_if_badge: settings.enable_if_badge !== false,
         enable_cas_badge: settings.enable_cas_badge !== false,
         enable_jcr_badge: settings.enable_jcr_badge !== false,
-        enable_cite_badge: settings.enable_cite_badge !== false,
-        enable_pdf_badge: settings.enable_pdf_badge !== false
+        enable_cite_badge: settings.enable_cite_badge !== false
       };
       currentTheme = state.settings.appearance_mode;
       updateAllThemes();
@@ -358,8 +372,12 @@
       processAllArticles(forcePanel, false);
     } else {
       if (state.settings.enable_sorting_filter) {
-        injectSortingToolbar();
-        renderSourcePanel(false);
+        ensureSortingToolbar();
+        try {
+          renderSourcePanel(false);
+        } catch (e) {
+          console.warn("PaperPilot Pro: source panel render failed", e);
+        }
       }
       applyCurrentSort();
       applyFilters();
@@ -432,9 +450,13 @@
       ensureSourceFilterState();
       
       if (state.settings.enable_sorting_filter) {
-        injectSortingToolbar();
+        ensureSortingToolbar();
         if (!skipPanel) {
-          renderSourcePanel(forcePanel);
+          try {
+            renderSourcePanel(forcePanel);
+          } catch (e) {
+            console.warn("PaperPilot Pro: source panel render failed", e);
+          }
         }
       }
 
@@ -447,7 +469,7 @@
   }
 
   // =========================================================
-  // Non-destructive flexbox sorting
+  // Top toolbar sorting, matching Better Scholar's placement in #gs_ab_md
   // =========================================================
   function updateSortButtonState() {
     const toolbar = document.getElementById("pp-scholar-sorting-toolbar");
@@ -457,67 +479,74 @@
     });
   }
 
-  function injectSortingToolbar(retryCount = 0) {
+  function ensureSortingToolbar(retryCount = 0) {
     if (!state.settings || !state.settings.enable_sorting_filter) return;
 
-    const toolbarContainer = getToolbarHost();
-    if (!toolbarContainer) {
-      if (retryCount < 25) {
-        setTimeout(() => injectSortingToolbar(retryCount + 1), 100);
+    const toolbar = getToolbar();
+    const toolbarMount = getToolbarMountNode();
+    if (!toolbar || !toolbarMount) {
+      if (retryCount < 100) {
+        setTimeout(() => ensureSortingToolbar(retryCount + 1), 100);
       }
       return;
     }
 
-    let toolbar = document.getElementById("pp-scholar-sorting-toolbar");
-    if (!toolbar) {
-      toolbar = document.createElement("div");
-      toolbar.id = "pp-scholar-sorting-toolbar";
-      toolbar.className = "pp-scholar-sort-bar";
-      toolbar.setAttribute("data-pp-theme", currentTheme);
+    let sortBar = document.getElementById("pp-scholar-sorting-toolbar");
+    if (!sortBar) {
+      sortBar = document.createElement("div");
+      sortBar.id = "pp-scholar-sorting-toolbar";
+      sortBar.className = "pp-scholar-sort-bar";
+      sortBar.setAttribute("data-pp-theme", currentTheme);
 
-      toolbar.innerHTML = `
-        <span class="pp-scholar-sort-title">排序检索结果：</span>
-        <button class="pp-scholar-sort-btn" id="pp-sort-default" data-sort="default">默认排序</button>
-        <button class="pp-scholar-sort-btn" id="pp-sort-citations" data-sort="citations">按引用量降序</button>
-        <button class="pp-scholar-sort-btn" id="pp-sort-year" data-sort="year">按发表年份降序</button>
-      `;
+      const buttonConfigs = [
+        { key: 'default', label: '默认排序', id: 'pp-sort-default' },
+        { key: 'citations', label: '按引用量降序', id: 'pp-sort-citations' },
+        { key: 'year', label: '按发表年份降序', id: 'pp-sort-year' }
+      ];
 
-      // Insert before the results container so it sits above the result list
-      const resultsContainer = getResultsContainer();
-      if (resultsContainer && toolbarContainer.contains(resultsContainer)) {
-        toolbarContainer.insertBefore(toolbar, resultsContainer);
-      } else {
-        toolbarContainer.appendChild(toolbar);
-      }
+      buttonConfigs.forEach(cfg => {
+        const button = document.createElement('button');
+        button.className = 'pp-scholar-sort-btn';
+        button.id = cfg.id;
+        button.type = 'button';
+        button.dataset.sort = cfg.key;
+        button.textContent = cfg.label;
 
-      // Click Actions - Standard and robust event listeners matching Better Scholar
-      toolbar.querySelector("#pp-sort-default").addEventListener("click", (e) => {
-        e.preventDefault(); e.stopPropagation();
-        setSortType("default");
+        button.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setSortType(cfg.key);
+        });
+
+        sortBar.appendChild(button);
       });
-      toolbar.querySelector("#pp-sort-citations").addEventListener("click", (e) => {
-        e.preventDefault(); e.stopPropagation();
-        setSortType("citations");
-      });
-      toolbar.querySelector("#pp-sort-year").addEventListener("click", (e) => {
-        e.preventDefault(); e.stopPropagation();
-        setSortType("year");
-      });
+
+      toolbarMount.appendChild(sortBar);
     } else {
-      toolbar.setAttribute("data-pp-theme", currentTheme);
-      // Double check that it's still attached to the container (if Google wiped and recreated the container)
-      if (toolbar.parentNode !== toolbarContainer) {
-        const resultsContainer = getResultsContainer();
-        if (resultsContainer && toolbarContainer.contains(resultsContainer)) {
-          toolbarContainer.insertBefore(toolbar, resultsContainer);
-        } else {
-          toolbarContainer.appendChild(toolbar);
-        }
+      sortBar.setAttribute("data-pp-theme", currentTheme);
+      // Keep the sort bar inside Google Scholar's top metadata toolbar.
+      if (!toolbar.contains(sortBar) || sortBar.parentNode !== toolbarMount) {
+        toolbarMount.appendChild(sortBar);
       }
     }
 
     updateSortButtonState();
-    attachToolbarObserver(); // Always ensure the observer is watching for dynamic updates
+    attachToolbarObserver();
+  }
+
+  function startToolbarWatchdog() {
+    if (state.toolbarWatchdog) return;
+
+    state.toolbarWatchdog = setInterval(() => {
+      if (!isScholarPage() || !state.settings || !state.settings.enable_sorting_filter) return;
+      if (!getResultsContainer()) return;
+
+      const toolbarContainer = getToolbarMountNode();
+      const toolbar = document.getElementById("pp-scholar-sorting-toolbar");
+      if (toolbarContainer && (!toolbar || toolbar.parentNode !== toolbarContainer)) {
+        ensureSortingToolbar();
+      }
+    }, 800);
   }
 
   function setSortType(sortType, silent = false) {
@@ -841,7 +870,7 @@
   }
 
   function attachToolbarObserver() {
-    const abContainer = getToolbarHost();
+    const abContainer = getToolbar();
     if (!abContainer) return;
 
     // Re-target if the current observer target is no longer in the DOM
@@ -857,10 +886,11 @@
       if (state.isInternalUpdating) return;
       if (state.settings && state.settings.enable_sorting_filter) {
         const toolbar = document.getElementById("pp-scholar-sorting-toolbar");
-        const toolbarContainer = getToolbarHost();
+        const toolbarRoot = getToolbar();
+        const toolbarContainer = getToolbarMountNode();
         // If Google Scholar's client-side JS wiped it or it was deleted, restore it immediately
-        if (toolbarContainer && (!toolbar || !toolbarContainer.contains(toolbar))) {
-          injectSortingToolbar();
+        if (toolbarContainer && (!toolbar || !toolbarRoot.contains(toolbar) || toolbar.parentNode !== toolbarContainer)) {
+          ensureSortingToolbar();
         }
       }
     });
@@ -925,7 +955,7 @@
 
     setTimeout(() => {
       if (state.settings && state.settings.enable_sorting_filter) {
-        injectSortingToolbar();
+        ensureSortingToolbar();
       }
       debounceRefresh(true);
     }, 120);
@@ -1270,7 +1300,7 @@
                     jcrBadge.classList.add(newJcrClass);
                   }
 
-                  const refBadge = freshBadgeContainer.querySelector(".pp-scholar-badge-cite, .pp-scholar-badge-oa");
+                  const refBadge = freshBadgeContainer.querySelector(".pp-scholar-badge-cite");
 
                   // 1. CCF Badge
                   if (data.ccf && settings.enable_ccf_badge !== false) {
@@ -1321,13 +1351,6 @@
           badgeContainer.appendChild(citeBadge);
         }
 
-        // Inject Open Access Badge
-        if (pdfUrl && settings.enable_pdf_badge !== false) {
-          const oaBadge = document.createElement("span");
-          oaBadge.className = "pp-scholar-badge pp-scholar-badge-oa";
-          oaBadge.innerText = "PDF直链";
-          badgeContainer.appendChild(oaBadge);
-        }
       } else {
         if (isNatureIndex && settings.enable_ni) {
           card.classList.add("pp-scholar-ni-card");
@@ -1675,10 +1698,11 @@
     loadPersistedState();
 
     fetchSettingsAndRun(() => {
-      const ok = processAllArticles(true, false);
       if (state.settings.enable_sorting_filter) {
-        injectSortingToolbar();
+        ensureSortingToolbar();
+        startToolbarWatchdog();
       }
+      const ok = processAllArticles(true, false);
       attachObserver();
 
       if (!ok) {
@@ -1725,6 +1749,10 @@
       state.lastSourceSignature = '';
 
       fetchSettingsAndRun(() => {
+        if (state.settings.enable_sorting_filter) {
+          ensureSortingToolbar();
+          startToolbarWatchdog();
+        }
         refreshPage(true);
       });
     }

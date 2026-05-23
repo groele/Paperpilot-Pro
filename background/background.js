@@ -8,6 +8,7 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.storage.local.get([
       "auto_redirect",
       "pdf_naming",
+      "pdf_download_dir",
       "ai_provider",
       "ai_api_key",
       "ai_prompt",
@@ -41,6 +42,7 @@ chrome.runtime.onInstalled.addListener(() => {
       const defaults = {
         auto_redirect: false,
         pdf_naming: "1", // "[{Journal}] {Author} - {Title}"
+        pdf_download_dir: "PaperPilot Pro",
         ai_provider: "gemini",
         ai_api_key: "",
         ai_prompt: "请用中文以3行精简要点总结以下学术论文摘要，以TL;DR形式呈现：",
@@ -138,7 +140,63 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true;
   }
+
+  if (message.action === "DOWNLOAD_PDF") {
+    downloadPdf(message.url, message.filename)
+      .then(result => sendResponse(result))
+      .catch(err => {
+        console.error("PDF download failed:", err);
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
 });
+
+function sanitizeDownloadSegment(segment) {
+  return String(segment || "")
+    .replace(/[<>:"\\|?*\x00-\x1F]/g, "_")
+    .replace(/\.+$/g, "")
+    .trim();
+}
+
+function buildDownloadFilename(downloadDir, filename) {
+  const cleanFile = sanitizeDownloadSegment(filename || "paper.pdf").substring(0, 150) || "paper.pdf";
+  const cleanDir = String(downloadDir || "")
+    .split(/[\\/]+/)
+    .map(sanitizeDownloadSegment)
+    .filter(Boolean)
+    .filter(part => part !== "." && part !== "..")
+    .join("/");
+
+  return cleanDir ? `${cleanDir}/${cleanFile}` : cleanFile;
+}
+
+function downloadPdf(url, filename) {
+  return new Promise((resolve) => {
+    if (!url) {
+      resolve({ success: false, error: "Missing PDF URL" });
+      return;
+    }
+
+    chrome.storage.local.get("pdf_download_dir", (config) => {
+      const finalFilename = buildDownloadFilename(config.pdf_download_dir, filename);
+
+      chrome.downloads.download({
+        url,
+        filename: finalFilename,
+        conflictAction: "uniquify",
+        saveAs: false
+      }, (downloadId) => {
+        if (chrome.runtime.lastError) {
+          resolve({ success: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+
+        resolve({ success: true, downloadId, filename: finalFilename });
+      });
+    });
+  });
+}
 
 /**
  * Sniffs and verifies if a URL points to a valid PDF.
