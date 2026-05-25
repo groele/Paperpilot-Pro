@@ -322,15 +322,23 @@ async function fetchPaperMetadata(doi, title, clientJournal) {
   const settings = await chrome.storage.local.get("easyscholar_key");
   const secretKey = (settings.easyscholar_key || "").trim();
 
-  // Check cache first
+  // Check cache first (incorporating 7-day Cache Expiration & Eviction mechanism)
+  const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7-day TTL
   const storage = await chrome.storage.local.get("pdf_cache");
   const cache = storage.pdf_cache || {};
   if (cache[cacheKey]) {
     const cachedData = cache[cacheKey];
-    // If a key is configured, but the cache has estimated values (isEstimated is not false),
-    // ignore cache hit to trigger a fresh easyScholar query!
-    if (!secretKey || cachedData.isEstimated === false) {
-      return { success: true, fromCache: true, data: cachedData };
+    const cachedAt = cachedData.cachedAt || 0;
+    const isExpired = Date.now() - cachedAt > CACHE_TTL_MS;
+
+    if (!isExpired) {
+      // If a key is configured, but the cache has estimated values (isEstimated is not false),
+      // ignore cache hit to trigger a fresh easyScholar query!
+      if (!secretKey || cachedData.isEstimated === false) {
+        return { success: true, fromCache: true, data: cachedData };
+      }
+    } else {
+      console.log("PaperPilot Pro: Metadata cache expired or legacy for key:", cacheKey);
     }
   }
 
@@ -521,7 +529,8 @@ async function fetchPaperMetadata(doi, title, clientJournal) {
     }
   }
 
-  // Cache final metadata
+  // Cache final metadata with timestamp for expiration eviction
+  metadata.cachedAt = Date.now();
   cache[cacheKey] = metadata;
   await chrome.storage.local.set({ pdf_cache: cache });
 
