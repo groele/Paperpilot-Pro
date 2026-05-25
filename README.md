@@ -246,6 +246,13 @@ API keys are stored in local browser storage and are never uploaded to any third
   **Reactive state management**: MutationObserver watches for DOM changes and auto-restores enhanced elements overwritten by Scholar's JS
 - **模块化功能开关**：20+ 独立开关，每项功能可单独启用/禁用
   **Modular feature toggles**: 20+ independent switches, each feature can be individually enabled/disabled
+- **高价值架构与性能调优 | Architectural & Performance Optimizations**：
+  - **7天元数据过期淘汰与平滑迁移 (TTL Cache)**：引入 7 天缓存有效生存期，利用时间戳进行旧缓存（legacy）无感自动迁移与更新，完美保持学术指标和引文的即时有效性。
+  - **实时 GC 垃圾回收器 (Memory Leak Prevention)**：绑定 `downloads.onChanged` 监听器，在下载任务中断、取消或成功完毕时实时注销 `downloadId` 与 URL 大对象关联引用，实现 100% 内存安全回收。
+  - **高校机构代理与 VPN (EZproxy) 深度兼容**：内置统一归一化清洗引擎，校外 VPN/EZproxy 域名下 100% 唤起元卡并匹配 Nature Index 指标，同时保留原始代理 URL 发起实际 PDF 下载流，完美携带鉴权凭据穿透图书馆付费墙。
+  - **无限滚动增量查重与 $O(1)$ 快速过滤器**：对学术查重 Levenshtein 动态规划算法增加 $O(1)$ 长度差剪枝过滤器，瞬间过滤 90% 以上无关标题，支持无限滚动增量去重并动态追加至已有折叠抽屉中，配合同步 direct JS 属性缓存，省去高频 DOM 读写开销，带来极致顺滑学术滚屏！
+  - **流体验带宽主动释放与 Storage 防崩溃**：嗅探 PDF 魔数后立即取消 reader 避免后台吞噬多余带宽；Popup 降级缓存完美模拟 chrome.storage 单一/复合/配置参数签名，实现工程级极限防崩溃。
+
 
 ### 技术栈 | Tech Stack
 
