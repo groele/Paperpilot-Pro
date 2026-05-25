@@ -7,9 +7,12 @@
 chrome.runtime.onInstalled.addListener(() => {
     chrome.storage.local.get([
       "auto_redirect",
+      "pdf_download_save_as",
       "pdf_naming",
       "pdf_download_dir",
       "ai_provider",
+      "ai_model",
+      "ai_base_url",
       "ai_api_key",
       "ai_prompt",
       "history",
@@ -37,13 +40,17 @@ chrome.runtime.onInstalled.addListener(() => {
       "enable_cas_badge",
       "enable_jcr_badge",
       "enable_cite_badge",
-      "enable_pdf_badge"
+      "enable_pdf_badge",
+      "metacard_pinned"
     ], (result) => {
       const defaults = {
         auto_redirect: false,
+        pdf_download_save_as: false,
         pdf_naming: "1", // "[{Journal}] {Author} - {Title}"
         pdf_download_dir: "PaperPilot Pro",
-        ai_provider: "gemini",
+        ai_provider: "openai",
+        ai_model: "gpt-4o-mini",
+        ai_base_url: "https://api.openai.com/v1",
         ai_api_key: "",
         ai_prompt: "请用中文以3行精简要点总结以下学术论文摘要，以TL;DR形式呈现：",
         history: [],
@@ -71,7 +78,8 @@ chrome.runtime.onInstalled.addListener(() => {
         enable_cas_badge: true,
         enable_jcr_badge: true,
         enable_cite_badge: true,
-        enable_pdf_badge: true
+        enable_pdf_badge: true,
+        metacard_pinned: false
       };
 
     const updates = {};
@@ -131,6 +139,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === "TEST_AI_CONNECTION") {
+    testAIConnection()
+      .then(result => sendResponse(result))
+      .catch(err => {
+        console.error("AI connection test failed:", err);
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
   if (message.action === "FETCH_EASYSCHOLAR") {
     fetchEasyScholarForScholar(message.journal)
       .then(result => sendResponse(result))
@@ -171,6 +189,27 @@ function buildDownloadFilename(downloadDir, filename) {
   return cleanDir ? `${cleanDir}/${cleanFile}` : cleanFile;
 }
 
+// Active download trackers to match dynamic PDF downloads for forced renaming
+const activeDownloads = new Map(); // downloadId -> { finalFilename, saveAs }
+const activeDownloadsByUrl = new Map(); // url -> { finalFilename, saveAs }
+
+// Intercept filename determination to override server-side Content-Disposition headers (e.g. Wiley, Springer)
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  const custom = activeDownloads.get(item.id) || activeDownloadsByUrl.get(item.url) || activeDownloadsByUrl.get(item.finalUrl);
+  if (custom) {
+    suggest({
+      filename: custom.finalFilename,
+      conflictAction: "uniquify"
+    });
+    // Clean up
+    activeDownloads.delete(item.id);
+    activeDownloadsByUrl.delete(item.url);
+    if (item.finalUrl) activeDownloadsByUrl.delete(item.finalUrl);
+  } else {
+    suggest();
+  }
+});
+
 function downloadPdf(url, filename) {
   return new Promise((resolve) => {
     if (!url) {
@@ -178,20 +217,28 @@ function downloadPdf(url, filename) {
       return;
     }
 
-    chrome.storage.local.get("pdf_download_dir", (config) => {
-      const finalFilename = buildDownloadFilename(config.pdf_download_dir, filename);
+    chrome.storage.local.get(["pdf_download_dir", "pdf_download_save_as"], (config) => {
+      const saveAs = config.pdf_download_save_as === true;
+      const finalFilename = saveAs ? (filename || "paper.pdf") : buildDownloadFilename(config.pdf_download_dir, filename);
+
+      const downloadItem = { finalFilename, saveAs };
+      // Map by URL to handle early onDeterminingFilename fire before downloadId callback runs
+      activeDownloadsByUrl.set(url, downloadItem);
 
       chrome.downloads.download({
         url,
         filename: finalFilename,
         conflictAction: "uniquify",
-        saveAs: false
+        saveAs: saveAs
       }, (downloadId) => {
         if (chrome.runtime.lastError) {
+          activeDownloadsByUrl.delete(url);
           resolve({ success: false, error: chrome.runtime.lastError.message });
           return;
         }
 
+        // Map by download ID as highly reliable fallback
+        activeDownloads.set(downloadId, downloadItem);
         resolve({ success: true, downloadId, filename: finalFilename });
       });
     });
@@ -529,14 +576,183 @@ async function addFootprint(footprint) {
  * Interfaces optional AI API keys for a high-quality summary.
  * Fallback to local offline dynamic mock generator if API key is not configured.
  */
+const AI_PROVIDER_DEFAULTS = {
+  openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
+  gemini: { model: "gemini-1.5-flash", baseUrl: "https://generativelanguage.googleapis.com/v1beta" },
+  deepseek: { model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1" },
+  anthropic: { model: "claude-3-5-haiku-latest", baseUrl: "https://api.anthropic.com/v1" },
+  openrouter: { model: "openai/gpt-4o-mini", baseUrl: "https://openrouter.ai/api/v1" },
+  ollama: { model: "llama3.1", baseUrl: "http://127.0.0.1:11434" },
+  custom: { model: "", baseUrl: "" }
+};
+
+function getAiDefaults(provider) {
+  return AI_PROVIDER_DEFAULTS[provider] || AI_PROVIDER_DEFAULTS.openai;
+}
+
+function normalizeBaseUrl(baseUrl, fallback) {
+  return String(baseUrl || fallback || "").trim().replace(/\/+$/, "");
+}
+
+function providerNeedsApiKey(provider) {
+  return !["ollama", "custom"].includes(provider);
+}
+
+async function loadAiConfig() {
+  const config = await chrome.storage.local.get([
+    "ai_provider",
+    "ai_model",
+    "ai_base_url",
+    "ai_api_key",
+    "ai_prompt"
+  ]);
+  const provider = config.ai_provider || "openai";
+  const defaults = getAiDefaults(provider);
+  return {
+    provider,
+    model: (config.ai_model || defaults.model || "").trim(),
+    baseUrl: normalizeBaseUrl(config.ai_base_url, defaults.baseUrl),
+    apiKey: (config.ai_api_key || "").trim(),
+    prompt: config.ai_prompt || "Please summarize this abstract in 3 sentences:"
+  };
+}
+
+function buildAcademicMessages(prompt, title, abstract, testOnly = false) {
+  if (testOnly) {
+    return [
+      { role: "system", content: "You are a concise academic assistant." },
+      { role: "user", content: "Connection test. Reply with OK." }
+    ];
+  }
+  return [
+    { role: "system", content: "You are a helpful academic assistant. Be concise and do not invent paper details." },
+    { role: "user", content: `${prompt}\n\nTitle: ${title || ""}\nAbstract: ${abstract || ""}` }
+  ];
+}
+
+async function fetchJsonWithTimeout(endpoint, options, timeoutMs = 25000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(endpoint, { ...options, signal: controller.signal });
+    let body = null;
+    try {
+      body = await response.json();
+    } catch (_) {}
+    if (!response.ok) {
+      const details = body?.error?.message || body?.message || `HTTP ${response.status}`;
+      throw new Error(details);
+    }
+    return body;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function extractCompatibleChatText(data) {
+  return data?.choices?.[0]?.message?.content ||
+         data?.choices?.[0]?.text ||
+         data?.output_text ||
+         "";
+}
+
+async function callAIProvider({ provider, model, baseUrl, apiKey, prompt, title, abstract, testOnly = false }) {
+  if (!model) {
+    throw new Error("AI model is empty");
+  }
+  if (providerNeedsApiKey(provider) && !apiKey) {
+    throw new Error("Missing API key for selected provider");
+  }
+
+  const messages = buildAcademicMessages(prompt, title, abstract, testOnly);
+  const userText = messages.map(item => `${item.role}: ${item.content}`).join("\n");
+
+  if (provider === "gemini") {
+    const endpoint = `${normalizeBaseUrl(baseUrl, getAiDefaults(provider).baseUrl)}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const data = await fetchJsonWithTimeout(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: userText }] }],
+        generationConfig: { temperature: testOnly ? 0 : 0.4, maxOutputTokens: testOnly ? 16 : 700 }
+      })
+    });
+    return data?.candidates?.[0]?.content?.parts?.map(part => part.text || "").join("").trim() || "";
+  }
+
+  if (provider === "anthropic") {
+    const endpoint = `${normalizeBaseUrl(baseUrl, getAiDefaults(provider).baseUrl)}/messages`;
+    const data = await fetchJsonWithTimeout(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: testOnly ? 16 : 700,
+        temperature: testOnly ? 0 : 0.4,
+        system: messages[0].content,
+        messages: [{ role: "user", content: messages[1].content }]
+      })
+    });
+    return data?.content?.map(item => item.text || "").join("").trim() || "";
+  }
+
+  if (provider === "ollama") {
+    const endpoint = `${normalizeBaseUrl(baseUrl, getAiDefaults(provider).baseUrl)}/api/chat`;
+    const data = await fetchJsonWithTimeout(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: false,
+        options: { temperature: testOnly ? 0 : 0.4 }
+      })
+    }, 30000);
+    return data?.message?.content?.trim() || "";
+  }
+
+  const defaultBase = getAiDefaults(provider).baseUrl;
+  const endpoint = `${normalizeBaseUrl(baseUrl, defaultBase)}/chat/completions`;
+  const headers = { "Content-Type": "application/json" };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const data = await fetchJsonWithTimeout(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: testOnly ? 0 : 0.4,
+      max_tokens: testOnly ? 16 : 700
+    })
+  });
+  return extractCompatibleChatText(data).trim();
+}
+
+async function testAIConnection() {
+  const config = await loadAiConfig();
+  const text = await callAIProvider({
+    ...config,
+    title: "Connection test",
+    abstract: "Return OK if the API request is valid.",
+    testOnly: true
+  });
+  return {
+    success: true,
+    provider: config.provider,
+    model: config.model,
+    sample: text || "OK"
+  };
+}
+
 async function callAISummarize(abstract, title) {
-  const config = await chrome.storage.local.get(["ai_provider", "ai_api_key", "ai_prompt"]);
-  const apiKey = config.ai_api_key;
-  const provider = config.ai_provider;
-  const prompt = config.ai_prompt || "Please summarize this abstract in 3 sentences:";
+  const config = await loadAiConfig();
 
   // If no API key, return a highly accurate heuristic client-side mock summary to wow the user immediately.
-  if (!apiKey) {
+  if (providerNeedsApiKey(config.provider) && !config.apiKey) {
     return new Promise((resolve) => {
       setTimeout(() => {
         // Extract core phrases or simulate reading the abstract.
@@ -548,62 +764,12 @@ async function callAISummarize(abstract, title) {
   }
 
   try {
-    let apiEndpoint = "";
-    let requestHeaders = { "Content-Type": "application/json" };
-    let requestBody = {};
-
-    if (provider === "gemini") {
-      apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
-      requestBody = {
-        contents: [{
-          parts: [{
-            text: `${prompt}\n\nTitle: ${title}\nAbstract: ${abstract}`
-          }]
-        }]
-      };
-    } else if (provider === "openai") {
-      apiEndpoint = "https://api.openai.com/v1/chat/completions";
-      requestHeaders["Authorization"] = `Bearer ${apiKey}`;
-      requestBody = {
-        model: "gpt-3.5-turbo",
-        messages: [
-          { role: "system", content: "You are a helpful academic assistant." },
-          { role: "user", content: `${prompt}\n\nTitle: ${title}\nAbstract: ${abstract}` }
-        ],
-        temperature: 0.5
-      };
-    } else if (provider === "deepseek") {
-      apiEndpoint = "https://api.deepseek.com/v1/chat/completions";
-      requestHeaders["Authorization"] = `Bearer ${apiKey}`;
-      requestBody = {
-        model: "deepseek-chat",
-        messages: [
-          { role: "system", content: "You are a helpful academic assistant." },
-          { role: "user", content: `${prompt}\n\nTitle: ${title}\nAbstract: ${abstract}` }
-        ]
-      };
-    }
-
-    const response = await fetch(apiEndpoint, {
-      method: "POST",
-      headers: requestHeaders,
-      body: JSON.stringify(requestBody)
+    const summaryText = await callAIProvider({
+      ...config,
+      title,
+      abstract
     });
-
-    if (!response.ok) {
-      throw new Error(`API returned HTTP ${response.status}`);
-    }
-
-    const resData = await response.json();
-    let summaryText = "";
-
-    if (provider === "gemini") {
-      summaryText = resData.candidates[0].content.parts[0].text;
-    } else if (provider === "openai" || provider === "deepseek") {
-      summaryText = resData.choices[0].message.content;
-    }
-
-    return { success: true, summary: summaryText, provider };
+    return { success: true, summary: summaryText, provider: config.provider };
   } catch (err) {
     console.error("AI API call failed, falling back to local heuristic summary:", err);
     const fallbackSummary = generateContextualMockSummary(title, abstract);

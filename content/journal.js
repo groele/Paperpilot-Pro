@@ -261,6 +261,78 @@
     });
   }
 
+  // Local DOM PDF Link Sniffer for both OA and Institutional Paid Databases
+  function sniffLocalPdfUrl() {
+    // 1. Search for metadata tags that standard journals use to expose PDF links to Google Scholar
+    const metaSelectors = [
+      "meta[name='citation_pdf_url']",
+      "meta[property='citation_pdf_url']",
+      "meta[name='eprints.document_url']",
+      "meta[name='prism.pdf']"
+    ];
+    for (let sel of metaSelectors) {
+      const el = document.querySelector(sel);
+      if (el && el.content) {
+        try {
+          return new URL(el.content, window.location.href).href;
+        } catch(e) {
+          return el.content;
+        }
+      }
+    }
+
+    // 2. Search for common academic publisher specific selectors
+    const linkSelectors = [
+      "a.pdf-download-btn",
+      "a.c-pdf__button",
+      "a.wd-jnl-art-pdf",
+      "a.al-link.pdf",
+      "a.download-pdf",
+      ".pdf-link a",
+      "a[download][href*='pdf']",
+      "a[href*='/article-pdf/']",
+      "a[href*='/pdffile/']",
+      "a[href*='/pdfft']",
+      "a[data-track-action='download pdf']",
+      "a[data-track-action='Pdf download']",
+      "a[data-track-action='PDF download']",
+      "a[title*='PDF' i]",
+      "a.c-article-pdf-preview",
+      "a[href$='.pdf']",
+      "a[href*='.pdf?']"
+    ];
+    for (let sel of linkSelectors) {
+      const el = document.querySelector(sel);
+      if (el && el.href) {
+        try {
+          return new URL(el.href, window.location.href).href;
+        } catch(e) {
+          return el.href;
+        }
+      }
+    }
+
+    // 3. Fallback generic scanner (scan all anchor tags)
+    const allLinks = document.querySelectorAll("a[href]");
+    for (let link of allLinks) {
+      const href = link.href.toLowerCase();
+      const text = link.innerText.toLowerCase().trim();
+      
+      const hasPdfInHref = href.includes("/pdf/") || href.includes("pdf=true") || href.includes("/download/pdf") || href.endsWith(".pdf") || href.includes(".pdf?");
+      const hasPdfInText = text === "pdf" || text === "download pdf" || text === "open pdf" || text === "pdf full text" || text.includes("下载pdf");
+      
+      if (hasPdfInHref || (hasPdfInText && href.length > 0)) {
+        try {
+          return new URL(link.href, window.location.href).href;
+        } catch(e) {
+          return link.href;
+        }
+      }
+    }
+
+    return "";
+  }
+
   // Dublin Core & Highwire standard academic metadata extraction
   function extractPageMetadata() {
     const jsonLdArticle = getJsonLdArticle();
@@ -373,7 +445,7 @@
       journal: journal || "",
       authors: authors,
       year: year,
-      pdfUrl: "",
+      pdfUrl: sniffLocalPdfUrl() || "",
       impactFactor: "N/A",
       jcrQuartile: "N/A",
       casPartition: "N/A",
@@ -499,7 +571,8 @@
       "enable_cas_badge",
       "enable_jcr_badge",
       "enable_cite_badge",
-      "enable_pdf_badge"
+      "enable_pdf_badge",
+      "metacard_pinned"
     ], (config) => {
       if (config.enable_metacard === false) {
         console.log("PaperPilot Pro: Metacard is disabled in settings. Skipping injection.");
@@ -511,6 +584,9 @@
       cardEl.id = "pp-journal-metacard";
       cardEl.className = "pp-jc-floating-card";
       cardEl.setAttribute("data-pp-theme", currentTheme);
+      if (config.metacard_pinned === true) {
+        cardEl.classList.add("pp-jc-pinned");
+      }
 
       // Set minimized layout
       const isNi = checkNatureIndexMatch(paperMeta.journal);
@@ -556,6 +632,9 @@
             </div>
           </div>
           <div class="pp-jc-card-header-actions">
+            <button class="pp-jc-hdr-btn ${config.metacard_pinned === true ? 'pp-jc-active' : ''}" id="pp-jc-btn-pin" title="${config.metacard_pinned === true ? '取消固定侧边栏' : '固定侧边栏'}">
+              ${config.metacard_pinned === true ? window.PP_ICONS.pin_off : window.PP_ICONS.pin}
+            </button>
             <button class="pp-jc-hdr-btn" id="pp-jc-btn-min" title="最小化面板">${window.PP_ICONS.minimize}</button>
             <button class="pp-jc-hdr-btn" id="pp-jc-btn-help" title="帮助/配置">?</button>
           </div>
@@ -719,6 +798,7 @@
 
   // Bind interactive actions in Metacard float dashboard
   function bindMetacardEvents(resolvedLandingUrl) {
+    const pinBtn = cardEl.querySelector("#pp-jc-btn-pin");
     const minBtn = cardEl.querySelector("#pp-jc-btn-min");
     const pill = cardEl.querySelector("#pp-jc-min-pill");
     const drawerHdr = cardEl.querySelector("#pp-jc-drawer-hdr");
@@ -728,6 +808,26 @@
     const aiBtn = cardEl.querySelector("#pp-jc-btn-ai-sum");
     const helpBtn = cardEl.querySelector("#pp-jc-btn-help");
     const openLandingBtn = cardEl.querySelector("#pp-jc-btn-open-landing");
+
+    const setPinnedState = (pinned) => {
+      cardEl.classList.toggle("pp-jc-pinned", pinned);
+      if (pinBtn) {
+        pinBtn.classList.toggle("pp-jc-active", pinned);
+        pinBtn.title = pinned ? "取消固定侧边栏" : "固定侧边栏";
+        pinBtn.innerHTML = pinned ? window.PP_ICONS.pin_off : window.PP_ICONS.pin;
+      }
+    };
+
+    if (pinBtn) {
+      pinBtn.onclick = (event) => {
+        event.stopPropagation();
+        const pinned = !cardEl.classList.contains("pp-jc-pinned");
+        setPinnedState(pinned);
+        chrome.storage.local.set({ metacard_pinned: pinned }, () => {
+          showToast(pinned ? "侧边栏已固定" : "侧边栏已恢复可拖动");
+        });
+      };
+    }
 
     // Open landing page logic
     if (openLandingBtn && resolvedLandingUrl) {
@@ -772,12 +872,9 @@
         const body = cardEl.querySelector("#pp-jc-drawer-body");
         const arrow = cardEl.querySelector("#pp-jc-drawer-arrow");
         if (body) {
-          if (body.style.display === "none") {
-            body.style.display = "flex";
-            if (arrow) arrow.innerText = "▲";
-          } else {
-            body.style.display = "none";
-            if (arrow) arrow.innerText = "▼";
+          const isCollapsed = body.classList.toggle("pp-jc-collapsed");
+          if (arrow) {
+            arrow.innerText = isCollapsed ? "▼" : "▲";
           }
         }
       };
@@ -903,6 +1000,7 @@
     function dragMouseDown(e) {
       e = e || window.event;
       if (e.target.classList.contains("pp-jc-hdr-btn")) return; // Don't trigger on close/min btns
+      if (card.classList.contains("pp-jc-pinned")) return;
       e.preventDefault();
       pos3 = e.clientX;
       pos4 = e.clientY;

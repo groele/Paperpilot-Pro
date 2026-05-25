@@ -3,7 +3,41 @@
  * Manages configuration storage binds and footprints log lists.
  */
 
-document.addEventListener("DOMContentLoaded", () => {
+const initPopup = () => {
+  // Safe Storage wrappers to support both chrome.storage and localStorage fallback (for local previews)
+  const getStorage = (keys, callback) => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(keys, callback);
+    } else {
+      console.warn("chrome.storage.local is not available. Falling back to localStorage.");
+      const result = {};
+      const keyList = Array.isArray(keys) ? keys : [keys];
+      keyList.forEach(k => {
+        try {
+          const val = localStorage.getItem(k);
+          result[k] = val ? JSON.parse(val) : undefined;
+        } catch (e) {
+          result[k] = undefined;
+        }
+      });
+      callback(result);
+    }
+  };
+
+  const setStorage = (data, callback) => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set(data, callback);
+    } else {
+      console.warn("chrome.storage.local is not available. Falling back to localStorage.");
+      Object.keys(data).forEach(k => {
+        try {
+          localStorage.setItem(k, JSON.stringify(data[k]));
+        } catch (e) {}
+      });
+      if (callback) callback();
+    }
+  };
+
   const tabFoot = document.getElementById("tab-btn-foot");
   const tabSet = document.getElementById("tab-btn-set");
   const panelFoot = document.getElementById("panel-foot");
@@ -13,13 +47,33 @@ document.addEventListener("DOMContentLoaded", () => {
   const historyList = document.getElementById("history-list");
   const emptyMsg = document.getElementById("history-empty");
   const exportAllBtn = document.getElementById("btn-export-all");
+  const overviewStatusPill = document.getElementById("overview-status-pill");
+  const recordEditOverlay = document.getElementById("record-edit-overlay");
+  const recordEditDrawer = document.getElementById("record-edit-drawer");
+  const recordEditForm = document.getElementById("record-edit-form");
+  const recordEditClose = document.getElementById("record-edit-close");
+  const recordEditCancel = document.getElementById("record-edit-cancel");
+  const recordEditDelete = document.getElementById("record-edit-delete");
+  const recordEditTitleInput = document.getElementById("record-edit-title-input");
+  const recordEditJournalInput = document.getElementById("record-edit-journal-input");
+  const recordEditYearInput = document.getElementById("record-edit-year-input");
+  const recordEditStatusInput = document.getElementById("record-edit-status-input");
+  const recordEditDoiInput = document.getElementById("record-edit-doi-input");
+  const recordEditPdfInput = document.getElementById("record-edit-pdf-input");
+  const recordEditAuthorsInput = document.getElementById("record-edit-authors-input");
+
 
   const configRedirect = document.getElementById("setting-auto-redirect");
+  const configPdfDownloadSaveAs = document.getElementById("setting-pdf-download-save-as");
   const configPdfNaming = document.getElementById("setting-pdf-naming");
   const configPdfDownloadDir = document.getElementById("setting-pdf-download-dir");
   const configAiProvider = document.getElementById("setting-ai-provider");
+  const configAiModel = document.getElementById("setting-ai-model");
+  const configAiBaseUrl = document.getElementById("setting-ai-base-url");
   const configAiKey = document.getElementById("setting-ai-key");
   const configAiPrompt = document.getElementById("setting-ai-prompt");
+  const testAiBtn = document.getElementById("btn-test-ai-connection");
+  const aiTestStatus = document.getElementById("ai-test-status");
   const configAppearanceMode = document.getElementById("setting-appearance-mode");
 
   // Feature toggles
@@ -54,55 +108,332 @@ document.addEventListener("DOMContentLoaded", () => {
   const statusMarkdown = document.getElementById("status-markdown");
 
   let historyData = [];
+  let activeEditIndex = -1;
+  let currentHistoryQuery = "";
+  const inputSaveTimers = new Map();
+  const AI_PROVIDER_DEFAULTS = {
+    openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
+    gemini: { model: "gemini-1.5-flash", baseUrl: "https://generativelanguage.googleapis.com/v1beta" },
+    deepseek: { model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1" },
+    anthropic: { model: "claude-3-5-haiku-latest", baseUrl: "https://api.anthropic.com/v1" },
+    openrouter: { model: "openai/gpt-4o-mini", baseUrl: "https://openrouter.ai/api/v1" },
+    ollama: { model: "llama3.1", baseUrl: "http://127.0.0.1:11434" },
+    custom: { model: "", baseUrl: "" }
+  };
+
+
+  const coreModules = [
+    { card: statusNi, control: configNi, key: "enable_ni", name: "自然指数高亮" },
+    { card: statusDedup, control: configDedup, key: "enable_dedup", name: "预印本折叠去重" },
+    { card: statusSortingFilter, control: configSortingFilter, key: "enable_sorting_filter", name: "高级重排与过滤" },
+    { card: statusBadges, control: configBadges, key: "enable_badges", name: "学术状态徽章" },
+    { card: statusMetacard, control: configMetacard, key: "enable_metacard", name: "期刊详情悬浮元卡" },
+    { card: statusMarkdown, control: configMarkdownNote, key: "enable_markdown_note", name: "Markdown 笔记复制" }
+  ];
 
   // Theme update helper
   function updateTheme(mode) {
     document.documentElement.setAttribute("data-pp-theme", mode || "system");
   }
 
-  // Update Status grid dots
+  function switchPanel(panelName) {
+    const showSettings = panelName === "settings";
+    closeRecordEditor();
+    tabSet.classList.toggle("active", showSettings);
+    tabFoot.classList.toggle("active", !showSettings);
+    panelSet.classList.toggle("active", showSettings);
+    panelFoot.classList.toggle("active", !showSettings);
+    if (!showSettings) loadFootprints();
+  }
+
+  function clampNumber(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function getAnchoredPanelTop(anchor, containerRect, panelHeight, margin = 10) {
+    const anchorRect = anchor.getBoundingClientRect();
+    const anchorTop = anchorRect.top - containerRect.top;
+    const anchorBottom = anchorRect.bottom - containerRect.top;
+    const maxTop = Math.max(margin, containerRect.height - panelHeight - margin);
+    const belowTop = anchorBottom + margin;
+    const aboveTop = anchorTop - panelHeight - margin;
+
+    if (belowTop <= maxTop) return belowTop;
+    if (aboveTop >= margin) return aboveTop;
+    return clampNumber(anchorTop + (anchorRect.height / 2) - (panelHeight / 2), margin, maxTop);
+  }
+
+  function positionRecordEditorNearAnchor(anchor) {
+    if (!recordEditDrawer || !anchor) return;
+    const container = document.querySelector(".pp-popup-container");
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const panelHeight = Math.min(430, containerRect.height - 24);
+    const top = getAnchoredPanelTop(anchor, containerRect, panelHeight, 12);
+    recordEditDrawer.style.setProperty("--record-edit-top", `${Math.round(top)}px`);
+    recordEditDrawer.style.setProperty("--record-edit-max-height", `${Math.round(panelHeight)}px`);
+  }
+
+
+
+  function getAiProviderDefaults(provider) {
+    return AI_PROVIDER_DEFAULTS[provider] || AI_PROVIDER_DEFAULTS.openai;
+  }
+
+  function applyAiProviderDefaults(provider, shouldOverwrite = false) {
+    if (!configAiModel || !configAiBaseUrl) return {};
+    const defaults = getAiProviderDefaults(provider);
+    const previousDefaults = Object.values(AI_PROVIDER_DEFAULTS);
+    const modelLooksDefault = previousDefaults.some(item => item.model && item.model === configAiModel.value.trim());
+    const baseLooksDefault = previousDefaults.some(item => item.baseUrl && item.baseUrl === configAiBaseUrl.value.trim());
+    if (shouldOverwrite || !configAiModel.value.trim() || modelLooksDefault) {
+      configAiModel.value = defaults.model;
+    }
+    if (shouldOverwrite || !configAiBaseUrl.value.trim() || baseLooksDefault) {
+      configAiBaseUrl.value = defaults.baseUrl;
+    }
+    return {
+      ai_model: configAiModel.value.trim(),
+      ai_base_url: configAiBaseUrl.value.trim()
+    };
+  }
+
+  function setAiTestStatus(message, state = "") {
+    if (!aiTestStatus) return;
+    aiTestStatus.textContent = message;
+    if (state) {
+      aiTestStatus.dataset.state = state;
+    } else {
+      delete aiTestStatus.dataset.state;
+    }
+  }
+
+  function testAiConnection() {
+    if (!testAiBtn) return;
+    testAiBtn.disabled = true;
+    setAiTestStatus("Testing provider connection...");
+    setStorage({
+      ai_provider: configAiProvider.value,
+      ai_model: configAiModel.value.trim(),
+      ai_base_url: configAiBaseUrl.value.trim(),
+      ai_api_key: configAiKey.value.trim(),
+      ai_prompt: configAiPrompt.value
+    }, () => {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({ action: "TEST_AI_CONNECTION" }, (response) => {
+          testAiBtn.disabled = false;
+          if (chrome.runtime.lastError) {
+            setAiTestStatus(chrome.runtime.lastError.message, "error");
+            return;
+          }
+          if (response && response.success) {
+            setAiTestStatus(`Connected: ${response.provider} / ${response.model}`, "ok");
+          } else {
+            setAiTestStatus(response?.error || "Connection test failed", "error");
+          }
+        });
+      } else {
+        setTimeout(() => {
+          testAiBtn.disabled = false;
+          setAiTestStatus("Connected: Mock Provider / local-preview-mode", "ok");
+        }, 1000);
+      }
+    });
+  }
+
+  function focusSettingControl(controlId) {
+    const control = document.getElementById(controlId);
+    if (!control) return;
+
+    switchPanel("settings");
+    const settingItem = control.closest(".pp-popup-setting-item");
+    if (settingItem) {
+      settingItem.scrollIntoView({ behavior: "smooth", block: "center" });
+      settingItem.classList.add("pp-popup-setting-item-focus");
+      setTimeout(() => settingItem.classList.remove("pp-popup-setting-item-focus"), 1300);
+    }
+    setTimeout(() => control.focus({ preventScroll: true }), 250);
+  }
+
+  function toggleDashboardModule(module) {
+    if (!module?.control || !module.key) return;
+    module.control.checked = !module.control.checked;
+    saveSetting(
+      module.key,
+      module.control.checked,
+      `${module.name}${module.control.checked ? "已开启" : "已关闭"}`
+    );
+  }
+
+  function getFilteredHistoryItems() {
+    const q = currentHistoryQuery.toLowerCase().trim();
+    if (!q) return historyData;
+    return historyData.filter(item => {
+      const title = (item.title || "").toLowerCase();
+      const journal = (item.journal || "").toLowerCase();
+      const doi = (item.doi || "").toLowerCase();
+      return title.includes(q) || journal.includes(q) || doi.includes(q);
+    });
+  }
+
+  function renderCurrentFootprints() {
+    renderFootprints(getFilteredHistoryItems(), currentHistoryQuery);
+  }
+
+  function parseAuthorsInput(value) {
+    return String(value || "")
+      .split(/[;\n]+/)
+      .map(author => author.trim())
+      .filter(Boolean);
+  }
+
+  function persistHistory(successMsg) {
+    setStorage({ history: historyData }, () => {
+      renderCurrentFootprints();
+      showToast(successMsg);
+    });
+  }
+
+  function openRecordEditor(index, anchor) {
+    const item = historyData[index];
+    if (!item || !recordEditOverlay) return;
+
+    activeEditIndex = index;
+    recordEditTitleInput.value = item.title || "";
+    recordEditJournalInput.value = item.journal || "";
+    recordEditYearInput.value = item.year || "";
+    recordEditStatusInput.value = item.status || "visited";
+    recordEditDoiInput.value = item.doi || "";
+    recordEditPdfInput.value = item.pdfUrl || "";
+    recordEditAuthorsInput.value = Array.isArray(item.authors) ? item.authors.join("; ") : "";
+
+    positionRecordEditorNearAnchor(anchor);
+    recordEditOverlay.classList.add("pp-open");
+    recordEditOverlay.setAttribute("aria-hidden", "false");
+    setTimeout(() => recordEditTitleInput.focus({ preventScroll: true }), 120);
+  }
+
+  function closeRecordEditor() {
+    if (!recordEditOverlay) return;
+    activeEditIndex = -1;
+    recordEditOverlay.classList.remove("pp-open");
+    recordEditOverlay.setAttribute("aria-hidden", "true");
+    recordEditDrawer?.style.removeProperty("--record-edit-top");
+    recordEditDrawer?.style.removeProperty("--record-edit-max-height");
+  }
+
+  function saveRecordEditor() {
+    if (activeEditIndex < 0 || !historyData[activeEditIndex]) return;
+    const yearValue = parseInt(recordEditYearInput.value, 10);
+    historyData[activeEditIndex] = {
+      ...historyData[activeEditIndex],
+      title: recordEditTitleInput.value.trim() || "Untitled paper",
+      journal: recordEditJournalInput.value.trim(),
+      year: Number.isFinite(yearValue) ? yearValue : new Date().getFullYear(),
+      status: recordEditStatusInput.value || "visited",
+      doi: recordEditDoiInput.value.trim(),
+      pdfUrl: recordEditPdfInput.value.trim(),
+      authors: parseAuthorsInput(recordEditAuthorsInput.value),
+      updatedAt: Date.now()
+    };
+    closeRecordEditor();
+    persistHistory("Research Record 已更新");
+  }
+
+  function deleteRecordEditorItem() {
+    if (activeEditIndex < 0 || !historyData[activeEditIndex]) return;
+    historyData.splice(activeEditIndex, 1);
+    closeRecordEditor();
+    persistHistory("Research Record 已删除");
+  }
+
+  // Update Dashboard Overview status grid
   function updateFeatureStatusGrid() {
     const setStatus = (element, isActive) => {
       if (!element) return;
       if (isActive) {
         element.classList.add("active");
         element.classList.remove("inactive");
+        element.setAttribute("aria-pressed", "true");
       } else {
         element.classList.remove("active");
         element.classList.add("inactive");
+        element.setAttribute("aria-pressed", "false");
       }
     };
 
-    setStatus(statusNi, configNi.checked);
-    setStatus(statusDedup, configDedup.checked);
-    setStatus(statusSortingFilter, configSortingFilter.checked);
-    setStatus(statusBadges, configBadges.checked);
-    setStatus(statusMetacard, configMetacard.checked);
-    setStatus(statusMarkdown, configMarkdownNote.checked);
+    let activeCount = 0;
+    coreModules.forEach(({ card, control, name }) => {
+      const isActive = !!control?.checked;
+      if (isActive) activeCount += 1;
+      setStatus(card, isActive);
+      if (card) {
+        const stateEl = card.querySelector(".feature-state");
+        card.dataset.state = isActive ? "active" : "inactive";
+        card.title = `${name}：${isActive ? "已开启" : "已关闭"}，点击切换`;
+        if (stateEl) stateEl.textContent = isActive ? "ON" : "OFF";
+      }
+    });
+
+    if (overviewStatusPill) {
+      overviewStatusPill.textContent = `${activeCount}/${coreModules.length} 模块运行`;
+      overviewStatusPill.classList.toggle("pp-warning", activeCount < coreModules.length);
+    }
   }
 
   // 1. Navigation Tab Switching
-  tabFoot.onclick = () => {
-    tabFoot.classList.add("active");
-    tabSet.classList.remove("active");
-    panelFoot.classList.add("active");
-    panelSet.classList.remove("active");
-    loadFootprints();
-  };
 
-  tabSet.onclick = () => {
-    tabSet.classList.add("active");
-    tabFoot.classList.remove("active");
-    panelSet.classList.add("active");
-    panelFoot.classList.remove("active");
-  };
 
-  // 2. Load settings from storage
-  chrome.storage.local.get([
+  tabFoot.onclick = () => switchPanel("footprints");
+  tabSet.onclick = () => switchPanel("settings");
+
+  coreModules.forEach((module) => {
+    const { card } = module;
+    if (!card) return;
+    const toggleTarget = () => toggleDashboardModule(module);
+    card.addEventListener("click", toggleTarget);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggleTarget();
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        focusSettingControl(card.dataset.settingTarget);
+      }
+    });
+  });
+
+  if (recordEditOverlay) {
+    recordEditOverlay.addEventListener("click", (event) => {
+      if (event.target === recordEditOverlay) closeRecordEditor();
+    });
+  }
+  if (recordEditDrawer) {
+    recordEditDrawer.addEventListener("click", (event) => event.stopPropagation());
+  }
+  if (recordEditClose) recordEditClose.onclick = closeRecordEditor;
+  if (recordEditCancel) recordEditCancel.onclick = closeRecordEditor;
+  if (recordEditDelete) recordEditDelete.onclick = deleteRecordEditorItem;
+  if (recordEditForm) {
+    recordEditForm.onsubmit = (event) => {
+      event.preventDefault();
+      saveRecordEditor();
+    };
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && recordEditOverlay?.classList.contains("pp-open")) {
+      closeRecordEditor();
+    }
+  });
+
+  getStorage([
     "auto_redirect",
+    "pdf_download_save_as",
     "pdf_naming",
     "pdf_download_dir",
     "ai_provider",
+    "ai_model",
+    "ai_base_url",
     "ai_api_key",
     "ai_prompt",
     "appearance_mode",
@@ -129,9 +460,12 @@ document.addEventListener("DOMContentLoaded", () => {
     "enable_cite_badge"
   ], (config) => {
     if (config.auto_redirect !== undefined) configRedirect.checked = config.auto_redirect;
+    if (config.pdf_download_save_as !== undefined) configPdfDownloadSaveAs.checked = config.pdf_download_save_as;
     if (config.pdf_naming !== undefined) configPdfNaming.value = config.pdf_naming;
     configPdfDownloadDir.value = config.pdf_download_dir !== undefined ? config.pdf_download_dir : "PaperPilot Pro";
     if (config.ai_provider !== undefined) configAiProvider.value = config.ai_provider;
+    configAiModel.value = config.ai_model || getAiProviderDefaults(configAiProvider.value).model;
+    configAiBaseUrl.value = config.ai_base_url || getAiProviderDefaults(configAiProvider.value).baseUrl;
     if (config.ai_api_key !== undefined) configAiKey.value = config.ai_api_key;
     if (config.ai_prompt !== undefined) configAiPrompt.value = config.ai_prompt;
     if (config.appearance_mode !== undefined) {
@@ -182,22 +516,60 @@ document.addEventListener("DOMContentLoaded", () => {
     updateFeatureStatusGrid();
   });
 
-  // 3. Save settings binds
   const saveSetting = (key, value, successMsg = "设置已保存") => {
     const data = {};
     data[key] = value;
-    chrome.storage.local.set(data, () => {
+    setStorage(data, () => {
       showToast(successMsg);
       updateFeatureStatusGrid();
     });
   };
 
+  const saveSettings = (data, successMsg = "设置已保存") => {
+    setStorage(data, () => {
+      showToast(successMsg);
+      updateFeatureStatusGrid();
+    });
+  };
+
+  const saveSettingDebounced = (key, value, successMsg, delay = 500) => {
+    clearTimeout(inputSaveTimers.get(key));
+    inputSaveTimers.set(key, setTimeout(() => {
+      saveSetting(key, value, successMsg);
+      inputSaveTimers.delete(key);
+    }, delay));
+  };
+
+  const flushSettingSave = (key, value, successMsg) => {
+    if (inputSaveTimers.has(key)) {
+      clearTimeout(inputSaveTimers.get(key));
+      inputSaveTimers.delete(key);
+      saveSetting(key, value, successMsg);
+    }
+  };
+
   configRedirect.onchange = () => saveSetting("auto_redirect", configRedirect.checked, "自动重定向设置已同步");
+  configPdfDownloadSaveAs.onchange = () => saveSetting("pdf_download_save_as", configPdfDownloadSaveAs.checked, "下载另存为设置已同步");
   configPdfNaming.onchange = () => saveSetting("pdf_naming", configPdfNaming.value, "文件命名模板保存成功");
-  configPdfDownloadDir.oninput = () => saveSetting("pdf_download_dir", configPdfDownloadDir.value.trim(), "PDF 下载子目录已保存");
-  configAiProvider.onchange = () => saveSetting("ai_provider", configAiProvider.value, "AI 提供商已切换");
-  configAiKey.oninput = () => saveSetting("ai_api_key", configAiKey.value, "API 密钥已更新保存");
-  configAiPrompt.oninput = () => saveSetting("ai_prompt", configAiPrompt.value, "自定义提示词已更新");
+  configPdfDownloadDir.oninput = () => saveSettingDebounced("pdf_download_dir", configPdfDownloadDir.value.trim(), "PDF 下载子目录已保存");
+  configPdfDownloadDir.onchange = () => flushSettingSave("pdf_download_dir", configPdfDownloadDir.value.trim(), "PDF 下载子目录已保存");
+  configAiProvider.onchange = () => {
+    const nextDefaults = applyAiProviderDefaults(configAiProvider.value, true);
+    saveSettings({
+      ai_provider: configAiProvider.value,
+      ...nextDefaults
+    }, "AI 提供商已切换");
+    setAiTestStatus("Provider changed. Test connection before using it.");
+  };
+  configAiModel.oninput = () => saveSettingDebounced("ai_model", configAiModel.value.trim(), "AI 模型已保存");
+  configAiModel.onchange = () => flushSettingSave("ai_model", configAiModel.value.trim(), "AI 模型已保存");
+  configAiBaseUrl.oninput = () => saveSettingDebounced("ai_base_url", configAiBaseUrl.value.trim(), "AI Base URL 已保存");
+  configAiBaseUrl.onchange = () => flushSettingSave("ai_base_url", configAiBaseUrl.value.trim(), "AI Base URL 已保存");
+  configAiKey.oninput = () => saveSettingDebounced("ai_api_key", configAiKey.value.trim(), "API 密钥已更新保存");
+  configAiKey.onchange = () => flushSettingSave("ai_api_key", configAiKey.value.trim(), "API 密钥已更新保存");
+  configAiPrompt.oninput = () => saveSettingDebounced("ai_prompt", configAiPrompt.value, "自定义提示词已更新", 700);
+  configAiPrompt.onchange = () => flushSettingSave("ai_prompt", configAiPrompt.value, "自定义提示词已更新");
+  if (testAiBtn) testAiBtn.onclick = testAiConnection;
   configAppearanceMode.onchange = () => {
     saveSetting("appearance_mode", configAppearanceMode.value, "外观展示模式已切换");
     updateTheme(configAppearanceMode.value);
@@ -208,14 +580,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
   easyScholarKeyInput.oninput = () => {
     const keyVal = easyScholarKeyInput.value.trim();
-    chrome.storage.local.set({
+    clearTimeout(inputSaveTimers.get("easyscholar_key"));
+    inputSaveTimers.set("easyscholar_key", setTimeout(() => {
+      saveSettings({
       easyscholar_key: keyVal,
       pdf_cache: {},
       easyscholar_cache: {}
-    }, () => {
-      showToast("easyScholar Key 已保存，历史估算缓存已自动清除");
-      updateFeatureStatusGrid();
-    });
+      }, "easyScholar Key 已保存，历史估算缓存已自动清除");
+      inputSaveTimers.delete("easyscholar_key");
+    }, 650));
+  };
+
+  easyScholarKeyInput.onchange = () => {
+    if (!inputSaveTimers.has("easyscholar_key")) return;
+    clearTimeout(inputSaveTimers.get("easyscholar_key"));
+    inputSaveTimers.delete("easyscholar_key");
+    saveSettings({
+      easyscholar_key: easyScholarKeyInput.value.trim(),
+      pdf_cache: {},
+      easyscholar_cache: {}
+    }, "easyScholar Key 已保存，历史估算缓存已自动清除");
   };
 
   toggleEasyScholarBtn.onclick = () => {
@@ -251,23 +635,25 @@ document.addEventListener("DOMContentLoaded", () => {
   configJcrBadge.onchange = () => saveSetting("enable_jcr_badge", configJcrBadge.checked, "JCR 分区指标显示已同步");
   configCiteBadge.onchange = () => saveSetting("enable_cite_badge", configCiteBadge.checked, "被引量徽章显示已同步");
 
-  // 4. Load academic footprints history
   function loadFootprints() {
-    chrome.storage.local.get("history", (res) => {
+    getStorage("history", (res) => {
       historyData = res.history || [];
-      renderFootprints(historyData);
+      renderCurrentFootprints();
     });
   }
 
-  function renderFootprints(items) {
+  function renderFootprints(items, query = "") {
     // Clear list
     // Preserve empty placeholder
     historyList.innerHTML = "";
     
     if (items.length === 0) {
+      emptyMsg.textContent = query
+        ? "没有匹配的学术足迹，请尝试标题、期刊或 DOI 的其他关键词。"
+        : "暂无学术足迹，快去浏览期刊摘要页或检索谷歌学术吧！";
       historyList.appendChild(emptyMsg);
       emptyMsg.style.display = "block";
-      exportAllBtn.disabled = true;
+      exportAllBtn.disabled = historyData.length === 0 || !!query;
       return;
     }
 
@@ -275,6 +661,7 @@ document.addEventListener("DOMContentLoaded", () => {
     exportAllBtn.disabled = false;
 
     items.forEach((item) => {
+      const recordIndex = historyData.indexOf(item);
       const card = document.createElement("div");
       card.className = "pp-popup-foot-item";
       
@@ -286,17 +673,41 @@ document.addEventListener("DOMContentLoaded", () => {
       } else if (item.status === "copied_bibtex") {
         statusText = "复制 BibTeX";
         statusClass = "copied_bibtex";
+      } else if (item.status === "copied_doi") {
+        statusText = "复制 DOI";
+        statusClass = "copied_bibtex";
+      } else if (item.status === "copied_citation") {
+        statusText = "复制引用";
+        statusClass = "copied_bibtex";
       }
 
-      card.innerHTML = `
-        <div class="pp-popup-foot-title">${item.title}</div>
-        <div class="pp-popup-foot-meta">
-          <span class="pp-popup-foot-journal">${item.journal || "Other"} (${item.year})</span>
-          <span class="pp-popup-foot-status ${statusClass}">${statusText}</span>
-        </div>
-      `;
+      const main = document.createElement("div");
+      main.className = "pp-popup-foot-main";
+      main.setAttribute("role", "button");
+      main.setAttribute("tabindex", "0");
+      main.setAttribute("title", "打开该文献链接");
 
-      card.onclick = () => {
+      const title = document.createElement("div");
+      title.className = "pp-popup-foot-title";
+      title.textContent = item.title || "Untitled paper";
+
+      const meta = document.createElement("div");
+      meta.className = "pp-popup-foot-meta";
+
+      const journal = document.createElement("span");
+      journal.className = "pp-popup-foot-journal";
+      journal.textContent = `${item.journal || "Other"} (${item.year || "N/A"})`;
+
+      const status = document.createElement("span");
+      status.className = `pp-popup-foot-status ${statusClass}`;
+      status.textContent = statusText;
+
+      meta.appendChild(journal);
+      meta.appendChild(status);
+      main.appendChild(title);
+      main.appendChild(meta);
+
+      const openRecordTarget = () => {
         // Open PDF Url or DOI url
         const targetUrl = item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "");
         if (targetUrl) {
@@ -307,26 +718,37 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       };
 
+      main.onclick = openRecordTarget;
+      main.onkeydown = (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openRecordTarget();
+        }
+      };
+
+      const actions = document.createElement("div");
+      actions.className = "pp-popup-foot-actions";
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "pp-popup-foot-action-btn";
+      editBtn.textContent = "编辑";
+      editBtn.setAttribute("aria-label", `编辑 ${item.title || "Research Record"}`);
+      editBtn.onclick = (event) => {
+        event.stopPropagation();
+        openRecordEditor(recordIndex, editBtn);
+      };
+      actions.appendChild(editBtn);
+
+      card.appendChild(main);
+      card.appendChild(actions);
       historyList.appendChild(card);
     });
   }
 
   // 5. Fuzzy filtering
   searchInput.oninput = () => {
-    const q = searchInput.value.toLowerCase().trim();
-    if (!q) {
-      renderFootprints(historyData);
-      return;
-    }
-
-    const filtered = historyData.filter(item => {
-      const title = (item.title || "").toLowerCase();
-      const journal = (item.journal || "").toLowerCase();
-      const doi = (item.doi || "").toLowerCase();
-      return title.includes(q) || journal.includes(q) || doi.includes(q);
-    });
-
-    renderFootprints(filtered);
+    currentHistoryQuery = searchInput.value.trim();
+    renderCurrentFootprints();
   };
 
   // 6. Bulk Export clean BibTeX files
@@ -378,4 +800,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Load footprints on initial popup show
   loadFootprints();
-});
+};
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initPopup);
+} else {
+  initPopup();
+}

@@ -120,6 +120,18 @@
   user-select: none !important;
 }
 
+.pp-jc-floating-card.pp-jc-pinned {
+  top: 72px !important;
+  right: 0 !important;
+  left: auto !important;
+  border-radius: 16px 0 0 16px !important;
+  border-right: 0 !important;
+}
+
+.pp-jc-floating-card.pp-jc-pinned .pp-jc-card-header {
+  cursor: default !important;
+}
+
 /* Minimized State */
 .pp-jc-floating-card.pp-jc-minimized {
   width: 48px !important;
@@ -371,6 +383,12 @@
   color: var(--pp-primary) !important;
 }
 
+.pp-jc-hdr-btn.pp-jc-active {
+  background: var(--pp-btn-hover) !important;
+  border-color: var(--pp-primary) !important;
+  color: var(--pp-primary) !important;
+}
+
 /* Card Content Area */
 .pp-jc-card-content {
   padding: 16px !important;
@@ -488,18 +506,28 @@
 }
 
 .pp-jc-meta-copy-btn {
-  background: transparent !important;
-  border: none !important;
+  background: var(--pp-btn-bg) !important;
+  border: 1px solid var(--pp-border) !important;
+  border-radius: 6px !important;
   color: var(--pp-text-muted) !important;
   cursor: pointer !important;
-  padding: 2px !important;
+  padding: 6px !important;
   display: flex !important;
   align-items: center !important;
-  transition: all 0.2s ease !important;
+  justify-content: center !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 .pp-jc-meta-copy-btn:hover {
+  background: var(--pp-btn-hover) !important;
   color: var(--pp-primary) !important;
+  border-color: var(--pp-primary) !important;
+  transform: scale(1.1) !important;
+}
+
+.pp-jc-meta-copy-btn svg {
+  width: 16px !important;
+  height: 16px !important;
 }
 
 /* Influence factor metric drawer */
@@ -539,6 +567,10 @@
   transition: all 0.3s ease !important;
 }
 
+.pp-jc-drawer-body.pp-jc-collapsed {
+  display: none !important;
+}
+
 .pp-jc-metric-row {
   display: flex !important;
   justify-content: space-between !important;
@@ -575,6 +607,11 @@
   border: 1px solid var(--pp-btn-border) !important;
   background: var(--pp-btn-bg) !important;
   color: var(--pp-text-main) !important;
+}
+
+.pp-jc-action-btn svg {
+  width: 15px !important;
+  height: 15px !important;
 }
 
 .pp-jc-action-btn:hover {

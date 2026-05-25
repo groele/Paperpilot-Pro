@@ -20,38 +20,63 @@
       <span class="pp-popup-version">MV3 激活</span>
     </header>
 
-    <!-- PaperPilot Pro 界面与功能信息区 -->
+    <!-- Dashboard Overview -->
     <div class="pp-popup-info-card">
       <div class="pp-popup-info-header">
-        <span class="pp-popup-info-title">PaperPilot Pro 界面与功能信息区</span>
-        <span class="pp-popup-info-status-pill">系统就绪</span>
+        <span class="pp-popup-info-title">Dashboard Overview</span>
+        <span class="pp-popup-info-status-pill" id="overview-status-pill">系统就绪</span>
       </div>
       <div class="pp-popup-features-grid">
-        <div class="pp-popup-feature-status" id="status-ni">
+        <div class="pp-popup-feature-status" id="status-ni" role="button" tabindex="0" data-setting-target="setting-enable-ni" data-module="discovery" title="切换自然指数高亮">
           <span class="status-dot"></span>
-          <span class="feature-name">自然指数高亮</span>
+          <span class="feature-copy">
+            <span class="feature-name">自然指数高亮</span>
+            <span class="feature-domain">Discovery</span>
+          </span>
+          <span class="feature-state">ON</span>
         </div>
-        <div class="pp-popup-feature-status" id="status-dedup">
+        <div class="pp-popup-feature-status" id="status-dedup" role="button" tabindex="0" data-setting-target="setting-enable-dedup" data-module="cleanup" title="切换预印本折叠去重">
           <span class="status-dot"></span>
-          <span class="feature-name">预印本折叠去重</span>
+          <span class="feature-copy">
+            <span class="feature-name">预印本折叠去重</span>
+            <span class="feature-domain">Cleanup</span>
+          </span>
+          <span class="feature-state">ON</span>
         </div>
-        <div class="pp-popup-feature-status" id="status-sorting-filter">
+        <div class="pp-popup-feature-status" id="status-sorting-filter" role="button" tabindex="0" data-setting-target="setting-enable-sorting-filter" data-module="ranking" title="切换高级重排与过滤">
           <span class="status-dot"></span>
-          <span class="feature-name">高级重排与过滤</span>
+          <span class="feature-copy">
+            <span class="feature-name">高级重排与过滤</span>
+            <span class="feature-domain">Ranking</span>
+          </span>
+          <span class="feature-state">ON</span>
         </div>
-        <div class="pp-popup-feature-status" id="status-badges">
+        <div class="pp-popup-feature-status" id="status-badges" role="button" tabindex="0" data-setting-target="setting-enable-badges" data-module="metrics" title="切换学术状态徽章">
           <span class="status-dot"></span>
-          <span class="feature-name">学术状态徽章</span>
+          <span class="feature-copy">
+            <span class="feature-name">学术状态徽章</span>
+            <span class="feature-domain">Metrics</span>
+          </span>
+          <span class="feature-state">ON</span>
         </div>
-        <div class="pp-popup-feature-status" id="status-metacard">
+        <div class="pp-popup-feature-status" id="status-metacard" role="button" tabindex="0" data-setting-target="setting-enable-metacard" data-module="reader" title="切换期刊详情悬浮元卡">
           <span class="status-dot"></span>
-          <span class="feature-name">期刊详情悬浮元卡</span>
+          <span class="feature-copy">
+            <span class="feature-name">期刊详情悬浮元卡</span>
+            <span class="feature-domain">Reader</span>
+          </span>
+          <span class="feature-state">ON</span>
         </div>
-        <div class="pp-popup-feature-status" id="status-markdown">
+        <div class="pp-popup-feature-status" id="status-markdown" role="button" tabindex="0" data-setting-target="setting-enable-markdown-note" data-module="notes" title="切换 Markdown 笔记复制">
           <span class="status-dot"></span>
-          <span class="feature-name">MD 笔记复制</span>
+          <span class="feature-copy">
+            <span class="feature-name">MD 笔记复制</span>
+            <span class="feature-domain">Notes</span>
+          </span>
+          <span class="feature-state">ON</span>
         </div>
       </div>
+
     </div>
 
     <!-- Nav Tabs -->
@@ -340,6 +365,19 @@
             <p class="pp-popup-setting-desc">开启后，若后台嗅探直链成功，将不显示浮动卡片，立即全屏加载 PDF 全文。</p>
           </div>
 
+          <!-- Switch 1.5 -->
+          <div class="pp-popup-setting-item">
+            <div class="pp-popup-setting-row">
+              <span class="pp-popup-setting-lbl">下载时弹出选择路径窗口</span>
+              <label class="pp-popup-switch">
+                <input type="checkbox" id="setting-pdf-download-save-as">
+                <span class="pp-popup-switch-slider"></span>
+              </label>
+            </div>
+            <p class="pp-popup-setting-desc">开启后，一键下载 PDF 会弹出路径选择与另存为窗口；关闭则在默认下载目录中静默直接下载。</p>
+          </div>
+
+
           <!-- Select 2 -->
           <div class="pp-popup-setting-item">
             <span class="pp-popup-setting-lbl">PDF 全文重命名模板</span>
@@ -378,10 +416,25 @@
           <div class="pp-popup-setting-item">
             <span class="pp-popup-setting-lbl">AI 总结大模型提供商</span>
             <select class="pp-popup-select" id="setting-ai-provider">
-              <option value="gemini">Google Gemini Pro (推荐)</option>
-              <option value="openai">OpenAI GPT-3.5-Turbo</option>
-              <option value="deepseek">DeepSeek-V3 Chat</option>
+              <option value="openai">OpenAI compatible</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="anthropic">Anthropic Claude</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="ollama">Ollama local</option>
+              <option value="custom">Custom compatible API</option>
             </select>
+          </div>
+
+          <div class="pp-popup-setting-item">
+            <span class="pp-popup-setting-lbl">AI Model</span>
+            <input type="text" class="pp-popup-input" id="setting-ai-model" placeholder="e.g. gpt-4o-mini, deepseek-chat, llama3.1">
+          </div>
+
+          <div class="pp-popup-setting-item">
+            <span class="pp-popup-setting-lbl">Base URL</span>
+            <input type="url" class="pp-popup-input" id="setting-ai-base-url" placeholder="Provider default if empty">
+            <p class="pp-popup-setting-desc">Only abstract/title text is sent when AI summary is clicked. Keys stay in local Chrome storage.</p>
           </div>
 
           <!-- AI API key -->
@@ -397,9 +450,71 @@
             <textarea class="pp-popup-textarea" id="setting-ai-prompt" rows="2"></textarea>
           </div>
 
+          <div class="pp-popup-setting-item">
+            <button class="pp-popup-btn pp-popup-btn-secondary" id="btn-test-ai-connection" type="button">Test AI connection</button>
+            <p class="pp-popup-setting-desc" id="ai-test-status">Configure provider, model and key, then test before using it in the metacard.</p>
+          </div>
+
         </div>
       </section>
     </main>
+
+    <!-- Research record editor drawer -->
+    <div class="pp-popup-edit-overlay" id="record-edit-overlay" aria-hidden="true">
+      <aside class="pp-popup-edit-drawer" id="record-edit-drawer" role="dialog" aria-modal="true" aria-labelledby="record-edit-title">
+        <div class="pp-popup-edit-header">
+          <div>
+            <h2 id="record-edit-title">编辑 Research Record</h2>
+            <p>修正文献元数据并同步到本地足迹记录。</p>
+          </div>
+          <button type="button" class="pp-popup-icon-btn" id="record-edit-close" aria-label="关闭编辑窗口">×</button>
+        </div>
+
+        <form class="pp-popup-edit-form" id="record-edit-form">
+          <label class="pp-popup-edit-field">
+            <span>标题</span>
+            <textarea id="record-edit-title-input" rows="3" required></textarea>
+          </label>
+          <label class="pp-popup-edit-field">
+            <span>期刊 / 来源</span>
+            <input type="text" id="record-edit-journal-input">
+          </label>
+          <div class="pp-popup-edit-grid">
+            <label class="pp-popup-edit-field">
+              <span>年份</span>
+              <input type="number" id="record-edit-year-input" min="1800" max="2200">
+            </label>
+            <label class="pp-popup-edit-field">
+              <span>状态</span>
+              <select id="record-edit-status-input">
+                <option value="visited">已访问</option>
+                <option value="downloaded">已下载</option>
+                <option value="copied_bibtex">复制 BibTeX</option>
+                <option value="copied_doi">复制 DOI</option>
+                <option value="copied_citation">复制引用</option>
+              </select>
+            </label>
+          </div>
+          <label class="pp-popup-edit-field">
+            <span>DOI</span>
+            <input type="text" id="record-edit-doi-input">
+          </label>
+          <label class="pp-popup-edit-field">
+            <span>PDF 链接</span>
+            <input type="url" id="record-edit-pdf-input">
+          </label>
+          <label class="pp-popup-edit-field">
+            <span>作者</span>
+            <textarea id="record-edit-authors-input" rows="2" placeholder="多位作者用分号或换行分隔"></textarea>
+          </label>
+          <div class="pp-popup-edit-actions">
+            <button type="button" class="pp-popup-btn pp-popup-btn-danger" id="record-edit-delete">删除</button>
+            <button type="button" class="pp-popup-btn pp-popup-btn-secondary" id="record-edit-cancel">取消</button>
+            <button type="submit" class="pp-popup-btn pp-popup-btn-main">保存</button>
+          </div>
+        </form>
+      </aside>
+    </div>
 
     <!-- Global Toast Alert -->
     <div class="pp-popup-toast" id="popup-toast">
