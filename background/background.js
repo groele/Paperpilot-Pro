@@ -307,6 +307,9 @@ async function checkPdfUrl(url) {
       // Sniff PDF Magic Number: %PDF (hex 25 50 44 46)
       const reader = rangeResponse.body.getReader();
       const { value } = await reader.read();
+      try {
+        await reader.cancel();
+      } catch (_) {}
       
       let isPdf = false;
       if (value && value.length >= 4) {

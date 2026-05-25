@@ -11,13 +11,22 @@ const initPopup = () => {
     } else {
       console.warn("chrome.storage.local is not available. Falling back to localStorage.");
       const result = {};
-      const keyList = Array.isArray(keys) ? keys : [keys];
+      let keyList = [];
+      let defaults = {};
+      if (typeof keys === 'string') {
+        keyList = [keys];
+      } else if (Array.isArray(keys)) {
+        keyList = keys;
+      } else if (keys && typeof keys === 'object') {
+        keyList = Object.keys(keys);
+        defaults = keys;
+      }
       keyList.forEach(k => {
         try {
           const val = localStorage.getItem(k);
-          result[k] = val ? JSON.parse(val) : undefined;
+          result[k] = val ? JSON.parse(val) : (defaults[k] !== undefined ? defaults[k] : undefined);
         } catch (e) {
-          result[k] = undefined;
+          result[k] = defaults[k] !== undefined ? defaults[k] : undefined;
         }
       });
       callback(result);
