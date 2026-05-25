@@ -8,6 +8,62 @@
   let cardEl = null;
   let currentTheme = "system";
 
+  // Institutional Proxy & VPN (EZproxy / Bupt vpn) URL cleaner
+  function cleanProxyUrl(urlString) {
+    if (!urlString) return "";
+    try {
+      const url = new URL(urlString);
+      let host = url.hostname.toLowerCase();
+      
+      // 1. Strip EZproxy patterns
+      const proxyPatterns = [
+        /\.ezp\./i,
+        /\.ezproxy\./i,
+        /\.proxy\./i,
+        /\.libproxy\./i
+      ];
+      for (let pattern of proxyPatterns) {
+        const match = host.split(pattern);
+        if (match.length > 1) {
+          host = match[0];
+          break;
+        }
+      }
+      
+      // 2. Strip VPN patterns
+      if (host.includes(".vpn.") || host.includes("-vpn-") || host.includes("-s.vpn.")) {
+        const parts = host.split(/\.vpn\.|-s\.vpn\.|-vpn-/i);
+        if (parts.length > 0) {
+          host = parts[0];
+        }
+      }
+      
+      // 3. General flattened domain normalization (convert link-springer-com to link.springer.com)
+      if (host.includes("-com") || host.includes("-org") || host.includes("-net") || host.includes("-edu") || host.includes("-gov") || host.includes("-co-uk")) {
+        host = host.replace(/-com\b/g, ".com")
+                   .replace(/-org\b/g, ".org")
+                   .replace(/-net\b/g, ".net")
+                   .replace(/-edu\b/g, ".edu")
+                   .replace(/-gov\b/g, ".gov")
+                   .replace(/-co-uk\b/g, ".co.uk")
+                   .replace(/-gov-cn\b/g, ".gov.cn");
+        host = host.replace(/-/g, ".");
+      }
+      
+      if (url.searchParams.has("url")) {
+        const targetUrl = url.searchParams.get("url");
+        if (targetUrl.startsWith("http://") || targetUrl.startsWith("https://")) {
+          return cleanProxyUrl(targetUrl);
+        }
+      }
+      
+      url.hostname = host;
+      return url.href;
+    } catch (e) {
+      return urlString;
+    }
+  }
+
   function updateAllThemes() {
     const card = document.getElementById("pp-journal-metacard");
     if (card) {
@@ -87,8 +143,14 @@
   }
 
   function hasAcademicMetadata() {
-    const path = window.location.pathname.toLowerCase();
-    const host = window.location.hostname.toLowerCase();
+    let path = window.location.pathname.toLowerCase();
+    let host = window.location.hostname.toLowerCase();
+
+    try {
+      const cleaned = new URL(cleanProxyUrl(window.location.href));
+      path = cleaned.pathname.toLowerCase();
+      host = cleaned.hostname.toLowerCase();
+    } catch (e) {}
 
     // 1. Exclude homepages, empty paths, and standard help/search directories
     if (path === "/" || path === "/index.html" || path === "/index.htm" || path === "/index.php") {
@@ -397,7 +459,10 @@
       "eprints.publication"
     ]) || normalizeJsonLdText(jsonLdArticle?.isPartOf || jsonLdArticle?.publisher);
     if (!journal) {
-      const host = window.location.hostname.toLowerCase();
+      let host = window.location.hostname.toLowerCase();
+      try {
+        host = new URL(cleanProxyUrl(window.location.href)).hostname.toLowerCase();
+      } catch (e) {}
       if (host.includes("nature.com")) journal = "Nature";
       else if (host.includes("science.org")) journal = "Science";
       else if (host.includes("pubs.acs.org")) journal = "JACS/ACS";
@@ -460,7 +525,7 @@
   }
 
   // Deduce the original HTML landing page from redirect cache, DOI, or specific host rules
-  function deduceLandingPage(url, doi, title, cachedLandingUrl) {
+  function deduceLandingPage(rawUrl, doi, title, cachedLandingUrl) {
     // Rule 1: Check direct cache lookup first
     if (cachedLandingUrl) {
       return cachedLandingUrl;
@@ -471,7 +536,12 @@
       return `https://doi.org/${doi.trim()}`;
     }
 
-    const host = window.location.hostname.toLowerCase();
+    let host = window.location.hostname.toLowerCase();
+    let url = rawUrl;
+    try {
+      url = cleanProxyUrl(rawUrl);
+      host = new URL(url).hostname.toLowerCase();
+    } catch (e) {}
     const href = url.toLowerCase();
 
     // Rule 3: arXiv PDF back-resolve
