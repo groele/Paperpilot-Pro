@@ -210,6 +210,24 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
   }
 });
 
+// GC / Memory leak cleanup listener: Remove items from mapping when download completes, fails or is cancelled
+chrome.downloads.onChanged.addListener((delta) => {
+  if (delta.state && (delta.state.current === "interrupted" || delta.state.current === "complete")) {
+    const downloadId = delta.id;
+    const tracked = activeDownloads.get(downloadId);
+    if (tracked) {
+      activeDownloads.delete(downloadId);
+      // Clean up corresponding URL tracker as well
+      for (const [url, item] of activeDownloadsByUrl.entries()) {
+        if (item === tracked) {
+          activeDownloadsByUrl.delete(url);
+          break;
+        }
+      }
+    }
+  }
+});
+
 function downloadPdf(url, filename) {
   return new Promise((resolve) => {
     if (!url) {
