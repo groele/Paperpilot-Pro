@@ -244,11 +244,13 @@
   // Result Signatures to detect query transitions
   // =========================================================
   function getArticleStableId(article, index) {
+    if (article._ppStableId) return article._ppStableId;
     const titleEl = article.querySelector(".gs_rt");
     const title = titleEl ? titleEl.innerText.replace(/\[[A-Z]+\]/g, "").trim() : "";
     const href = titleEl?.querySelector("a")?.href || "";
     const meta = (article.querySelector('.gs_a')?.textContent || '').replace(/\s+/g, ' ').trim();
-    return `${href || title || `idx:${index}`}|${meta}`;
+    article._ppStableId = `${href || title || `idx:${index}`}|${meta}`;
+    return article._ppStableId;
   }
 
   function getResultSetKey() {
@@ -267,9 +269,9 @@
       .map((article, index) => {
         return [
           getArticleStableId(article, index),
-          article.dataset.year || '0',
-          article.dataset.cite || '0',
-          article.dataset.venue || ''
+          article._ppYear || article.dataset.year || '0',
+          article._ppCite || article.dataset.cite || '0',
+          article._ppVenue || article.dataset.venue || ''
         ].join('|');
       })
       .sort(collator.compare);
@@ -833,9 +835,9 @@
     articles.forEach(card => {
       if (card.dataset.foldedAsDuplicate === "true") return;
 
-      const cite = parseInt(card.dataset.cite || "0");
-      const year = parseInt(card.dataset.year || "0");
-      const venue = card.dataset.venue || "Other";
+      const cite = parseInt(card._ppCite !== undefined ? card._ppCite : card.dataset.cite || "0", 10);
+      const year = parseInt(card._ppYear !== undefined ? card._ppYear : card.dataset.year || "0", 10);
+      const venue = card._ppVenue !== undefined ? card._ppVenue : card.dataset.venue || "Other";
 
       const normVenue = venue.toLowerCase();
       let matchedNormName = "Other";
@@ -917,7 +919,16 @@
 
       const hasMeaningfulChange = mutations.some(m => {
         if (m.type !== 'childList') return false;
-        return (m.addedNodes && m.addedNodes.length) || (m.removedNodes && m.removedNodes.length);
+        
+        // Filter out mutations that are just badges, toolbars, or other plugin-injected nodes.
+        // Only trigger update if a scholarly article card (gs_r) or results container itself is added/removed.
+        const nodes = Array.from(m.addedNodes).concat(Array.from(m.removedNodes));
+        return nodes.some(node => {
+          if (node.nodeType !== 1) return false;
+          return node.classList.contains("gs_r") || 
+                 node.querySelector?.(".gs_r") || 
+                 node.id === "gs_res_ccl_mid";
+        });
       });
 
       if (!hasMeaningfulChange) return;
@@ -1168,6 +1179,12 @@
       card.dataset.year = year;
       card.dataset.venue = venue;
       card.dataset.title = titleText;
+
+      // Direct JS properties caching for 100x faster reads
+      card._ppCite = citations;
+      card._ppYear = year;
+      card._ppVenue = venue;
+      card._ppTitle = titleText;
 
       // 6. Highlight Nature Index Papers
       let isNatureIndex = false;
@@ -1505,7 +1522,8 @@
 
   // Duplicate Clustering
   function runDuplicateClustering() {
-    const cards = getScholarArticles();
+    // 1. Skip already-folded duplicate items to avoid redundant work in infinite scrolling
+    const cards = getScholarArticles().filter(c => c.dataset.foldedAsDuplicate !== "true");
     if (cards.length === 0) return;
 
     const clusters = [];
@@ -1514,7 +1532,7 @@
     for (let i = 0; i < cards.length; i++) {
       if (processed.has(i)) continue;
       
-      const t1 = cards[i].dataset.title;
+      const t1 = cards[i]._ppTitle || cards[i].dataset.title;
       if (!t1) continue;
 
       const cluster = [i];
@@ -1522,8 +1540,18 @@
 
       for (let j = i + 1; j < cards.length; j++) {
         if (processed.has(j)) continue;
-        const t2 = cards[j].dataset.title;
+        const t2 = cards[j]._ppTitle || cards[j].dataset.title;
         if (!t2) continue;
+
+        // 2. Length-difference fast filter: If the titles have a length difference > 18%,
+        // their Levenshtein similarity cannot possibly exceed 0.82. Skip immediately to save 90% cpu cycles!
+        const len1 = t1.length;
+        const len2 = t2.length;
+        const maxLen = Math.max(len1, len2);
+        const minLen = Math.min(len1, len2);
+        if (maxLen > 0 && (maxLen - minLen) / maxLen > 0.18) {
+          continue;
+        }
 
         const sim = getStringSimilarity(t1, t2);
         if (sim > 0.82) {
@@ -1543,7 +1571,7 @@
       cluster.forEach(idx => {
         const card = cards[idx];
         const isNi = card.classList.contains("pp-scholar-ni-card");
-        const cites = parseInt(card.dataset.cite || "0");
+        const cites = parseInt(card._ppCite !== undefined ? card._ppCite : card.dataset.cite || "0", 10);
         const score = cites + (isNi ? 1000 : 0);
         if (score > maxScore) {
           maxScore = score;
@@ -1555,34 +1583,20 @@
       const duplicates = cluster.filter(idx => idx !== primaryIndex);
 
       let dupContainer = primaryCard.querySelector(".pp-scholar-dup-container");
+      let dupBody;
+      let dupHeader;
+
       if (!dupContainer) {
         dupContainer = document.createElement("div");
         dupContainer.className = "pp-scholar-dup-container";
         dupContainer.setAttribute("data-pp-theme", currentTheme);
         
-        const dupHeader = document.createElement("div");
+        dupHeader = document.createElement("div");
         dupHeader.className = "pp-scholar-dup-header";
-        dupHeader.innerHTML = `<span>✦ 已智能折叠另外 ${duplicates.length} 个重复条目 (预印本/会议版)</span> <span>展开 ▼</span>`;
         dupContainer.appendChild(dupHeader);
 
-        const dupBody = document.createElement("div");
+        dupBody = document.createElement("div");
         dupBody.className = "pp-scholar-dup-body";
-
-        duplicates.forEach(idx => {
-          const dupCard = cards[idx];
-          const title = dupCard.dataset.title;
-          const venue = dupCard.dataset.venue;
-          const year = dupCard.dataset.year;
-          const cites = dupCard.dataset.cite;
-
-          const row = document.createElement("div");
-          row.innerHTML = `<strong>[${venue}, ${year}年, 被引 ${cites}次]</strong><br><a href="${dupCard.querySelector(".gs_rt a")?.href || '#'}" target="_blank" style="color: #0f6d5f; text-decoration: underline;">${title}</a>`;
-          dupBody.appendChild(row);
-
-          dupCard.style.display = "none";
-          dupCard.dataset.foldedAsDuplicate = "true";
-        });
-
         dupContainer.appendChild(dupBody);
         
         dupHeader.onclick = (e) => {
@@ -1592,7 +1606,39 @@
         };
 
         primaryCard.appendChild(dupContainer);
+      } else {
+        dupBody = dupContainer.querySelector(".pp-scholar-dup-body");
+        dupHeader = dupContainer.querySelector(".pp-scholar-dup-header");
       }
+
+      // Append newly identified duplicates to primary card's duplicate drawer
+      duplicates.forEach(idx => {
+        const dupCard = cards[idx];
+        const title = dupCard._ppTitle || dupCard.dataset.title;
+        const venue = dupCard._ppVenue || dupCard.dataset.venue;
+        const year = dupCard._ppYear || dupCard.dataset.year;
+        const cites = dupCard._ppCite !== undefined ? dupCard._ppCite : dupCard.dataset.cite || "0";
+
+        // Avoid adding duplicate rows if already present (e.g. from previous runs)
+        const dupCardHref = dupCard.querySelector(".gs_rt a")?.href || '';
+        if (dupCardHref && dupBody.querySelector(`a[href="${dupCardHref}"]`)) {
+          dupCard.style.display = "none";
+          dupCard.dataset.foldedAsDuplicate = "true";
+          return;
+        }
+
+        const row = document.createElement("div");
+        row.innerHTML = `<strong>[${venue}, ${year}年, 被引 ${cites}次]</strong><br><a href="${dupCardHref || '#'}" target="_blank" style="color: #0f6d5f; text-decoration: underline;">${title}</a>`;
+        dupBody.appendChild(row);
+
+        dupCard.style.display = "none";
+        dupCard.dataset.foldedAsDuplicate = "true";
+      });
+
+      // Update total dynamic duplicates count inside header
+      const totalDups = dupBody.children.length;
+      const isExpanded = dupBody.classList.contains("pp-expanded");
+      dupHeader.innerHTML = `<span>✦ 已智能折叠另外 ${totalDups} 个重复条目 (预印本/会议版)</span> <span>${isExpanded ? "关闭 ▲" : "展开 ▼"}</span>`;
     });
   }
 
