@@ -93,6 +93,7 @@ const initPopup = () => {
   const configMetacard = document.getElementById("setting-enable-metacard");
   const configMarkdownNote = document.getElementById("setting-enable-markdown-note");
   const configMetricsDisplay = document.getElementById("setting-enable-metrics-display");
+  const configMetricsAutoDetect = document.getElementById("setting-enable-metrics-auto-detect");
   const configBibtexBtn = document.getElementById("setting-enable-bibtex-btn");
   const configScholarCopyDoiBtn = document.getElementById("setting-enable-scholar-copy-doi-btn");
   const configJournalCopyDoiBtn = document.getElementById("setting-enable-journal-copy-doi-btn");
@@ -453,6 +454,7 @@ const initPopup = () => {
     "enable_metacard",
     "enable_markdown_note",
     "enable_metrics_display",
+    "enable_metrics_auto_detect",
     "enable_bibtex_btn",
     "enable_scholar_copy_doi_btn",
     "enable_journal_copy_doi_btn",
@@ -495,6 +497,7 @@ const initPopup = () => {
     configMetacard.checked = config.enable_metacard !== false;
     configMarkdownNote.checked = config.enable_markdown_note !== false;
     configMetricsDisplay.checked = config.enable_metrics_display !== false;
+    configMetricsAutoDetect.checked = config.enable_metrics_auto_detect !== false;
     configBibtexBtn.checked = config.enable_bibtex_btn !== false;
     
     // Legacy migration support
@@ -629,6 +632,7 @@ const initPopup = () => {
   configMetacard.onchange = () => saveSetting("enable_metacard", configMetacard.checked, "悬浮元卡面板开关已同步");
   configMarkdownNote.onchange = () => saveSetting("enable_markdown_note", configMarkdownNote.checked, "Markdown 笔记复制开关已同步");
   configMetricsDisplay.onchange = () => saveSetting("enable_metrics_display", configMetricsDisplay.checked, "期刊分区与影响因子显示已同步");
+  configMetricsAutoDetect.onchange = () => saveSetting("enable_metrics_auto_detect", configMetricsAutoDetect.checked, "SecretKey 自动检测展示已同步");
   configBibtexBtn.onchange = () => saveSetting("enable_bibtex_btn", configBibtexBtn.checked, "BibTeX复制按钮显示已同步");
   configScholarCopyDoiBtn.onchange = () => saveSetting("enable_scholar_copy_doi_btn", configScholarCopyDoiBtn.checked, "学术检索页复制 DOI 开关已同步");
   configJournalCopyDoiBtn.onchange = () => saveSetting("enable_journal_copy_doi_btn", configJournalCopyDoiBtn.checked, "悬浮详情卡复制 DOI 开关已同步");

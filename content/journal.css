@@ -368,6 +368,9 @@
   border: 1px solid var(--pp-btn-border) !important;
   width: 22px !important;
   height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
+  padding: 0 !important;
   border-radius: 50% !important;
   display: flex !important;
   align-items: center !important;
@@ -376,6 +379,32 @@
   color: var(--pp-text-main) !important;
   transition: all 0.2s ease !important;
   font-size: 11px !important;
+  line-height: 1 !important;
+  box-sizing: border-box !important;
+}
+
+.pp-jc-hdr-btn svg {
+  display: block !important;
+  width: 14px !important;
+  height: 14px !important;
+  min-width: 14px !important;
+  min-height: 14px !important;
+  max-width: 14px !important;
+  max-height: 14px !important;
+  flex: 0 0 14px !important;
+  color: currentColor !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2 !important;
+  overflow: visible !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+}
+
+.pp-jc-hdr-btn svg * {
+  stroke: currentColor !important;
+  vector-effect: non-scaling-stroke !important;
 }
 
 .pp-jc-hdr-btn:hover {

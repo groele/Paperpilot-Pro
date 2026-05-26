@@ -8,6 +8,10 @@
   let cardEl = null;
   let currentTheme = "system";
 
+  function getIcon(name, fallback = "") {
+    return (window.PP_ICONS && window.PP_ICONS[name]) || fallback;
+  }
+
   // Institutional Proxy & VPN (EZproxy / Bupt vpn) URL cleaner
   function cleanProxyUrl(urlString) {
     if (!urlString) return "";
@@ -298,6 +302,7 @@
       }
       const shouldRedraw = changes.enable_metacard ||
                            changes.enable_metrics_display ||
+                           changes.enable_metrics_auto_detect ||
                            changes.enable_copy_doi_btn ||
                            changes.enable_scholar_copy_doi_btn ||
                            changes.enable_journal_copy_doi_btn ||
@@ -310,7 +315,8 @@
                            changes.enable_cas_badge ||
                            changes.enable_jcr_badge ||
                            changes.enable_cite_badge ||
-                           changes.enable_pdf_badge;
+                           changes.enable_pdf_badge ||
+                           changes.easyscholar_key;
       if (shouldRedraw) {
         const card = document.getElementById("pp-journal-metacard");
         if (card) card.remove();
@@ -629,6 +635,7 @@
     chrome.storage.local.get([
       "enable_metacard",
       "enable_metrics_display",
+      "enable_metrics_auto_detect",
       "enable_copy_doi_btn",
       "enable_journal_copy_doi_btn",
       "pdf_landing_cache",
@@ -642,6 +649,7 @@
       "enable_jcr_badge",
       "enable_cite_badge",
       "enable_pdf_badge",
+      "easyscholar_key",
       "metacard_pinned"
     ], (config) => {
       if (config.enable_metacard === false) {
@@ -661,7 +669,9 @@
       // Set minimized layout
       const isNi = checkNatureIndexMatch(paperMeta.journal);
 
-      const enable_metrics_display = config.enable_metrics_display !== false;
+      const hasEasyScholarKey = Boolean((config.easyscholar_key || "").trim());
+      const autoDetectMetrics = config.enable_metrics_auto_detect !== false;
+      const enable_metrics_display = config.enable_metrics_display !== false && (!autoDetectMetrics || hasEasyScholarKey);
       const enable_pdf_download_btn = config.enable_pdf_download_btn !== false;
       const enable_ai_summary_btn = config.enable_ai_summary_btn !== false;
 
@@ -703,9 +713,9 @@
           </div>
           <div class="pp-jc-card-header-actions">
             <button class="pp-jc-hdr-btn ${config.metacard_pinned === true ? 'pp-jc-active' : ''}" id="pp-jc-btn-pin" title="${config.metacard_pinned === true ? '取消固定侧边栏' : '固定侧边栏'}">
-              ${config.metacard_pinned === true ? window.PP_ICONS.pin_off : window.PP_ICONS.pin}
+              ${config.metacard_pinned === true ? getIcon("pin_off", "⊘") : getIcon("pin", "⌖")}
             </button>
-            <button class="pp-jc-hdr-btn" id="pp-jc-btn-min" title="最小化面板">${window.PP_ICONS.minimize}</button>
+            <button class="pp-jc-hdr-btn" id="pp-jc-btn-min" title="最小化面板">${getIcon("minimize", "−")}</button>
             <button class="pp-jc-hdr-btn" id="pp-jc-btn-help" title="帮助/配置">?</button>
           </div>
         </div>
@@ -884,7 +894,7 @@
       if (pinBtn) {
         pinBtn.classList.toggle("pp-jc-active", pinned);
         pinBtn.title = pinned ? "取消固定侧边栏" : "固定侧边栏";
-        pinBtn.innerHTML = pinned ? window.PP_ICONS.pin_off : window.PP_ICONS.pin;
+        pinBtn.innerHTML = pinned ? getIcon("pin_off", "⊘") : getIcon("pin", "⌖");
       }
     };
 

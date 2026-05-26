@@ -39,6 +39,7 @@
     "enable_badges",
     "enable_markdown_note",
     "enable_metrics_display",
+    "enable_metrics_auto_detect",
     "enable_bibtex_btn",
     "enable_scholar_copy_doi_btn",
     "easyscholar_key",
@@ -319,9 +320,10 @@
         enable_badges: settings.enable_badges !== false,
         enable_markdown_note: settings.enable_markdown_note !== false,
         enable_metrics_display: settings.enable_metrics_display !== false,
+        enable_metrics_auto_detect: settings.enable_metrics_auto_detect !== false,
         enable_bibtex_btn: settings.enable_bibtex_btn !== false,
         enable_scholar_copy_doi_btn: settings.enable_scholar_copy_doi_btn !== false,
-        easyscholar_key: settings.easyscholar_key,
+        easyscholar_key: (settings.easyscholar_key || "").trim(),
         enable_ccf_badge: settings.enable_ccf_badge !== false,
         enable_core_badge: settings.enable_core_badge !== false,
         enable_warn_badge: settings.enable_warn_badge !== false,
@@ -1220,7 +1222,10 @@
         let casBadge = null;
         let jcrBadge = null;
 
-        if (settings.enable_metrics_display) {
+        const shouldShowMetrics = settings.enable_metrics_display &&
+          (settings.enable_metrics_auto_detect === false || Boolean(settings.easyscholar_key));
+
+        if (shouldShowMetrics) {
           const metrics = getJournalMetrics(venue, year, citations);
           if (metrics.isPreprint) {
             const preprintBadge = document.createElement("span");
