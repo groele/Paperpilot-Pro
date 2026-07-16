@@ -8,6 +8,7 @@
 ![Type](https://img.shields.io/badge/type-Chrome%20Extension-blue?style=flat-square)
 ![Workflow](https://img.shields.io/badge/workflow-literature%20engine-green?style=flat-square)
 ![Architecture](https://img.shields.io/badge/architecture-browser--native-purple?style=flat-square)
+![Version](https://img.shields.io/badge/version-1.2.0-6f42c1?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
 
 Part of **ResearchFlow Lab** — a local-first research productivity ecosystem for literature, manuscripts, data, and scientific visualization.
@@ -45,7 +46,9 @@ Academic literature discovery is still highly fragmented. Researchers often jump
 | Nature Index Highlight | Highlights Nature Index-related journal results | 对 Nature Index 相关期刊结果进行高亮 |
 | Metadata Badges | Displays IF, partition, CCF, CSSCI, warning, citations, and PDF status where available | 展示影响因子、分区、CCF、CSSCI、预警、引用量和 PDF 状态 |
 | DOI Tools | Detects and copies DOI from literature pages | 检测并复制 DOI |
-| PDF Sniffing | Attempts to identify direct PDF links from publisher pages | 在期刊页面尝试探测 PDF 直链 |
+| On-demand Page Activation | Uses a lightweight detector before loading the full journal runtime on long-tail academic sites | 通过轻量探测器按需激活长尾期刊与机构仓储页面 |
+| Modular PDF Discovery | Detects PDF metadata, controls, viewers, JSON-LD, URL parameters, and open Shadow DOM | 识别 PDF 元标签、按钮、查看器、JSON-LD、URL 参数和开放 Shadow DOM |
+| PDF Verification & Diagnostics | Races bounded HEAD/Range checks, reuses verified requests, and reports cache/verification status | 并行校验候选链接、复用已验证请求并显示缓存与校验诊断 |
 | BibTeX Export | Generates or copies BibTeX-style citation information | 生成或复制 BibTeX 引用 |
 | Markdown Notes | Generates structured literature note templates | 生成结构化 Markdown 读书笔记 |
 | AI Summary | Uses optional local/user-configured AI providers for literature summaries | 使用用户配置的 AI 模型进行文献总结 |
@@ -69,26 +72,24 @@ PaperPilot Pro follows four design principles:
 
 ```text
 PaperPilot Pro
-├── Page Enhancement Layer
+├── Activation Layer
+│   ├── known academic route matching
+│   └── lightweight all-page detector → on-demand runtime injection
+├── Core Layer
+│   ├── metadata and DOI normalization
+│   ├── PDF discovery and response classification
+│   ├── pluggable publisher adapters
+│   ├── bounded TTL/LRU caches and single-flight coordination
+│   └── citation, sanitization, messaging, and AI adapters
+├── Runtime Layer
 │   ├── Google Scholar enhancer
-│   ├── publisher-page metacard
-│   ├── result sorting / filtering
-│   └── visual badges
-├── Metadata Layer
-│   ├── DOI detector
-│   ├── title / author / journal parser
-│   ├── PDF link sniffer
-│   └── citation formatter
-├── Knowledge Layer
-│   ├── reading footprints
-│   ├── Markdown note generator
-│   ├── BibTeX export
-│   └── AI summary adapter
-└── Configuration Layer
-    ├── feature toggles
-    ├── easyScholar integration
-    ├── theme settings
-    └── local browser storage
+│   ├── SPA-aware publisher-page metacard
+│   ├── parallel HEAD/Range PDF verification
+│   └── browser download and filename management
+└── Presentation Layer
+    ├── current-page diagnostics
+    ├── feature toggles and themes
+    └── reading footprints and exports
 ```
 
 ---
@@ -133,12 +134,15 @@ Typical use cases:
 
 ```text
 PaperPilot Pro
-├── extension source
-├── page enhancement scripts
-├── metadata parsers
-├── style and theme assets
-├── configuration modules
-└── README.md
+├── background/        # MV3 service worker and download orchestration
+├── content/           # lightweight detector plus Scholar/journal runtimes
+├── core/              # reusable and independently tested modules
+├── popup/             # settings, history, and current-page diagnostics
+├── scripts/           # lint, E2E performance checks, and packaging
+├── test/              # unit tests and academic repository fixtures
+├── manifest.json
+├── package.json
+└── CHANGELOG.md
 ```
 
 The exact directory layout may evolve as the project becomes more modular.
@@ -147,8 +151,8 @@ The exact directory layout may evolve as the project becomes more modular.
 
 ## 09. Roadmap
 
-- [ ] More robust publisher-specific metadata parsers
-- [ ] More stable PDF detection across publishers
+- [x] Pluggable publisher adapters and metadata-driven long-tail activation
+- [x] Modular PDF discovery with bounded verification and diagnostics
 - [ ] ResearchFlow record export
 - [ ] Zotero import / export bridge
 - [ ] Better deduplication across Scholar, arXiv, and publisher versions
