@@ -1,0 +1,491 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const test = require("node:test");
+
+function loadCore(...files) {
+  const sandbox = {
+    URL,
+    Date,
+    Math,
+    console,
+    setTimeout,
+    clearTimeout,
+    PaperPilotCore: {}
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(__dirname, "..", file), "utf8");
+    vm.runInContext(source, sandbox, { filename: file });
+  }
+
+  return sandbox.PaperPilotCore;
+}
+
+test("AI summary reports missing API key instead of creating a fake summary", async () => {
+  const core = loadCore("core/messaging.js", "core/ai.js");
+
+  const result = await core.ai.summarize({
+    provider: "openai",
+    model: "gpt-4o-mini",
+    baseUrl: "https://api.openai.com/v1",
+    apiKey: "",
+    prompt: "Summarize",
+    title: "A real paper",
+    abstract: "This abstract should not be simulated."
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, "AI_API_KEY_MISSING");
+  assert.equal(result.source, "ai/openai");
+  assert.equal(result.data.summary, "");
+});
+
+test("message responses include duration and diagnostics fields", () => {
+  const core = loadCore("core/messaging.js");
+  const result = core.messaging.response({
+    ok: false,
+    errorCode: "PDF_HTML_RESPONSE",
+    error: "HTML response",
+    data: null,
+    source: "pdf-service",
+    cachedAt: 123,
+    durationMs: 42,
+    diagnostics: { attempted: 3 }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.success, false);
+  assert.equal(result.data, null);
+  assert.equal(result.durationMs, 42);
+  assert.deepEqual(result.diagnostics, { attempted: 3 });
+});
+
+test("message timing helper wraps async handlers", async () => {
+  const core = loadCore("core/messaging.js");
+  const result = await core.messaging.withTiming("metadata-service", async () => ({
+    ok: true,
+    success: true,
+    data: { title: "Demo" }
+  }));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.success, true);
+  assert.equal(result.source, "metadata-service");
+  assert.equal(typeof result.durationMs, "number");
+});
+
+test("AI summary reports provider failure instead of falling back to a fake summary", async () => {
+  const core = loadCore("core/messaging.js", "core/ai.js");
+
+  const result = await core.ai.summarize({
+    provider: "openai",
+    model: "gpt-4o-mini",
+    baseUrl: "https://api.openai.com/v1",
+    apiKey: "sk-test",
+    prompt: "Summarize",
+    title: "A real paper",
+    abstract: "This abstract should not be simulated.",
+    fetchImpl: async () => ({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: { message: "rate limited" } })
+    })
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, "AI_PROVIDER_ERROR");
+  assert.equal(result.data.summary, "");
+  assert.match(result.error, /rate limited/);
+});
+
+test("metadata metrics stay unavailable without a trusted ranking source", () => {
+  const core = loadCore("core/messaging.js", "core/metadata.js");
+
+  const metadata = core.metadata.createBaseMetadata({
+    doi: "https://doi.org/10.1000/demo",
+    title: "Demo",
+    journal: "Nature Energy"
+  });
+
+  assert.equal(metadata.doi, "10.1000/demo");
+  assert.equal(metadata.impactFactor, "N/A");
+  assert.equal(metadata.citeScore, "N/A");
+  assert.equal(metadata.jcrQuartile, "N/A");
+  assert.equal(metadata.casPartition, "N/A");
+  assert.equal(metadata.isEstimated, false);
+  assert.equal(metadata.metricsSource, "unconfigured");
+});
+
+test("metadata DOI extraction ignores Science article ids and recovers full DOI", () => {
+  const core = loadCore("core/messaging.js", "core/metadata.js");
+
+  const doi = core.metadata.extractDoi([
+    "adh5083",
+    "https://doi.org/10.1126/sciadv.adh5083",
+    "Science Advances article"
+  ]);
+
+  assert.equal(doi, "10.1126/sciadv.adh5083");
+  assert.equal(core.metadata.extractDoi(["adh5083"]), "");
+  assert.equal(core.metadata.extractDoi(["doi:10.1126/science.abq1234."]), "10.1126/science.abq1234");
+});
+
+test("sanitizer escapes page-controlled text and attributes", () => {
+  const core = loadCore("core/sanitize.js");
+
+  assert.equal(
+    core.sanitize.escapeHtml("</textarea><img src=x onerror=alert(1)>"),
+    "&lt;/textarea&gt;&lt;img src=x onerror=alert(1)&gt;"
+  );
+  assert.equal(
+    core.sanitize.escapeAttr(`" onmouseover="alert(1)`),
+    "&quot; onmouseover=&quot;alert(1)"
+  );
+});
+
+test("PDF responses classify HTML, auth, timeout and confirmed PDFs", () => {
+  const core = loadCore("core/messaging.js", "core/pdf.js");
+
+  const confirmedPdf = core.pdf.classifyPdfResponse({
+    ok: true,
+    status: 200,
+    headers: { "content-type": "application/pdf" },
+    url: "https://example.org/paper"
+  });
+  assert.equal(confirmedPdf.valid, true);
+  assert.equal(confirmedPdf.errorCode, null);
+  assert.equal(confirmedPdf.reason, "pdf-response");
+  assert.equal(confirmedPdf.finalUrl, "https://example.org/paper");
+
+  assert.equal(core.pdf.classifyPdfResponse({
+    ok: true,
+    status: 200,
+    headers: { "content-type": "text/html" },
+    url: "https://example.org/paper"
+  }).errorCode, "PDF_HTML_RESPONSE");
+
+  assert.equal(core.pdf.classifyPdfResponse({
+    ok: false,
+    status: 403,
+    headers: {},
+    url: "https://example.org/paper.pdf"
+  }).errorCode, "PDF_AUTH_REQUIRED");
+
+  assert.equal(core.pdf.classifyPdfError(new Error("The operation was aborted")).errorCode, "PDF_TIMEOUT");
+});
+
+test("PDF detection accepts a standards-compliant header within the first 1024 bytes", () => {
+  const core = loadCore("core/pdf.js");
+  const chunk = new Uint8Array([0, 0, 0, 0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x37]);
+  assert.equal(core.pdf.responseLooksPdf({ headers: {}, ok: true }, chunk), true);
+});
+
+test("PDF URL cache keys preserve case-sensitive paths", () => {
+  const core = loadCore("core/pdf.js");
+  assert.notEqual(
+    core.pdf.normalizeDownloadUrlKey("https://example.org/Paper.pdf"),
+    core.pdf.normalizeDownloadUrlKey("https://example.org/paper.pdf")
+  );
+});
+
+test("cache helper expires and bounds persistent records", () => {
+  const core = loadCore("core/cache.js");
+  const records = {
+    old: { cachedAt: 1 },
+    a: { cachedAt: 90 },
+    b: { cachedAt: 100 },
+    keep: { cachedAt: 1 }
+  };
+  core.cache.pruneRecordObject(records, {
+    now: 110,
+    ttlMs: 50,
+    maxEntries: 1,
+    preserveKeys: ["keep"]
+  });
+  assert.deepEqual(Object.keys(records).sort(), ["b", "keep"]);
+});
+
+test("PDF discovery extracts nested viewer URLs and recognizes query-based PDF routes", () => {
+  const core = loadCore("core/pdf.js", "core/pdf-discovery.js");
+  const viewer = "https://repo.example/viewer?file=" + encodeURIComponent("/files/Paper.PDF?token=abc");
+  assert.deepEqual(
+    Array.from(core.pdfDiscovery.extractViewerUrls(viewer, viewer)),
+    ["https://repo.example/files/Paper.PDF?token=abc"]
+  );
+  assert.equal(core.pdfDiscovery.looksLikePdfUrl("https://repo.example/article/file?id=10.1/demo&type=pdf"), true);
+});
+
+test("PDF candidate preparation scores publisher rules and filters non-article PDFs", () => {
+  const core = loadCore("core/messaging.js", "core/pdf.js");
+
+  const nature = core.pdf.buildPublisherPdfCandidates("https://www.nature.com/articles/s41586-026-00000-0");
+  assert.equal(nature[0].url, "https://www.nature.com/articles/s41586-026-00000-0.pdf");
+  assert.equal(nature[0].source, "publisher-rule:nature");
+
+  const arxiv = core.pdf.buildPublisherPdfCandidates("https://arxiv.org/abs/2601.01234");
+  assert.equal(arxiv[0].url, "https://arxiv.org/pdf/2601.01234");
+  assert.equal(arxiv[0].source, "publisher-rule:arxiv");
+
+  const prepared = core.pdf.preparePdfCandidates([
+    { url: "https://example.org/supporting-information.pdf", text: "Supporting Information PDF", source: "dom" },
+    { url: "https://example.org/article.pdf", text: "Download PDF", source: "explicit-pdf-button" },
+    { url: "https://example.org/article.pdf?download=1", text: "Download PDF", source: "duplicate" }
+  ]);
+
+  assert.equal(prepared.length, 1);
+  assert.equal(prepared[0].url, "https://example.org/article.pdf");
+  assert.equal(prepared[0].score >= 90, true);
+});
+
+test("PDF publisher rules cover common journal hosts", () => {
+  const core = loadCore("core/messaging.js", "core/site-profiles.js", "core/pdf.js");
+
+  const science = core.pdf.buildPublisherPdfCandidates("https://www.science.org/doi/10.1126/sciadv.adh5083");
+  assert.equal(science[0].url, "https://www.science.org/doi/pdf/10.1126/sciadv.adh5083");
+  assert.equal(science[0].source, "publisher-rule:science");
+
+  const wiley = core.pdf.buildPublisherPdfCandidates("https://onlinelibrary.wiley.com/doi/10.1002/adma.202412345");
+  assert.equal(wiley[0].url, "https://onlinelibrary.wiley.com/doi/pdf/10.1002/adma.202412345");
+
+  const acs = core.pdf.buildPublisherPdfCandidates("https://pubs.acs.org/doi/10.1021/acs.nanolett.5c00001");
+  assert.equal(acs[0].url, "https://pubs.acs.org/doi/pdf/10.1021/acs.nanolett.5c00001");
+
+  const ieee = core.pdf.buildPublisherPdfCandidates("https://ieeexplore.ieee.org/document/1234567");
+  assert.equal(ieee[0].url, "https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1234567");
+
+  const frontiers = core.pdf.buildPublisherPdfCandidates("https://www.frontiersin.org/articles/10.3389/fphy.2026.1234567/full");
+  assert.equal(frontiers[0].url, "https://www.frontiersin.org/articles/10.3389/fphy.2026.1234567/pdf");
+});
+
+test("site profiles expose DOI, PDF, metadata and challenge signals for common publishers", () => {
+  const core = loadCore("core/messaging.js", "core/metadata.js", "core/site-profiles.js");
+  const cases = [
+    ["science", "https://www.science.org/doi/10.1126/sciadv.adh5083", "https://www.science.org/doi/pdf/10.1126/sciadv.adh5083"],
+    ["nature", "https://www.nature.com/articles/s41586-026-00000-0", "https://www.nature.com/articles/s41586-026-00000-0.pdf"],
+    ["wiley", "https://onlinelibrary.wiley.com/doi/10.1002/adma.202412345", "https://onlinelibrary.wiley.com/doi/pdf/10.1002/adma.202412345"],
+    ["acs", "https://pubs.acs.org/doi/10.1021/acs.nanolett.5c00001", "https://pubs.acs.org/doi/pdf/10.1021/acs.nanolett.5c00001"],
+    ["rsc", "https://pubs.rsc.org/en/content/articlelanding/2026/nr/d6nr00001a", "https://pubs.rsc.org/en/content/articlepdf/2026/nr/d6nr00001a"],
+    ["ieee", "https://ieeexplore.ieee.org/document/1234567", "https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1234567"],
+    ["sciencedirect", "https://www.sciencedirect.com/science/article/pii/S1234567890", ""],
+    ["mdpi", "https://www.mdpi.com/2072-4292/18/1/123", "https://www.mdpi.com/2072-4292/18/1/123/pdf"],
+    ["frontiers", "https://www.frontiersin.org/articles/10.3389/fphy.2026.1234567/full", "https://www.frontiersin.org/articles/10.3389/fphy.2026.1234567/pdf"],
+    ["tandf", "https://www.tandfonline.com/doi/full/10.1080/00000000.2026.1234567", "https://www.tandfonline.com/doi/pdf/10.1080/00000000.2026.1234567"],
+    ["arxiv", "https://arxiv.org/abs/2601.01234", "https://arxiv.org/pdf/2601.01234"],
+    ["pmc", "https://pmc.ncbi.nlm.nih.gov/articles/PMC1234567/", "https://pmc.ncbi.nlm.nih.gov/articles/PMC1234567/pdf/"],
+    ["biorxiv", "https://www.biorxiv.org/content/10.1101/2026.01.01.123456v1", "https://www.biorxiv.org/content/10.1101/2026.01.01.123456v1.full.pdf"],
+    ["pnas", "https://www.pnas.org/doi/10.1073/pnas.1234567890", "https://www.pnas.org/doi/pdf/10.1073/pnas.1234567890"],
+    ["oup", "https://academic.oup.com/nsr/article/10/1/123/1234567", ""],
+    ["cambridge", "https://www.cambridge.org/core/journals/demo/article/abs/demo/ABC123", ""],
+    ["iop", "https://iopscience.iop.org/article/10.1088/1361-6528/abc123", "https://iopscience.iop.org/article/10.1088/1361-6528/abc123/pdf"],
+    ["acm", "https://dl.acm.org/doi/10.1145/1234567.1234568", "https://dl.acm.org/doi/pdf/10.1145/1234567.1234568"]
+  ];
+
+  for (const [id, url, expectedPdf] of cases) {
+    const profile = core.siteProfiles.resolve(url);
+    assert.equal(profile.id, id);
+    assert.equal(Array.isArray(profile.doiCandidates), true);
+    assert.equal(Array.isArray(profile.pdfCandidates), true);
+    assert.equal(Array.isArray(profile.metadataSelectors), true);
+    assert.equal(Array.isArray(profile.challengeSignals), true);
+    if (expectedPdf) {
+      assert.equal(profile.pdfCandidates[0].url, expectedPdf);
+      assert.equal(profile.pdfCandidates[0].kind, "profile");
+      assert.match(profile.pdfCandidates[0].confidence, /^(high|medium|low)$/);
+    }
+  }
+});
+
+test("modular site adapters cover eLife, PeerJ, PLOS and J-STAGE", () => {
+  const core = loadCore("core/metadata.js", "core/site-profiles.js");
+  const cases = [
+    ["https://elifesciences.org/articles/12345", "elife", "https://elifesciences.org/articles/12345.pdf"],
+    ["https://peerj.com/articles/1234/", "peerj", "https://peerj.com/articles/1234.pdf"],
+    ["https://journals.plos.org/plosone/article?id=10.1371/journal.pone.1234567", "plos", "type=printable"],
+    ["https://www.jstage.jst.go.jp/article/demo/1/2/1/_article", "jstage", "/_pdf"]
+  ];
+  for (const [url, id, pdfPart] of cases) {
+    const profile = core.siteProfiles.resolve(url);
+    assert.equal(profile.id, id);
+    assert.equal(profile.pdfCandidates.length, 1);
+    assert.equal(profile.pdfCandidates[0].url.includes(pdfPart), true);
+  }
+  assert.equal(typeof core.siteProfiles.register, "function");
+});
+
+test("fast PDF download only applies to trusted PDF-like URLs", () => {
+  const core = loadCore("core/messaging.js", "core/pdf.js");
+
+  assert.equal(core.pdf.shouldFastDownloadCandidate({
+    url: "https://publisher.example/article/download",
+    source: "explicit-pdf-button",
+    score: 96,
+    browserFallback: false
+  }), false);
+
+  assert.equal(core.pdf.shouldFastDownloadCandidate({
+    url: "https://publisher.example/article.pdf",
+    source: "explicit-pdf-button",
+    score: 96,
+    browserFallback: false
+  }), true);
+});
+
+test("journal content collects up to 32 structured PDF candidates", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
+
+  assert.match(source, /const MAX_PDF_URL_CANDIDATES = 32;/);
+  assert.match(source, /source:\s*"explicit-pdf-button"/);
+  assert.match(source, /"citation_pdf_url"/);
+  assert.match(source, /source:\s*pdfMetaSource/);
+});
+
+test("background DOI lookup rejects suffix-only identifiers", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
+
+  assert.match(source, /PP_CORE\.metadata\?\.extractDoi/);
+});
+
+test("metadata cache records expiry and stale state", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
+
+  assert.match(source, /expiresAt/);
+  assert.match(source, /stale/);
+});
+
+test("background fast PDF verification races candidates instead of waiting for full batch", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
+  const fnStart = source.indexOf("async function findFastTrustedPdfTarget");
+  const fnEnd = source.indexOf("async function findFirstVerifiedPdfUrl");
+  const fnSource = source.slice(fnStart, fnEnd);
+
+  assert.match(fnSource, /Promise\.any/);
+  assert.doesNotMatch(fnSource, /await Promise\.all\(trustedUrls/);
+});
+
+test("background PDF downloads cache successful request keys and expose performance diagnostics", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
+
+  assert.match(source, /PDF_REQUEST_CACHE_KEY/);
+  assert.match(source, /cacheHit:\s*"request"/);
+  assert.match(source, /cacheHit:\s*"url"/);
+  assert.match(source, /candidateCount/);
+  assert.match(source, /attemptedCount/);
+  assert.match(source, /verificationMode/);
+});
+
+test("journal content caches site profile resolution per URL", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
+
+  assert.match(source, /siteProfileCache/);
+  assert.match(source, /function getCurrentSiteProfile/);
+  assert.match(source, /siteProfileCache\.href === href/);
+  assert.match(source, /cacheHit/);
+  assert.match(source, /verificationMode/);
+  assert.match(source, /attemptedCount/);
+});
+
+test("Scholar rendering avoids estimated metric labels and unsafe duplicate selectors", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "content/scholar.js"), "utf8");
+
+  assert.doesNotMatch(source, /\(估\)/);
+  assert.match(source, /CSS\.escape/);
+});
+
+test("ScienceDirect candidates distinguish signed direct PDFs from browser fallbacks", () => {
+  const core = loadCore("core/messaging.js", "core/pdf.js");
+
+  const signed = core.pdf.preparePdfCandidates([
+    "https://www.sciencedirect.com/science/article/pii/S1234567890/pdfft?md5=abc&pid=1"
+  ]);
+  assert.equal(signed[0].browserFallback, false);
+  assert.equal(core.pdf.shouldFastDownloadCandidate(signed[0]), true);
+
+  const unsigned = core.pdf.preparePdfCandidates([
+    "https://www.sciencedirect.com/science/article/pii/S1234567890/pdf"
+  ]);
+  assert.equal(unsigned[0].browserFallback, true);
+  assert.equal(core.pdf.shouldFastDownloadCandidate(unsigned[0]), false);
+});
+
+test("manifest uses only a lightweight detector for broad page coverage", () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8"));
+  assert.deepEqual(manifest.host_permissions, ["http://*/*", "https://*/*"]);
+
+  const broad = manifest.content_scripts.filter(script => (script.matches || []).includes("http://*/*"));
+  assert.equal(broad.length, 1);
+  assert.deepEqual(broad[0].js, ["content/detector.js"]);
+  assert.equal((broad[0].css || []).length, 0);
+  const scripts = JSON.stringify(manifest.content_scripts.flatMap(script => script.js || []));
+  assert.equal(scripts.includes("core/site-profiles.js"), true);
+  assert.equal(scripts.includes("core/pdf-discovery.js"), true);
+  assert.equal(manifest.permissions.includes("scripting"), true);
+});
+
+test("journal runtime is guarded, SPA-aware and delegates discovery to the core module", () => {
+  const journal = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
+  const background = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
+  assert.match(journal, /__PAPERPILOT_JOURNAL_LOADED__/);
+  assert.match(journal, /pdfDiscovery\?\.collect/);
+  assert.match(journal, /installPageLifecycleWatcher/);
+  assert.match(background, /ACTIVATE_JOURNAL_PAGE/);
+  assert.match(background, /JOURNAL_RUNTIME_FILES/);
+  assert.match(background, /pruneRecordObject/);
+});
+
+test("popup and content scripts expose current-page diagnostics", () => {
+  const popup = fs.readFileSync(path.join(__dirname, "..", "popup/popup.js"), "utf8");
+  const journal = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
+  const scholar = fs.readFileSync(path.join(__dirname, "..", "content/scholar.js"), "utf8");
+
+  assert.match(popup, /diagnostics\.currentPage/);
+  assert.match(popup, /btn-refresh-page-diagnostics/);
+  assert.match(popup, /btn-open-first-pdf/);
+  assert.match(journal, /getCurrentPageDiagnostics/);
+  assert.match(scholar, /getCurrentPageDiagnostics/);
+});
+
+test("citation exports create unique stable keys and include provenance fields", () => {
+  const core = loadCore("core/messaging.js", "core/citation.js");
+
+  const entries = core.citation.buildBibtexEntries([
+    {
+      title: "A <strong>Paper</strong>",
+      authors: ["Ada Lovelace"],
+      journal: "Journal",
+      year: 2026,
+      doi: "10.1000/demo",
+      url: "https://doi.org/10.1000/demo",
+      source: "Crossref"
+    },
+    {
+      title: "A Paper",
+      authors: ["Ada Lovelace"],
+      journal: "Journal",
+      year: 2026,
+      doi: "10.1000/demo2",
+      url: "https://doi.org/10.1000/demo2",
+      source: "OpenAlex"
+    }
+  ], { accessed: "2026-07-01" });
+
+  assert.match(entries, /@article\{Lovelace2026Paper,/);
+  assert.match(entries, /@article\{Lovelace2026Paper2,/);
+  assert.match(entries, /doi=\{10\.1000\/demo\}/);
+  assert.match(entries, /url=\{https:\/\/doi\.org\/10\.1000\/demo\}/);
+  assert.match(entries, /note=\{Source: Crossref; Accessed: 2026-07-01\}/);
+  assert.doesNotMatch(entries, /<strong>/);
+});
+
+test("background script includes native download interceptor and pageUrl tracking", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
+
+  assert.match(source, /function isSameUrl/);
+  assert.match(source, /metadata\.pageUrl/);
+  assert.match(source, /chrome\.downloads\.onDeterminingFilename\.addListener/);
+  assert.match(source, /pdf_cache/);
+  assert.match(source, /item\.referrer/);
+});

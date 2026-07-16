@@ -472,6 +472,9 @@ body {
 .pp-popup-footer {
   border-top: 1px solid var(--divider-color);
   padding-top: 10px;
+  display: grid;
+  grid-template-columns: 0.75fr 1fr;
+  gap: 8px;
 }
 
 .pp-popup-btn {
@@ -937,6 +940,38 @@ body {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 7px;
+}
+
+.pp-popup-page-diagnostics {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(15, 109, 95, 0.16);
+}
+
+.pp-popup-page-diagnostics .pp-popup-setting-desc {
+  margin: 4px 0 0 0;
+}
+
+.pp-popup-diagnostics-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pp-popup-mini-btn {
+  border: 1px solid var(--divider-color);
+  background: var(--item-bg);
+  color: var(--text-main);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pp-popup-mini-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .pp-popup-feature-status {

@@ -647,16 +647,27 @@ paperpilot-pro-extension/
 │   └── background.js            # Service Worker: API 调用、PDF 探测、历史、AI 总结
 │                                # Service Worker: API calls, PDF verification, history, AI
 │
+├── core/                        # 可复用、可测试核心模块 | Reusable, testable core modules
+│   ├── pdf.js                   # PDF 归一化、评分与响应分类 | PDF normalization and classification
+│   ├── pdf-discovery.js         # DOM/JSON-LD/Shadow DOM 候选发现 | Candidate discovery
+│   ├── site-profiles.js         # 可注册出版商适配器 | Pluggable publisher adapters
+│   ├── cache.js                 # TTL/LRU 与并发去重 | TTL/LRU and single-flight helpers
+│   └── metadata.js              # DOI 与论文元数据 | DOI and paper metadata
+│
 ├── content/                     # 内容脚本 | Content scripts
+│   ├── detector.js              # 全网页轻量学术探测器 | Lightweight all-page detector
 │   ├── scholar.js               # 谷歌学术增强脚本 | Google Scholar enhancement script
 │   ├── scholar.css              # 谷歌学术样式 | Google Scholar styles
 │   ├── journal.js               # 期刊页增强脚本 | Journal page enhancement script
 │   └── journal.css              # 期刊页样式 | Journal page styles
 │
-└── popup/                       # 弹窗界面 | Popup interface
+├── popup/                       # 弹窗界面 | Popup interface
     ├── popup.html               # 弹窗 HTML | Popup HTML
     ├── popup.js                 # 弹窗逻辑 | Popup logic
-    └── popup.css                # 弹窗样式 | Popup styles
+│   └── popup.css                # 弹窗样式 | Popup styles
+│
+├── test/                        # 核心回归测试 | Core regression tests
+└── scripts/                     # 校验、E2E 与打包 | Verification, E2E and packaging
 ```
 
 **文件大小参考 | File Size Reference**:
@@ -714,35 +725,41 @@ paperpilot-pro-extension/
 
 ### 高价值架构与性能调优 | Architectural & Performance Optimizations
 
-**7 天元数据缓存 (TTL Cache) | 7-day Metadata Cache**:
+**两级按需激活 | Two-stage On-demand Activation**:
+- 已知学术站点直接加载；其他网页只运行轻量探测器，命中学术元数据后再加载完整模块
+  Known academic sites load directly; other pages run only a lightweight detector until scholarly metadata is found
+- 避免在普通网页运行大型内容脚本，同时覆盖机构仓储与长尾期刊站点
+  Avoids heavy scripts on ordinary pages while covering repositories and long-tail journal sites
+
+**模块化 PDF 发现 | Modular PDF Discovery**:
+- 统一识别 Highwire/PRISM 元标签、显式按钮、嵌入查看器、JSON-LD、URL 参数与开放 Shadow DOM
+  Detects Highwire/PRISM metadata, controls, viewers, JSON-LD, URL parameters and open Shadow DOM
+- 出版商规则通过可注册适配器扩展，不必继续堆叠 UI 文件中的站点分支
+  Publisher rules are extended through registered adapters instead of UI-file condition chains
+
+**有界 TTL/LRU 缓存 | Bounded TTL/LRU Cache**:
 - 引入 7 天缓存有效生存期
   Introduces 7-day cache TTL (Time To Live)
-- 利用时间戳进行旧缓存无感自动迁移与更新
-  Uses timestamps for seamless legacy cache migration and updates
-- 完美保持学术指标和引文的即时有效性
-  Perfectly maintains timeliness of academic metrics and citations
-- 减少 API 调用，提升响应速度
-  Reduces API calls, improves response speed
+- PDF 请求缓存和元数据缓存均有数量上限及过期清理，避免长期使用后存储无限增长
+  PDF request and metadata caches are bounded and expired to prevent unbounded long-term growth
 
 **实时 GC 垃圾回收器 | Real-time GC Garbage Collector**:
 - 绑定 `downloads.onChanged` 监听器
   Binds `downloads.onChanged` listener
 - 下载任务中断/取消/完成时实时注销引用
   Real-time reference cleanup when download interrupts/cancels/completes
-- 实现 100% 内存安全回收
-  Achieves 100% memory-safe garbage collection
-- 防止内存泄漏
-  Prevents memory leaks
+- 清理已完成或中断任务的临时映射，降低长会话内存泄漏风险
+  Cleans temporary mappings after completion or interruption to reduce long-session leak risk
 
 **高校机构代理兼容 | Institutional Proxy Compatibility**:
 - 内置统一归一化清洗引擎
   Built-in unified normalization cleaning engine
-- 校外 VPN/EZproxy 域名下 100% 唤起元卡
-  100% metacard activation under off-campus VPN/EZproxy domains
+- 通过轻量探测器识别带学术元数据的 VPN/EZproxy 与机构仓储页面
+  Detects VPN/EZproxy and repository pages that expose scholarly metadata
 - 保留原始代理 URL 发起实际 PDF 下载
   Preserves original proxy URL for actual PDF downloads
-- 完美携带鉴权凭据穿透图书馆付费墙
-  Perfectly carries authentication credentials through library paywalls
+- 校验请求携带当前会话凭据；最终访问能力仍取决于出版商和机构权限
+  Verification requests include session credentials; access still depends on publisher and institutional permissions
 
 **无限滚动增量查重 | Infinite Scroll Incremental Dedup**:
 - 对 Levenshtein 算法增加 O(1) 长度差剪枝过滤器
@@ -1003,11 +1020,11 @@ paperpilot-pro-extension/
 4. 确认功能开关已开启
    Confirm feature toggles are ON
 
-### 问题 3: 徽章显示「估算」| Issue 3: Badges show "Estimated"
+### 问题 3: 指标显示「查询中」或未显示 | Issue 3: Metrics show "Querying" or are hidden
 
 **症状 | Symptoms**:
-- 徽章显示「估算 IF」而非具体数值
-  Badges show "Estimated IF" instead of specific value
+- 徽章显示「查询中」或不显示 IF/JCR/中科院分区
+  Badges show "Querying" or IF/JCR/CAS metrics are hidden
 
 **解决方法 | Solutions**:
 1. 配置 easyScholar SecretKey
@@ -1016,6 +1033,8 @@ paperpilot-pro-extension/
    Wait for async data loading
 3. 检查网络连接
    Check network connection
+4. 未配置可信数据源时，PaperPilot Pro 不再展示估算指标
+   Without a trusted data source, PaperPilot Pro no longer shows estimated metrics
 
 ### 问题 4: PDF 下载失败 | Issue 4: PDF download fails
 
@@ -1098,4 +1117,4 @@ Thanks to the following open-source projects and services:
 
 **最后更新 | Last Updated**: 2025-01
 
-**版本 | Version**: 1.1.0
+**版本 | Version**: 1.2.0

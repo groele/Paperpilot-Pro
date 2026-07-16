@@ -56,7 +56,11 @@ const initPopup = () => {
   const historyList = document.getElementById("history-list");
   const emptyMsg = document.getElementById("history-empty");
   const exportAllBtn = document.getElementById("btn-export-all");
+  const exportFormatSelect = document.getElementById("setting-export-format");
   const overviewStatusPill = document.getElementById("overview-status-pill");
+  const pageDiagnosticsText = document.getElementById("page-diagnostics-text");
+  const refreshPageDiagnosticsBtn = document.getElementById("btn-refresh-page-diagnostics");
+  const openFirstPdfBtn = document.getElementById("btn-open-first-pdf");
   const recordEditOverlay = document.getElementById("record-edit-overlay");
   const recordEditDrawer = document.getElementById("record-edit-drawer");
   const recordEditForm = document.getElementById("record-edit-form");
@@ -120,6 +124,7 @@ const initPopup = () => {
   let historyData = [];
   let activeEditIndex = -1;
   let currentHistoryQuery = "";
+  let currentDiagnostics = null;
   const inputSaveTimers = new Map();
   const AI_PROVIDER_DEFAULTS = {
     openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
@@ -391,6 +396,90 @@ const initPopup = () => {
     }
   }
 
+  function classifyActiveUrl(urlValue) {
+    let url;
+    try {
+      url = new URL(urlValue || "");
+    } catch (_) {
+      return { type: "unknown", label: "无法识别当前页面 URL" };
+    }
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname.toLowerCase();
+    if (host.includes("scholar.google.") || host === "xueshu.baidu.com") {
+      return { type: "scholar", label: "学术检索页：Scholar 增强模块应激活" };
+    }
+    const journalHosts = [
+      "doi.org", "nature.com", "science.org", "sciencedirect.com", "elsevier.com", "springer.com",
+      "wiley.com", "pubs.acs.org", "ieee.org", "arxiv.org", "biorxiv.org", "medrxiv.org",
+      "cell.com", "thelancet.com", "plos.org", "mdpi.com", "frontiersin.org", "tandfonline.com",
+      "sagepub.com", "oup.com", "cambridge.org", "rsc.org", "aps.org", "pnas.org", "aip.org",
+      "iopscience.iop.org", "spiedigitallibrary.org", "dl.acm.org", "jstor.org", "projecteuclid.org",
+      "jstage.jst.go.jp", "pubmed.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov", "ncbi.nlm.nih.gov"
+    ];
+    if (journalHosts.some(domain => host === domain || host.endsWith(`.${domain}`)) || /\b10\.\d{4,9}\//i.test(urlValue || "") || path.includes("/article/")) {
+      return { type: "journal", label: "论文/期刊页：元卡、PDF 与 AI 模块可用" };
+    }
+    return { type: "inactive", label: "普通网页：PaperPilot 不会自动注入内容脚本" };
+  }
+
+  function updateCurrentPageDiagnostics() {
+    if (!pageDiagnosticsText) return;
+    if (typeof chrome === "undefined" || !chrome.tabs?.query) {
+      pageDiagnosticsText.textContent = "本地预览模式：无法读取浏览器标签页。";
+      return;
+    }
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs && tabs[0];
+      const result = classifyActiveUrl(tab?.url || "");
+      pageDiagnosticsText.textContent = result.label;
+      pageDiagnosticsText.dataset.pageType = result.type;
+      currentDiagnostics = null;
+      if (openFirstPdfBtn) openFirstPdfBtn.disabled = true;
+
+      if (!tab?.id || !chrome.tabs?.sendMessage) return;
+      chrome.tabs.sendMessage(tab.id, {
+        action: "diagnostics.currentPage",
+        refresh: Boolean(updateCurrentPageDiagnostics.forceRefresh)
+      }, (response) => {
+        updateCurrentPageDiagnostics.forceRefresh = false;
+        if (chrome.runtime?.lastError || !response?.ok || !response.data) {
+          return;
+        }
+        currentDiagnostics = response.data;
+        const data = response.data;
+        const parts = [
+          data.pageType === "scholar" ? "检索页" : "论文页",
+          `站点 ${data.profileId || "unknown"}`,
+          data.doi ? `DOI ${data.doi}` : "DOI 未识别",
+          `PDF 候选 ${data.pdfCandidateCount || 0}`,
+          data.firstPdfSource ? `首选 ${data.firstPdfSource}` : "无首选 PDF",
+          data.metricsSource ? `指标 ${data.metricsSource}` : ""
+        ].filter(Boolean);
+        pageDiagnosticsText.textContent = parts.join(" · ");
+        pageDiagnosticsText.dataset.pageType = data.pageType || result.type;
+        if (openFirstPdfBtn) {
+          openFirstPdfBtn.disabled = !data.firstPdfUrl;
+          openFirstPdfBtn.title = data.firstPdfUrl || "当前页没有 PDF 候选";
+        }
+      });
+    });
+  }
+
+  if (refreshPageDiagnosticsBtn) {
+    refreshPageDiagnosticsBtn.onclick = () => {
+      updateCurrentPageDiagnostics.forceRefresh = true;
+      updateCurrentPageDiagnostics();
+    };
+  }
+
+  if (openFirstPdfBtn) {
+    openFirstPdfBtn.onclick = () => {
+      if (currentDiagnostics?.firstPdfUrl) {
+        window.open(currentDiagnostics.firstPdfUrl, "_blank", "noopener,noreferrer");
+      }
+    };
+  }
+
   // 1. Navigation Tab Switching
 
 
@@ -598,7 +687,7 @@ const initPopup = () => {
       easyscholar_key: keyVal,
       pdf_cache: {},
       easyscholar_cache: {}
-      }, "easyScholar Key 已保存，历史估算缓存已自动清除");
+      }, "easyScholar Key 已保存，历史指标缓存已自动清除");
       inputSaveTimers.delete("easyscholar_key");
     }, 650));
   };
@@ -611,7 +700,7 @@ const initPopup = () => {
       easyscholar_key: easyScholarKeyInput.value.trim(),
       pdf_cache: {},
       easyscholar_cache: {}
-    }, "easyScholar Key 已保存，历史估算缓存已自动清除");
+    }, "easyScholar Key 已保存，历史指标缓存已自动清除");
   };
 
   toggleEasyScholarBtn.onclick = () => {
@@ -768,28 +857,30 @@ const initPopup = () => {
   exportAllBtn.onclick = () => {
     if (historyData.length === 0) return;
 
-    let bibCompiled = "";
-    historyData.forEach((paper) => {
-      const authorList = Array.isArray(paper.authors) ? paper.authors : [];
-      const firstAuthorSurname = authorList.length > 0 ? 
-        authorList[0].split(/\s+/).pop().replace(/[^a-zA-Z]/g, "") : "Unknown";
-      const cleanTitleWords = (paper.title || "Paper").split(/\s+/);
-      const firstWordOfTitle = cleanTitleWords.length > 0 ? 
-        cleanTitleWords[0].replace(/[^a-zA-Z]/g, "") : "Paper";
-      
-      const cleanKey = `${firstAuthorSurname}${paper.year}${firstWordOfTitle}`;
+    const format = exportFormatSelect?.value || "bibtex";
+    const citation = window.PaperPilotCore?.citation;
+    const normalized = historyData.map(item => ({
+      ...item,
+      url: item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : ""),
+      source: item.source || item.metricsSource || "PaperPilot history"
+    }));
 
-      bibCompiled += `@article{${cleanKey},\n` +
-        `  title={${paper.title}},\n` +
-        `  author={${authorList.join(" and ")}},\n` +
-        `  journal={${paper.journal || "Other"}},\n` +
-        `  year={${paper.year}},\n` +
-        `  doi={${paper.doi || ""}}\n` +
-        `}\n\n`;
-    });
+    let exported = "";
+    let label = "BibTeX";
+    if (citation && format === "ris") {
+      exported = citation.buildRisEntries(normalized);
+      label = "RIS";
+    } else if (citation && format === "csljson") {
+      exported = JSON.stringify(citation.buildCslJson(normalized), null, 2);
+      label = "CSL JSON";
+    } else if (citation) {
+      exported = citation.buildBibtexEntries(normalized);
+    } else {
+      exported = normalized.map(paper => `${paper.title || "Untitled"} ${paper.doi || ""}`.trim()).join("\n");
+    }
 
-    navigator.clipboard.writeText(bibCompiled.trim()).then(() => {
-      showToast(`已将 ${historyData.length} 篇文献足迹以 clean BibTeX 打包复制！`);
+    navigator.clipboard.writeText(exported.trim()).then(() => {
+      showToast(`已将 ${historyData.length} 篇文献足迹以 ${label} 复制`);
     }).catch(err => {
       console.error("Export copy failed:", err);
       showToast("复制失败，请检查浏览器剪贴板权限！");
@@ -813,6 +904,7 @@ const initPopup = () => {
 
   // Load footprints on initial popup show
   loadFootprints();
+  updateCurrentPageDiagnostics();
 };
 
 if (document.readyState === "loading") {

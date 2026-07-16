@@ -77,6 +77,15 @@
         </div>
       </div>
 
+      <div class="pp-popup-page-diagnostics" id="page-diagnostics">
+        <span class="pp-popup-setting-lbl">当前页面诊断</span>
+        <p class="pp-popup-setting-desc" id="page-diagnostics-text">正在读取当前标签页状态...</p>
+        <div class="pp-popup-diagnostics-actions">
+          <button class="pp-popup-mini-btn" id="btn-refresh-page-diagnostics" type="button">刷新诊断</button>
+          <button class="pp-popup-mini-btn" id="btn-open-first-pdf" type="button" disabled>打开首选 PDF</button>
+        </div>
+      </div>
+
     </div>
 
     <!-- Nav Tabs -->
@@ -97,8 +106,13 @@
           <div class="pp-popup-empty-msg" id="history-empty">暂无学术足迹，快去浏览期刊摘要页或检索谷歌学术吧！</div>
         </div>
         <footer class="pp-popup-footer">
+          <select class="pp-popup-select" id="setting-export-format" title="选择导出格式">
+            <option value="bibtex">BibTeX</option>
+            <option value="ris">RIS</option>
+            <option value="csljson">CSL JSON</option>
+          </select>
           <button class="pp-popup-btn pp-popup-btn-main" id="btn-export-all">
-            一键导出全部足迹 (RIS/BibTeX)
+            一键导出全部足迹
           </button>
         </footer>
       </section>
@@ -533,6 +547,8 @@
       <span id="popup-toast-msg">保存成功</span>
     </div>
   </div>
+  <script src="../core/messaging.js"></script>
+  <script src="../core/citation.js"></script>
   <script src="../lib/svg-icons.js"></script>
   <script src="popup.js"></script>
 </body>

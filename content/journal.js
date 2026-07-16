@@ -4,13 +4,21 @@
  */
 
 (function() {
+  if (globalThis.__PAPERPILOT_JOURNAL_LOADED__) return;
+  globalThis.__PAPERPILOT_JOURNAL_LOADED__ = true;
+
   let paperMeta = null;
   let cardEl = null;
   let currentTheme = "system";
   let pdfUrlCandidateCache = null;
+  let siteProfileCache = null;
+  let lastPdfDownloadStatus = null;
+  let lastPdfDiscoveryDiagnostics = null;
+  let initGeneration = 0;
+  let storageListenerInstalled = false;
   const PDF_URL_CANDIDATE_CACHE_MS = 15000;
   const PDF_EMPTY_CANDIDATE_CACHE_MS = 1200;
-  const MAX_PDF_URL_CANDIDATES = 12;
+  const MAX_PDF_URL_CANDIDATES = 32;
 
   const PDF_PRIORITY_SELECTORS = [
     "a.c-pdf-download__link",
@@ -75,6 +83,33 @@
 
   function getIcon(name, fallback = "") {
     return (window.PP_ICONS && window.PP_ICONS[name]) || fallback;
+  }
+
+  function getCurrentSiteProfile() {
+    const href = window.location.href;
+    if (siteProfileCache && siteProfileCache.href === href) {
+      return siteProfileCache.profile;
+    }
+
+    const profile = window.PaperPilotCore?.siteProfiles?.resolve?.(href) || null;
+    siteProfileCache = { href, profile };
+    return profile;
+  }
+
+  function escapeHtml(value) {
+    return window.PaperPilotCore?.sanitize?.escapeHtml
+      ? window.PaperPilotCore.sanitize.escapeHtml(value)
+      : String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function escapeAttr(value) {
+    return window.PaperPilotCore?.sanitize?.escapeAttr
+      ? window.PaperPilotCore.sanitize.escapeAttr(value)
+      : escapeHtml(value).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function getCandidateUrl(candidate) {
+    return typeof candidate === "string" ? candidate : candidate?.url || "";
   }
 
   function normalizeUrlForCompare(rawUrl) {
@@ -348,7 +383,7 @@
     return "";
   }
 
-  function addUrlCandidate(candidates, rawUrl, baseUrl = window.location.href, seen = null) {
+  function addUrlCandidate(candidates, rawUrl, baseUrl = window.location.href, seen = null, details = {}) {
     if (!rawUrl) return;
     try {
       const parsed = new URL(rawUrl, baseUrl);
@@ -356,17 +391,33 @@
       const url = parsed.href;
       const key = normalizeUrlForCompare(url);
       if (seen) {
-        if (seen.has(key)) return;
-        seen.add(key);
+          if (seen.has(key)) return;
+          seen.add(key);
+        }
+      if (!candidates.some(candidate => getCandidateUrl(candidate) === url)) {
+        candidates.push({
+          url,
+          source: details.source || "dom-link-scan",
+          text: details.text || "",
+          reason: details.reason || "",
+          score: details.score || 0
+        });
       }
-      if (!candidates.includes(url)) candidates.push(url);
     } catch (e) {
       const key = normalizeUrlForCompare(rawUrl);
       if (seen) {
         if (seen.has(key)) return;
         seen.add(key);
       }
-      if (!candidates.includes(rawUrl)) candidates.push(rawUrl);
+      if (!candidates.some(candidate => getCandidateUrl(candidate) === rawUrl)) {
+        candidates.push({
+          url: rawUrl,
+          source: details.source || "dom-link-scan",
+          text: details.text || "",
+          reason: details.reason || "",
+          score: details.score || 0
+        });
+      }
     }
   }
 
@@ -378,27 +429,78 @@
       return pdfUrlCandidateCache.urls.slice();
     }
 
+    const discovery = window.PaperPilotCore?.pdfDiscovery?.collect?.(document, window.location, {
+      maxCandidates: MAX_PDF_URL_CANDIDATES,
+      maxNodes: 3000,
+      maxShadowRoots: 16,
+      maxElementsPerRoot: 2500,
+      maxScriptChars: 400000
+    });
+    if (discovery) {
+      const specialized = [
+        getScienceDirectPdfUrlFromDom(),
+        inferPublisherPdfUrlFromCurrentPage(window.location.href),
+        extractPdfUrlFromViewerParams(window.location.href)
+      ].filter(Boolean).map(url => ({
+        url: preparePdfCandidateUrl(url),
+        source: "publisher-specialized",
+        reason: "publisher-specific page extraction",
+        score: 97
+      }));
+      const urls = window.PaperPilotCore?.pdf?.preparePdfCandidates
+        ? window.PaperPilotCore.pdf.preparePdfCandidates([
+            ...specialized,
+            ...(discovery.candidates || [])
+          ], { baseUrl: window.location.href }).slice(0, MAX_PDF_URL_CANDIDATES)
+        : [...specialized, ...(discovery.candidates || [])].slice(0, MAX_PDF_URL_CANDIDATES);
+      lastPdfDiscoveryDiagnostics = discovery.diagnostics || null;
+      pdfUrlCandidateCache = {
+        key: cacheKey,
+        createdAt: Date.now(),
+        urls
+      };
+      return urls.slice();
+    }
+
     const candidates = [];
     const seen = new Set();
-    const add = (rawUrl, baseUrl = window.location.href) => {
+    const add = (rawUrl, baseUrl = window.location.href, details = {}) => {
       if (candidates.length >= MAX_PDF_URL_CANDIDATES) return;
-      addUrlCandidate(candidates, rawUrl, baseUrl, seen);
+      addUrlCandidate(candidates, rawUrl, baseUrl, seen, details);
     };
 
     querySelectorAllSafe(PDF_PRIORITY_SELECTORS).forEach(el => {
       if (!isSupplementaryPdfElement(el)) {
         const rawUrl = el.href || el.getAttribute("href") || el.getAttribute("data-href") || el.getAttribute("data-url") || "";
-        add(preparePdfCandidateUrl(rawUrl));
+        add(preparePdfCandidateUrl(rawUrl), window.location.href, {
+          source: "explicit-pdf-button",
+          text: `${el.textContent || ""} ${el.getAttribute("aria-label") || ""} ${el.getAttribute("title") || ""}`.trim(),
+          reason: "matched priority PDF selector",
+          score: 96
+        });
       }
     });
 
     querySelectorAllSafe(PDF_META_SELECTORS).forEach(el => {
-      add(preparePdfCandidateUrl(el.content || el.href || el.getAttribute("href") || ""));
+      const name = el.getAttribute("name") || el.getAttribute("property") || el.getAttribute("rel") || "";
+      const pdfMetaSource = /citation_pdf_url/i.test(name) ? "citation_pdf_url" : "pdf-meta";
+      add(preparePdfCandidateUrl(el.content || el.href || el.getAttribute("href") || ""), window.location.href, {
+        source: pdfMetaSource,
+        text: name,
+        reason: "matched PDF metadata tag",
+        score: /citation_pdf_url/i.test(name) ? 94 : 90
+      });
     });
 
     querySelectorAllSafe(PDF_EMBED_SELECTORS).forEach(el => {
       const candidate = el.getAttribute("src") || el.getAttribute("data") || el.getAttribute("data-src") || "";
-      if (candidate && isLikelyPdfUrl(candidate)) add(preparePdfCandidateUrl(candidate));
+      if (candidate && isLikelyPdfUrl(candidate)) {
+        add(preparePdfCandidateUrl(candidate), window.location.href, {
+          source: "embedded-pdf-viewer",
+          reason: "matched embedded PDF viewer",
+          score: 84
+        });
+      }
     });
 
     if (candidates.length < MAX_PDF_URL_CANDIDATES) {
@@ -417,13 +519,26 @@
             text.includes("pdf full text") ||
             text.includes("下载pdf") ||
             (text.includes("pdf") && (lowerHref.includes("download") || lowerHref.includes("article") || lowerHref.includes("doi") || lowerHref.includes("pii")))) {
-          add(preparePdfCandidateUrl(href));
+          add(preparePdfCandidateUrl(href), window.location.href, {
+            source: "dom-link-scan",
+            text,
+            reason: "matched page PDF link scan",
+            score: trimmedText === "pdf" || text.includes("download pdf") ? 82 : 70
+          });
         }
       }
     }
 
-    add(inferPublisherPdfUrlFromCurrentPage(window.location.href));
-    add(extractPdfUrlFromViewerParams(window.location.href));
+    add(inferPublisherPdfUrlFromCurrentPage(window.location.href), window.location.href, {
+      source: "publisher-rule:page-inference",
+      reason: "inferred from current publisher URL",
+      score: 92
+    });
+    add(extractPdfUrlFromViewerParams(window.location.href), window.location.href, {
+      source: "viewer-param",
+      reason: "extracted from PDF viewer parameter",
+      score: 88
+    });
 
     const urls = candidates.filter(Boolean).slice(0, MAX_PDF_URL_CANDIDATES);
     pdfUrlCandidateCache = {
@@ -435,19 +550,87 @@
   }
 
   function buildDownloadUrlCandidates() {
+    const siteProfile = getCurrentSiteProfile();
     const candidates = [
+      ...(siteProfile?.pdfCandidates || []),
       ...collectPdfUrlCandidates(),
-      paperMeta?.pdfUrl,
-      inferPublisherPdfUrlFromCurrentPage(window.location.href),
-      extractPdfUrlFromViewerParams(window.location.href)
+      paperMeta?.pdfUrl ? { url: paperMeta.pdfUrl, source: "metadata-pdf-url", reason: "enriched metadata PDF URL", score: 88 } : null,
+      { url: inferPublisherPdfUrlFromCurrentPage(window.location.href), source: "publisher-rule:page-inference", reason: "inferred from current publisher URL", score: 92 },
+      { url: extractPdfUrlFromViewerParams(window.location.href), source: "viewer-param", reason: "extracted from PDF viewer parameter", score: 88 }
     ];
 
     if (paperMeta?.pdfUrl) {
       const landingDerived = inferPublisherPdfUrlFromCurrentPage(paperMeta.pdfUrl);
-      if (landingDerived) candidates.push(landingDerived);
+      if (landingDerived) {
+        candidates.push({
+          url: landingDerived,
+          source: "publisher-rule:metadata-landing",
+          reason: "inferred from metadata landing URL",
+          score: 92
+        });
+      }
     }
 
-    return candidates.filter(Boolean);
+    return candidates.filter(candidate => getCandidateUrl(candidate));
+  }
+
+  function getPdfCandidateDiagnostics() {
+    const rawCandidates = buildDownloadUrlCandidates();
+    const siteProfile = getCurrentSiteProfile();
+    const prepared = window.PaperPilotCore?.pdf?.preparePdfCandidates
+      ? window.PaperPilotCore.pdf.preparePdfCandidates(rawCandidates)
+      : rawCandidates.map(url => ({ url, source: "page", score: 0 }));
+    const first = prepared[0] || null;
+    return {
+      count: prepared.length,
+      firstSource: first?.source || "无",
+      fast: Boolean(first && window.PaperPilotCore?.pdf?.shouldFastDownloadCandidate?.(first)),
+      firstUrl: first?.url || "",
+      lastError: lastPdfDownloadStatus?.errorCode || "",
+      profileId: siteProfile?.id || "unknown",
+      discovery: lastPdfDiscoveryDiagnostics
+    };
+  }
+
+  function formatPdfDownloadError(response) {
+    const code = response?.errorCode || "";
+    const map = {
+      PDF_URL_MISSING: "未发现可下载的 PDF 候选链接",
+      PDF_NOT_CONFIRMED: "候选链接未确认是正文 PDF",
+      PDF_AUTH_REQUIRED: "出版商要求登录或机构访问",
+      PDF_HTML_RESPONSE: "候选链接返回的是网页而不是 PDF",
+      PDF_TIMEOUT: "PDF 校验超时，可尝试重新下载",
+      PDF_NETWORK_ERROR: "网络请求失败，请检查代理或机构网络",
+      PDF_DOWNLOAD_FAILED: "浏览器下载任务创建失败"
+    };
+    return map[code] || response?.error || "PDF 下载失败";
+  }
+
+  function updatePdfDiagnostics(response = null) {
+    if (response) lastPdfDownloadStatus = response;
+    const target = cardEl?.querySelector("#pp-jc-pdf-diag");
+    if (!target) return;
+    const diagnostics = getPdfCandidateDiagnostics();
+    const parts = [
+      `站点 ${diagnostics.profileId}`,
+      `候选 ${diagnostics.count}`,
+      `首选 ${diagnostics.firstSource}`,
+      diagnostics.fast ? "快速下载" : "需校验"
+    ];
+    const perf = response?.diagnostics || null;
+    if (perf) {
+      const cacheLabel = perf.cacheHit === "request"
+        ? "请求缓存命中"
+        : (perf.cacheHit === "url" ? "URL缓存命中" : "");
+      if (cacheLabel) parts.push(cacheLabel);
+      if (perf.verificationMode) parts.push(perf.verificationMode);
+      if (Number.isFinite(perf.attemptedCount)) parts.push(`尝试 ${perf.attemptedCount}`);
+    }
+    if (response && !response.ok && !response.success) {
+      parts.push(formatPdfDownloadError(response));
+    }
+    target.textContent = parts.join(" · ");
+    if (diagnostics.firstUrl) target.title = diagnostics.firstUrl;
   }
 
   function inferJournalFromHost(rawUrl = window.location.href) {
@@ -617,9 +800,36 @@
     return String(value).trim();
   }
 
+  function extractDoiFromCandidates(candidates) {
+    const coreExtractor = window.PaperPilotCore?.metadata?.extractDoi;
+    if (typeof coreExtractor === "function") {
+      return coreExtractor(candidates);
+    }
+
+    const doiRegex = /(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*|info:doi\/)?(10\.\d{4,9}\/[^\s"'<>]+)/ig;
+    for (const candidate of candidates.flat(Infinity)) {
+      if (candidate === null || candidate === undefined) continue;
+      const text = typeof candidate === "string"
+        ? candidate
+        : (normalizeJsonLdText(candidate) || JSON.stringify(candidate));
+      doiRegex.lastIndex = 0;
+      let match;
+      while ((match = doiRegex.exec(text))) {
+        const doi = String(match[1] || match[0])
+          .trim()
+          .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
+          .replace(/^info:doi\//i, "")
+          .replace(/^doi:\s*/i, "")
+          .replace(/[?#].*$/, "")
+          .replace(/[.,;:)\]}]+$/g, "");
+        if (/^10\.\d{4,9}\/\S+$/i.test(doi)) return doi;
+      }
+    }
+    return "";
+  }
+
   function extractJsonLdDoi(article) {
     if (!article) return "";
-    const doiRegex = /\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+\b/i;
     const candidates = [
       article.doi,
       article.identifier,
@@ -628,12 +838,7 @@
       article.mainEntityOfPage
     ];
 
-    for (const candidate of candidates.flat()) {
-      const text = normalizeJsonLdText(candidate);
-      const match = text.match(doiRegex);
-      if (match) return match[0];
-    }
-    return "";
+    return extractDoiFromCandidates(candidates);
   }
 
   function hasAcademicMetadata() {
@@ -729,7 +934,8 @@
 
   // Initialize
   function init() {
-    if (!hasAcademicMetadata()) return;
+    const generation = ++initGeneration;
+    if (!hasAcademicMetadata()) return false;
 
     // 1. Extract metadata from the current abstract page
     paperMeta = extractPageMetadata();
@@ -737,7 +943,7 @@
 
     if (!paperMeta.doi && !paperMeta.title) {
       console.log("PaperPilot Pro: No DOI or Title resolved on this page. Stopping.");
-      return;
+      return false;
     }
 
     // 2. Query Background for cache/Unpaywall/OpenAlex resolution
@@ -745,8 +951,10 @@
       action: "FETCH_METADATA",
       doi: paperMeta.doi,
       title: paperMeta.title,
-      journal: paperMeta.journal
+      journal: paperMeta.journal,
+      pageUrl: window.location.href
     }, (response) => {
+      if (generation !== initGeneration) return;
       if (response && response.success && response.data) {
         const enriched = response.data;
         console.log("PaperPilot Pro: Metadata enriched successfully:", enriched);
@@ -762,17 +970,21 @@
         paperMeta.casPartition = enriched.casPartition || "N/A";
         paperMeta.citeScore = enriched.citeScore;
         paperMeta.oaStatus = enriched.oaStatus;
-        paperMeta.isEstimated = enriched.isEstimated !== false;
+        paperMeta.isEstimated = false;
         paperMeta.ccfRank = enriched.ccfRank || "";
         paperMeta.isCssci = enriched.isCssci || false;
         paperMeta.isPku = enriched.isPku || false;
         paperMeta.sciWarn = enriched.sciWarn || "";
+        paperMeta.metricsSource = enriched.metricsSource || "";
+        paperMeta.source = enriched.source || response.source || "";
+        paperMeta.cachedAt = enriched.cachedAt || response.cachedAt || null;
 
         // Auto Log to history as 'visited'
         logFootprint("visited");
 
         // 3. Handle Auto-Redirect if enabled
         chrome.storage.local.get(["auto_redirect", "pdf_landing_cache"], (config) => {
+          if (generation !== initGeneration) return;
           if (config.auto_redirect && paperMeta.pdfUrl && !isSameUrl(paperMeta.pdfUrl, window.location.href)) {
             const landingCache = config.pdf_landing_cache || {};
             landingCache[paperMeta.pdfUrl] = window.location.href;
@@ -802,7 +1014,9 @@
     });
 
     // Listen for storage changes
-    chrome.storage.onChanged.addListener((changes) => {
+    if (!storageListenerInstalled) {
+      storageListenerInstalled = true;
+      chrome.storage.onChanged.addListener((changes) => {
       if (changes.appearance_mode) {
         currentTheme = changes.appearance_mode.newValue;
         updateAllThemes();
@@ -833,7 +1047,9 @@
           }
         });
       }
-    });
+      });
+    }
+    return true;
   }
 
   // Local DOM PDF Link Sniffer for both OA and Institutional Paid Databases
@@ -852,7 +1068,7 @@
       return scienceDirectPdfUrl;
     }
 
-    const collectedPdfUrl = collectPdfUrlCandidates()[0];
+    const collectedPdfUrl = getCandidateUrl(collectPdfUrlCandidates()[0]);
     if (collectedPdfUrl) {
       return collectedPdfUrl;
     }
@@ -863,6 +1079,7 @@
   // Dublin Core & Highwire standard academic metadata extraction
   function extractPageMetadata() {
     const jsonLdArticle = getJsonLdArticle();
+    const siteProfile = getCurrentSiteProfile();
     const getMeta = (names) => {
       for (let name of names) {
         const el = document.querySelector(`meta[name="${name}"], meta[property="${name}"]`);
@@ -870,31 +1087,30 @@
       }
       return "";
     };
+    const getMetaCandidates = (names) => {
+      const wanted = new Set(names.map(name => String(name).toLowerCase()));
+      return Array.from(document.querySelectorAll("meta[name], meta[property]"))
+        .filter(el => wanted.has(String(el.getAttribute("name") || el.getAttribute("property") || "").toLowerCase()))
+        .map(el => (el.content || "").trim())
+        .filter(Boolean);
+    };
 
     // DOI Sniffer
-    let doi = getMeta([
+    const doiMetaNames = [
       "citation_doi", "dc.identifier", "prism.doi", "doi", "dc.identifier.doi",
       "bepress_citation_doi", "eprints.id_number", "article:doi", "rft_id",
       "dc.Identifier", "dc.identifier.uri", "DC.Identifier", "DC.identifier"
-    ]) || extractJsonLdDoi(jsonLdArticle);
-    if (!doi) {
-      // Fallback: search page body / url for standard DOI format
-      const doiRegex = /\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+\b/i;
-      const urlDoi = window.location.href.match(doiRegex);
-      if (urlDoi) {
-        doi = urlDoi[0];
-      } else {
-        // Check links
-        const links = document.querySelectorAll("a[href*='doi.org/']");
-        for (let link of links) {
-          const m = link.href.match(doiRegex);
-          if (m) {
-            doi = m[0];
-            break;
-          }
-        }
-      }
-    }
+    ];
+    const doiLinkCandidates = Array.from(document.querySelectorAll("a[href*='doi.org/'], a[href*='/doi/10.']"))
+      .flatMap(link => [link.href, link.textContent || ""]);
+    const doi = extractDoiFromCandidates([
+      ...(siteProfile?.doiCandidates || []),
+      ...getMetaCandidates(doiMetaNames),
+      extractJsonLdDoi(jsonLdArticle),
+      window.location.href,
+      ...doiLinkCandidates,
+      document.body?.textContent?.slice(0, 20000) || ""
+    ]);
 
     // Title Sniffer
     let title = getMeta([
@@ -974,7 +1190,10 @@
       casPartition: "N/A",
       citeScore: "N/A",
       oaStatus: "Closed",
-      isEstimated: true,
+      isEstimated: false,
+      metricsSource: "unconfigured",
+      source: "页面元数据",
+      cachedAt: null,
       ccfRank: "",
       isCssci: false,
       isPku: false,
@@ -1183,6 +1402,23 @@
         }
       }
       const showLandingBtn = resolvedLandingUrl && cleanUrlForCompare(resolvedLandingUrl) !== cleanUrlForCompare(currentUrl);
+      const pdfDiagnostics = getPdfCandidateDiagnostics();
+      const display = {
+        journal: escapeHtml(paperMeta.journal || "学术期刊"),
+        year: escapeHtml(paperMeta.year || "N/A"),
+        title: escapeHtml(paperMeta.title || ""),
+        doi: escapeHtml(paperMeta.doi || "暂无 DOI"),
+        impactFactor: escapeHtml(paperMeta.impactFactor || "N/A"),
+        casPartition: escapeHtml(paperMeta.casPartition || "N/A"),
+        jcrQuartile: escapeHtml(paperMeta.jcrQuartile || "N/A"),
+        citeScore: escapeHtml(paperMeta.citeScore || "N/A"),
+        dataSource: escapeHtml(paperMeta.metricsSource || paperMeta.source || "未配置数据源"),
+        ccfRank: escapeHtml(paperMeta.ccfRank || ""),
+        sciWarn: escapeHtml(paperMeta.sciWarn || ""),
+        pdfFirstUrlAttr: escapeAttr(pdfDiagnostics.firstUrl || ""),
+        pdfFirstSource: escapeHtml(pdfDiagnostics.firstSource || "无"),
+        pdfProfileId: escapeHtml(pdfDiagnostics.profileId || "unknown")
+      };
 
       // Build float metacard DOM content
       cardEl.innerHTML = `
@@ -1192,7 +1428,7 @@
             <div class="pp-jc-card-logo">PP</div>
             <div>
               <div class="pp-jc-card-title">PaperPilot Pro</div>
-              <div class="pp-jc-card-subtitle">${paperMeta.journal || "学术期刊"}</div>
+              <div class="pp-jc-card-subtitle">${display.journal}</div>
             </div>
           </div>
           <div class="pp-jc-card-header-actions">
@@ -1219,9 +1455,9 @@
               <span class="pp-jc-journal-badge" style="${isNi ? '' : 'background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.08);'}">
                 ${isNi ? "Nature Index (自然指数)" : "学术文献"}
               </span>
-              <span style="font-size: 10px; font-weight: 700; color: var(--pp-text-muted);">${paperMeta.year} 年</span>
+              <span style="font-size: 10px; font-weight: 700; color: var(--pp-text-muted);">${display.year} 年</span>
             </div>
-            <textarea class="pp-jc-hero-title-box" rows="3" readonly>${paperMeta.title}</textarea>
+            <textarea class="pp-jc-hero-title-box" rows="3" readonly>${display.title}</textarea>
           </div>
 
           <!-- Sniff / Redirect direct-download banner -->
@@ -1237,11 +1473,16 @@
             </div>
           `) : ''}
 
+          <div class="pp-jc-status-banner" id="pp-jc-pdf-diag" style="background:rgba(59,130,246,0.06);border-color:rgba(59,130,246,0.15);color:#60a5fa;" title="${display.pdfFirstUrlAttr}">
+            ${window.PP_ICONS.info}
+            <span>站点 ${display.pdfProfileId} · 候选 ${pdfDiagnostics.count} · 首选 ${display.pdfFirstSource} · ${pdfDiagnostics.fast ? "快速下载" : "需校验"}</span>
+          </div>
+
           <!-- Metadata DOI field -->
           <div class="pp-jc-meta-field">
             <span class="pp-jc-meta-lbl">DOI (点击复制)</span>
             <div class="pp-jc-meta-row">
-              <span class="pp-jc-meta-val">${paperMeta.doi || "暂无 DOI"}</span>
+              <span class="pp-jc-meta-val">${display.doi}</span>
               ${paperMeta.doi ? `
                 <button class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-doi" title="复制 DOI">
                   ${window.PP_ICONS.copy}
@@ -1269,35 +1510,40 @@
               ${(config.enable_if_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">最新影响因子 (IF)</span>
-                <span class="pp-jc-metric-val" style="color:#f59e0b;">${paperMeta.impactFactor}${paperMeta.isEstimated ? ' <span class="pp-jc-est">(估)</span>' : ''}</span>
+                <span class="pp-jc-metric-val" style="color:#f59e0b;">${display.impactFactor}</span>
               </div>
               ` : ''}
               
               ${(config.enable_cas_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">中科院分区</span>
-                <span class="pp-jc-metric-val" style="color:var(--pp-ni-color);">${paperMeta.casPartition || "N/A"}${(paperMeta.isEstimated && paperMeta.casPartition && paperMeta.casPartition !== "N/A") ? ' <span class="pp-jc-est">(估)</span>' : ''}</span>
+                <span class="pp-jc-metric-val" style="color:var(--pp-ni-color);">${display.casPartition}</span>
               </div>
               ` : ''}
               
               ${(config.enable_jcr_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">JCR 分区</span>
-                <span class="pp-jc-metric-val">${paperMeta.jcrQuartile}${(paperMeta.isEstimated && paperMeta.jcrQuartile && paperMeta.jcrQuartile !== "N/A") ? ' <span class="pp-jc-est">(估)</span>' : ''}</span>
+                <span class="pp-jc-metric-val">${display.jcrQuartile}</span>
               </div>
               ` : ''}
               
               ${(config.enable_cite_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">CiteScore</span>
-                <span class="pp-jc-metric-val">${paperMeta.citeScore}</span>
+                <span class="pp-jc-metric-val">${display.citeScore}</span>
               </div>
               ` : ''}
+
+              <div class="pp-jc-metric-row">
+                <span class="pp-jc-metric-lbl">数据来源</span>
+                <span class="pp-jc-metric-val">${display.dataSource}</span>
+              </div>
               
               ${(paperMeta.ccfRank && config.enable_ccf_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">CCF 等级</span>
-                <span class="pp-jc-metric-val pp-jc-metric-ccf">${paperMeta.ccfRank}</span>
+                <span class="pp-jc-metric-val pp-jc-metric-ccf">${display.ccfRank}</span>
               </div>
               ` : ''}
               
@@ -1313,7 +1559,7 @@
               ${(paperMeta.sciWarn && config.enable_warn_badge !== false) ? `
               <div class="pp-jc-metric-row pp-jc-warn-row">
                 <span class="pp-jc-metric-lbl" style="color: #ef4444; font-weight: bold;">中科院预警</span>
-                <span class="pp-jc-metric-val pp-jc-metric-warn">${paperMeta.sciWarn}</span>
+                <span class="pp-jc-metric-val pp-jc-metric-warn">${display.sciWarn}</span>
               </div>
               ` : ''}
             </div>
@@ -1472,11 +1718,14 @@
           }, (response) => {
             if (response && response.success) {
               const savedPath = response.filename ? `：${response.filename}` : "";
+              updatePdfDiagnostics(response);
               showToast(`PDF 下载任务已创建${savedPath}`);
               logFootprint("downloaded");
             } else {
-              const error = response && response.error ? response.error : "未知错误";
-              showToast(`PDF 下载失败：${error}`);
+              updatePdfDiagnostics(response);
+              const error = formatPdfDownloadError(response);
+              const fallback = response?.fallbackUrl ? "；可复制 DOI 或打开首选候选重试" : "";
+              showToast(`PDF 下载失败：${error}${fallback}`);
             }
           });
         });
@@ -1546,11 +1795,19 @@
           aiBtn.disabled = false;
           if (response && response.success) {
             aiBtn.innerText = "✨ AI 总结 (TL;DR) 已生成";
-            aiBox.innerHTML = `<strong>AI三句简述 (${response.provider})：</strong><br>${response.summary}`;
+            aiBox.innerHTML = "";
+            const label = document.createElement("strong");
+            label.textContent = `AI 简述 (${response.provider || response.source || "provider"})：`;
+            const body = document.createElement("div");
+            body.textContent = response.summary || "";
+            aiBox.appendChild(label);
+            aiBox.appendChild(document.createElement("br"));
+            aiBox.appendChild(body);
             aiBox.style.display = "block";
           } else {
-            aiBtn.innerText = "AI 总结失败，请检查设置";
-            showToast("AI 响应异常，请点击插件右上角 Popup 检查 API 密钥设置。");
+            const errorCode = response?.errorCode || "";
+            aiBtn.innerText = errorCode === "AI_API_KEY_MISSING" ? "AI 未配置 API Key" : "AI 总结失败";
+            showToast(response?.error || "AI 未返回真实总结，请在 Popup 中检查 API 配置。");
           }
         });
       };
@@ -1617,6 +1874,52 @@
     });
   }
 
+  function getCurrentPageDiagnostics(refresh = false) {
+    if (refresh) {
+      pdfUrlCandidateCache = null;
+      siteProfileCache = null;
+      lastPdfDownloadStatus = null;
+      paperMeta = extractPageMetadata();
+    }
+    const meta = paperMeta || extractPageMetadata();
+    const siteProfile = getCurrentSiteProfile();
+    const rawCandidates = buildDownloadUrlCandidates();
+    const preparedCandidates = window.PaperPilotCore?.pdf?.preparePdfCandidates
+      ? window.PaperPilotCore.pdf.preparePdfCandidates(rawCandidates)
+      : rawCandidates.map(candidate => typeof candidate === "string" ? { url: candidate, source: "page", score: 0 } : candidate);
+    const first = preparedCandidates[0] || null;
+    return {
+      ok: true,
+      data: {
+        pageType: "journal",
+        url: window.location.href,
+        profileId: siteProfile?.id || "unknown",
+        doi: meta.doi || "",
+        title: meta.title || "",
+        journal: meta.journal || "",
+        pdfCandidateCount: preparedCandidates.length,
+        firstPdfSource: first?.source || "",
+        firstPdfUrl: first?.url || "",
+        fastDownload: Boolean(first && window.PaperPilotCore?.pdf?.shouldFastDownloadCandidate?.(first)),
+        lastError: lastPdfDownloadStatus?.errorCode || "",
+        metricsSource: meta.metricsSource || meta.source || "未配置数据源",
+        cachedAt: meta.cachedAt || null,
+        stale: Boolean(meta.stale)
+      },
+      source: "content/journal",
+      cachedAt: Date.now()
+    };
+  }
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    const action = message?.action || message?.type;
+    if (action === "diagnostics.currentPage" || action === "pdf.candidates") {
+      sendResponse(getCurrentPageDiagnostics(Boolean(message.refresh)));
+      return false;
+    }
+    return false;
+  });
+
   // Injected notification toast
   function showToast(message) {
     let toast = document.querySelector(".pp-jc-toast");
@@ -1637,10 +1940,52 @@
     }, 2800);
   }
 
+  function getArticleIdentity() {
+    const title = document.querySelector("meta[name='citation_title' i],meta[name='dc.title' i]")?.content || document.title || "";
+    const doi = document.querySelector("meta[name='citation_doi' i],meta[name='dc.identifier' i],meta[name='prism.doi' i]")?.content || "";
+    return `${window.location.href}|${doi.trim()}|${title.trim()}`;
+  }
+
+  function installPageLifecycleWatcher() {
+    if (globalThis.__PAPERPILOT_JOURNAL_ROUTE_WATCHER__) return;
+    globalThis.__PAPERPILOT_JOURNAL_ROUTE_WATCHER__ = true;
+    let currentIdentity = getArticleIdentity();
+    let timer = null;
+
+    const checkRoute = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const nextIdentity = getArticleIdentity();
+        if (nextIdentity === currentIdentity) return;
+        currentIdentity = nextIdentity;
+        pdfUrlCandidateCache = null;
+        siteProfileCache = null;
+        lastPdfDownloadStatus = null;
+        lastPdfDiscoveryDiagnostics = null;
+        paperMeta = null;
+        cardEl?.remove();
+        cardEl = null;
+        init();
+      }, 350);
+    };
+
+    const observer = new MutationObserver(checkRoute);
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true
+    });
+    window.addEventListener("popstate", checkRoute, { passive: true });
+    window.addEventListener("hashchange", checkRoute, { passive: true });
+  }
+
   // Run initialization
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", () => {
+      init();
+      installPageLifecycleWatcher();
+    }, { once: true });
   } else {
     init();
+    installPageLifecycleWatcher();
   }
 })();

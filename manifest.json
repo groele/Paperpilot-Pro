@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "PaperPilot Pro - 一体化学术科研智能助手",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "打通谷歌学术与期刊页的闭环检索与直链工具，内置自然指数高亮、本地无感双滑块过滤、去重折叠、跨域PDF探测、影响因子与分区展示及本地AI文献总结。",
   "permissions": [
     "storage",
     "activeTab",
+    "scripting",
     "clipboardWrite",
     "downloads"
   ],
@@ -23,6 +24,24 @@
         "https://*/*"
       ],
       "js": [
+        "content/detector.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://scholar.google.com/*",
+        "*://scholar.google.com.hk/*",
+        "*://scholar.google.com.sg/*",
+        "*://scholar.google.co.jp/*",
+        "*://scholar.google.co.uk/*",
+        "*://xueshu.baidu.com/*"
+      ],
+      "js": [
+        "core/messaging.js",
+        "core/sanitize.js",
+        "core/site-profiles.js",
+        "core/citation.js",
         "lib/svg-icons.js",
         "content/scholar.js"
       ],
@@ -33,10 +52,66 @@
     },
     {
       "matches": [
-        "http://*/*",
-        "https://*/*"
+        "*://doi.org/*",
+        "*://*.nature.com/*",
+        "*://*.science.org/*",
+        "*://*.sciencedirect.com/*",
+        "*://*.elsevier.com/*",
+        "*://*.springer.com/*",
+        "*://*.springerlink.com/*",
+        "*://*.wiley.com/*",
+        "*://pubs.acs.org/*",
+        "*://*.ieee.org/*",
+        "*://arxiv.org/*",
+        "*://*.biorxiv.org/*",
+        "*://*.medrxiv.org/*",
+        "*://*.cell.com/*",
+        "*://*.thelancet.com/*",
+        "*://*.plos.org/*",
+        "*://*.mdpi.com/*",
+        "*://*.frontiersin.org/*",
+        "*://*.tandfonline.com/*",
+        "*://*.sagepub.com/*",
+        "*://*.oup.com/*",
+        "*://*.cambridge.org/*",
+        "*://*.rsc.org/*",
+        "*://*.aps.org/*",
+        "*://*.pnas.org/*",
+        "*://*.aip.org/*",
+        "*://iopscience.iop.org/*",
+        "*://*.spiedigitallibrary.org/*",
+        "*://dl.acm.org/*",
+        "*://*.jstor.org/*",
+        "*://*.projecteuclid.org/*",
+        "*://jstage.jst.go.jp/*",
+        "*://pubmed.ncbi.nlm.nih.gov/*",
+        "*://pmc.ncbi.nlm.nih.gov/*",
+        "*://*.ncbi.nlm.nih.gov/*",
+        "*://*.elifesciences.org/*",
+        "*://*.peerj.com/*",
+        "*://*.europepmc.org/*",
+        "*://*.zenodo.org/*",
+        "*://*.figshare.com/*",
+        "*://osf.io/*",
+        "*://*.copernicus.org/*",
+        "*://*.scitation.org/*",
+        "*://*.bmj.com/*",
+        "*://*.degruyter.com/*",
+        "*://*.emerald.com/*",
+        "*://*.karger.com/*",
+        "*://*.siam.org/*",
+        "*://*.worldscientific.com/*",
+        "*://*.doaj.org/*",
+        "*://*.scielo.org/*"
       ],
       "js": [
+        "core/messaging.js",
+        "core/sanitize.js",
+        "core/metadata.js",
+        "core/site-profiles.js",
+        "core/citation.js",
+        "core/pdf.js",
+        "core/pdf-discovery.js",
         "lib/svg-icons.js",
         "content/journal.js"
       ],

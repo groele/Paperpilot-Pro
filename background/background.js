@@ -1,7 +1,92 @@
+try {
+  importScripts(
+    "../core/messaging.js",
+    "../core/cache.js",
+    "../core/sanitize.js",
+    "../core/metadata.js",
+    "../core/site-profiles.js",
+    "../core/pdf.js",
+    "../core/ai.js",
+    "../core/citation.js"
+  );
+} catch (err) {
+  console.warn("PaperPilot Pro: core modules could not be loaded", err);
+}
+
+const PP_CORE = globalThis.PaperPilotCore || {};
+
 /**
  * PaperPilot Pro - Service Worker (background.js)
  * Handles CORS-free API calls, PDF verification, and footprint history management.
  */
+
+function withMessageDuration(source, handler) {
+  const start = Date.now();
+  return Promise.resolve()
+    .then(handler)
+    .then(result => ({
+      ...(result || {}),
+      ok: result?.ok !== undefined ? result.ok : Boolean(result?.success || result?.valid),
+      success: result?.success !== undefined ? result.success : Boolean(result?.ok || result?.valid),
+      source: result?.source || source,
+      durationMs: result?.durationMs ?? (Date.now() - start),
+      diagnostics: result?.diagnostics || null
+    }))
+    .catch(error => ({
+      ok: false,
+      success: false,
+      errorCode: "UNHANDLED_ERROR",
+      error: error.message || String(error),
+      source,
+      durationMs: Date.now() - start,
+      diagnostics: null
+    }));
+}
+
+const JOURNAL_RUNTIME_FILES = [
+  "core/messaging.js",
+  "core/sanitize.js",
+  "core/metadata.js",
+  "core/site-profiles.js",
+  "core/citation.js",
+  "core/pdf.js",
+  "core/pdf-discovery.js",
+  "lib/svg-icons.js",
+  "content/journal.js"
+];
+
+function scriptingCall(method, details) {
+  return new Promise((resolve, reject) => {
+    chrome.scripting[method](details, result => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve(result);
+    });
+  });
+}
+
+async function activateJournalPage(sender, requestedUrl) {
+  const tabId = sender?.tab?.id;
+  const frameId = Number(sender?.frameId || 0);
+  const senderUrl = sender?.url || sender?.tab?.url || "";
+  if (!Number.isInteger(tabId) || frameId !== 0 || !/^https?:\/\//i.test(senderUrl)) {
+    return { ok: false, success: false, errorCode: "PAGE_ACTIVATION_DENIED", error: "Unsupported sender" };
+  }
+  if (requestedUrl) {
+    try {
+      if (new URL(requestedUrl).origin !== new URL(senderUrl).origin) {
+        return { ok: false, success: false, errorCode: "PAGE_ACTIVATION_DENIED", error: "Sender origin changed" };
+      }
+    } catch (_) {
+      return { ok: false, success: false, errorCode: "PAGE_ACTIVATION_DENIED", error: "Invalid sender URL" };
+    }
+  }
+
+  const target = { tabId, frameIds: [frameId] };
+  await scriptingCall("insertCSS", { target, files: ["content/journal.css"] });
+  await scriptingCall("executeScript", { target, files: JOURNAL_RUNTIME_FILES });
+  return { ok: true, success: true, source: "dynamic-journal-activation" };
+}
 
 // Initialize default settings on install
 chrome.runtime.onInstalled.addListener(() => {
@@ -101,8 +186,16 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Listener for messages from Content Scripts (scholar.js & journal.js) or Popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === "CHECK_PDF_CORS") {
-    checkPdfUrl(message.url)
+  const action = message.action || message.type;
+
+  if (action === "ACTIVATE_JOURNAL_PAGE" || action === "page.activateJournal") {
+    withMessageDuration("page-activation-service", () => activateJournalPage(sender, message.url))
+      .then(result => sendResponse(result));
+    return true;
+  }
+
+  if (action === "CHECK_PDF_CORS" || action === "pdf.verify") {
+    withMessageDuration("pdf-service", () => checkPdfUrl(message.url))
       .then(result => sendResponse(result))
       .catch(err => {
         console.error("PDF head check failed for url:", message.url, err);
@@ -111,8 +204,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
-  if (message.action === "FETCH_METADATA") {
-    fetchPaperMetadata(message.doi, message.title, message.journal)
+  if (action === "FETCH_METADATA" || action === "metadata.fetch") {
+    withMessageDuration("metadata-service", () => fetchPaperMetadata(message.doi, message.title, message.journal, message.pageUrl))
       .then(result => sendResponse(result))
       .catch(err => {
         console.error("Fetch metadata failed:", err);
@@ -121,8 +214,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.action === "ADD_FOOTPRINT") {
-    addFootprint(message.footprint)
+  if (action === "ADD_FOOTPRINT" || action === "history.add") {
+    withMessageDuration("history-service", () => addFootprint(message.footprint))
       .then(result => sendResponse(result))
       .catch(err => {
         console.error("Add footprint failed:", err);
@@ -131,8 +224,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.action === "AI_SUMMARIZE") {
-    callAISummarize(message.abstract, message.title)
+  if (action === "AI_SUMMARIZE" || action === "ai.summarize") {
+    withMessageDuration("ai-service", () => callAISummarize(message.abstract, message.title))
       .then(result => sendResponse(result))
       .catch(err => {
         console.error("AI summarization failed:", err);
@@ -141,8 +234,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.action === "TEST_AI_CONNECTION") {
-    testAIConnection()
+  if (action === "TEST_AI_CONNECTION" || action === "ai.test") {
+    withMessageDuration("ai-service", () => testAIConnection())
       .then(result => sendResponse(result))
       .catch(err => {
         console.error("AI connection test failed:", err);
@@ -151,8 +244,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.action === "FETCH_EASYSCHOLAR") {
-    fetchEasyScholarForScholar(message.journal)
+  if (action === "FETCH_EASYSCHOLAR" || action === "metadata.easyscholar") {
+    withMessageDuration("easyscholar-service", () => fetchEasyScholarForScholar(message.journal))
       .then(result => sendResponse(result))
       .catch(err => {
         console.error("FETCH_EASYSCHOLAR API query failed:", err);
@@ -161,8 +254,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.action === "DOWNLOAD_PDF") {
-    downloadPdf(message.url, message.filename, message.urls || message.candidates || [])
+  if (action === "DOWNLOAD_PDF" || action === "pdf.download") {
+    withMessageDuration("download-service", () => downloadPdf(message.url, message.filename, message.urls || message.candidates || []))
       .then(result => sendResponse(result))
       .catch(err => {
         console.error("PDF download failed:", err);
@@ -173,22 +266,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function sanitizeDownloadSegment(segment) {
-  return String(segment || "")
-    .replace(/[<>:"\\|?*\x00-\x1F]/g, "_")
-    .replace(/\.+$/g, "")
-    .trim();
+  return PP_CORE.pdf?.sanitizeDownloadSegment
+    ? PP_CORE.pdf.sanitizeDownloadSegment(segment)
+    : String(segment || "").replace(/[<>:"\\|?*\x00-\x1F]/g, "_").replace(/\.+$/g, "").trim();
 }
 
 function buildDownloadFilename(downloadDir, filename) {
-  const cleanFile = sanitizeDownloadSegment(filename || "paper.pdf").substring(0, 150) || "paper.pdf";
-  const cleanDir = String(downloadDir || "")
-    .split(/[\\/]+/)
-    .map(sanitizeDownloadSegment)
-    .filter(Boolean)
-    .filter(part => part !== "." && part !== "..")
-    .join("/");
-
-  return cleanDir ? `${cleanDir}/${cleanFile}` : cleanFile;
+  return PP_CORE.pdf?.buildDownloadFilename
+    ? PP_CORE.pdf.buildDownloadFilename(downloadDir, filename)
+    : `${sanitizeDownloadSegment(filename || "paper.pdf")}`;
 }
 
 // Active download trackers to match dynamic PDF downloads for forced renaming
@@ -218,9 +304,89 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
     activeDownloads.delete(item.id);
     activeDownloadsByUrl.delete(item.url);
     if (item.finalUrl) activeDownloadsByUrl.delete(item.finalUrl);
-  } else {
-    suggest();
+    return;
   }
+
+  // Intercept and rename native browser downloads
+  const mime = (item.mime || "").toLowerCase();
+  const finalUrl = item.finalUrl || item.url || "";
+  const finalUrlLooksPdf = isTrustedBrowserPdfUrl(finalUrl);
+  const isPdf = mime.includes("pdf") ||
+                finalUrlLooksPdf ||
+                finalUrl.toLowerCase().endsWith(".pdf") ||
+                item.filename.toLowerCase().endsWith(".pdf");
+
+  if (!isPdf) {
+    suggest();
+    return;
+  }
+
+  chrome.storage.local.get(["pdf_cache", "pdf_naming", "pdf_download_dir"], (storage) => {
+    try {
+      const cache = storage.pdf_cache || {};
+      const pattern = storage.pdf_naming || "1";
+      const downloadDir = storage.pdf_download_dir || "PaperPilot Pro";
+
+      let matchedMeta = null;
+
+      // A. Match by pageUrl / referrer
+      if (item.referrer) {
+        for (const key in cache) {
+          const paper = cache[key];
+          if (paper && paper.pageUrl && isSameUrl(paper.pageUrl, item.referrer)) {
+            matchedMeta = paper;
+            break;
+          }
+        }
+      }
+
+      // B. Match by pdfUrl / download URL
+      if (!matchedMeta) {
+        for (const key in cache) {
+          const paper = cache[key];
+          if (paper && paper.pdfUrl && (isSameUrl(paper.pdfUrl, item.url) || isSameUrl(paper.pdfUrl, item.finalUrl))) {
+            matchedMeta = paper;
+            break;
+          }
+        }
+      }
+
+      // C. Match by extracting DOI
+      if (!matchedMeta) {
+        const doi = normalizeDoiForLookup(item.referrer) || normalizeDoiForLookup(item.url) || normalizeDoiForLookup(item.finalUrl);
+        if (doi && cache[doi]) {
+          matchedMeta = cache[doi];
+        }
+      }
+
+      if (matchedMeta) {
+        const firstAuthor = matchedMeta.authors && matchedMeta.authors.length > 0 ? matchedMeta.authors[0] : "Unknown";
+        let name = `[${matchedMeta.journal}] ${firstAuthor} - ${matchedMeta.title}`;
+        if (pattern === "2") {
+          name = `[${matchedMeta.year}] ${matchedMeta.title}`;
+        } else if (pattern === "3" && matchedMeta.doi) {
+          name = matchedMeta.doi.replace(/\//g, "_");
+        } else if (pattern === "4") {
+          name = `${matchedMeta.title} (${matchedMeta.year})`;
+        }
+
+        const cleanName = name.replace(/[\/\\:*?"<>|]/g, "_").substring(0, 100) + ".pdf";
+        const finalFilename = buildDownloadFilename(downloadDir, cleanName);
+
+        suggest({
+          filename: finalFilename,
+          conflictAction: "uniquify"
+        });
+      } else {
+        suggest();
+      }
+    } catch (e) {
+      console.error("PaperPilot Pro: Failed to determine native download filename", e);
+      suggest();
+    }
+  });
+
+  return true; // Asynchronous callback
 });
 
 // GC / Memory leak cleanup listener: Remove items from mapping when download completes, fails or is cancelled
@@ -241,86 +407,61 @@ chrome.downloads.onChanged.addListener((delta) => {
 });
 
 function uniqueUrls(urls) {
-  const seen = new Set();
-  return urls
-    .filter(Boolean)
-    .map(url => String(url).trim())
-    .filter(Boolean)
-    .filter(url => {
-      const key = normalizeDownloadUrlKey(url);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+  return PP_CORE.pdf?.uniqueUrls ? PP_CORE.pdf.uniqueUrls(urls) : (urls || []).filter(Boolean);
 }
 
 function isTrustedBrowserPdfUrl(rawUrl) {
-  if (!rawUrl) return false;
-  try {
-    const url = new URL(rawUrl);
-    const host = url.hostname.toLowerCase();
-    const path = url.pathname.toLowerCase();
-
-    if ((host.includes("sciencedirect.com") || host.includes("elsevier.com")) &&
-        !(path.includes("/pdfft") && url.searchParams.get("md5") && url.searchParams.get("pid"))) {
-      return false;
-    }
-
-    return path.endsWith(".pdf") ||
-      path.includes("/content/pdf/") ||
-      path.includes("/article-pdf/") ||
-      path.includes("/doi/pdf/") ||
-      path.includes("/doi/epdf/") ||
-      path.includes("/pdfdirect/") ||
-      path.includes("/pdffile/") ||
-      path.includes("/pdfft");
-  } catch (e) {
-    return false;
-  }
+  return PP_CORE.pdf?.isTrustedBrowserPdfUrl ? PP_CORE.pdf.isTrustedBrowserPdfUrl(rawUrl) : /\.pdf(?:$|\?)/i.test(String(rawUrl || ""));
 }
 
 function normalizeDownloadUrlKey(rawUrl) {
-  try {
-    const url = new URL(rawUrl);
-    url.hash = "";
-    return url.href.toLowerCase();
-  } catch (e) {
-    return String(rawUrl || "").replace(/#.*$/, "").toLowerCase();
-  }
+  return PP_CORE.pdf?.normalizeDownloadUrlKey
+    ? PP_CORE.pdf.normalizeDownloadUrlKey(rawUrl)
+    : String(rawUrl || "").replace(/#.*$/, "").toLowerCase();
+}
+
+function isSameUrl(a, b) {
+  if (!a || !b) return false;
+  return normalizeDownloadUrlKey(a).replace(/\/$/, "") === normalizeDownloadUrlKey(b).replace(/\/$/, "");
 }
 
 function responseLooksPdf(response, firstChunk = null) {
-  const contentType = (response.headers.get("content-type") || "").toLowerCase();
-  const contentDisposition = (response.headers.get("content-disposition") || "").toLowerCase();
-  const pdfHeader = firstChunk &&
-    firstChunk.length >= 4 &&
-    firstChunk[0] === 0x25 &&
-    firstChunk[1] === 0x50 &&
-    firstChunk[2] === 0x44 &&
-    firstChunk[3] === 0x46;
-
-  return contentType.includes("application/pdf") ||
-    contentType.includes("/pdf") ||
-    /\.pdf(?:["';\s]|$)/i.test(contentDisposition) ||
-    pdfHeader;
+  return PP_CORE.pdf?.responseLooksPdf ? PP_CORE.pdf.responseLooksPdf(response, firstChunk) : false;
 }
 
 function responseLooksDefinitelyHtml(response) {
-  const contentType = (response.headers.get("content-type") || "").toLowerCase();
-  return contentType.includes("text/html") ||
-    contentType.includes("application/xhtml") ||
-    contentType.includes("application/json");
+  return PP_CORE.pdf?.responseLooksDefinitelyHtml ? PP_CORE.pdf.responseLooksDefinitelyHtml(response) : false;
 }
 
-const PDF_CHECK_BATCH_SIZE = 4;
-const MAX_DOWNLOAD_CANDIDATES = 12;
-const PDF_FAST_HEAD_TIMEOUT_MS = 900;
-const PDF_HEAD_TIMEOUT_MS = 1800;
-const PDF_RANGE_TIMEOUT_MS = 2500;
+const PDF_CHECK_BATCH_SIZE = 8;
+const MAX_DOWNLOAD_CANDIDATES = 32;
+const PDF_FAST_HEAD_TIMEOUT_MS = 700;
+const PDF_HEAD_TIMEOUT_MS = 1400;
+const PDF_RANGE_TIMEOUT_MS = 1800;
+const PDF_DOWNLOAD_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const PDF_FAILURE_CACHE_TTL_MS = 2 * 60 * 1000;
+const PDF_REQUEST_CACHE_KEY = "__requests";
+const PDF_URL_CACHE_MAX_ENTRIES = 320;
+const PDF_REQUEST_CACHE_MAX_ENTRIES = 120;
+const pdfDownloadSingleFlight = PP_CORE.cache?.createSingleFlight?.();
+const inFlightPdfDownloads = new Map();
 
-async function fetchWithTimeout(url, options, timeoutMs) {
+async function fetchWithTimeout(url, options, timeoutMs, externalSignal = null) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const onAbort = () => {
+    controller.abort();
+  };
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timer);
+      throw new DOMException("Aborted", "AbortError");
+    }
+    externalSignal.addEventListener("abort", onAbort);
+  }
+
   try {
     return await fetch(url, {
       ...options,
@@ -328,10 +469,13 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     });
   } finally {
     clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onAbort);
+    }
   }
 }
 
-async function quickCheckPdfUrl(url) {
+async function quickCheckPdfUrl(url, signal = null) {
   try {
     const response = await fetchWithTimeout(url, {
       method: "HEAD",
@@ -339,7 +483,7 @@ async function quickCheckPdfUrl(url) {
       headers: {
         "Accept": "application/pdf, */*"
       }
-    }, PDF_FAST_HEAD_TIMEOUT_MS);
+    }, PDF_FAST_HEAD_TIMEOUT_MS, signal);
 
     if (response.ok && responseLooksPdf(response)) {
       return { valid: true, finalUrl: response.url };
@@ -358,36 +502,56 @@ async function quickCheckPdfUrl(url) {
 }
 
 async function findFastTrustedPdfTarget(urlsToTry, explicitNonPdfUrls) {
-  const trustedUrls = urlsToTry.filter(isTrustedBrowserPdfUrl).slice(0, PDF_CHECK_BATCH_SIZE);
+  const trustedUrls = urlsToTry
+    .map(candidate => typeof candidate === "string" ? { url: candidate } : candidate)
+    .filter(candidate => isTrustedBrowserPdfUrl(candidate.url))
+    .slice(0, PDF_CHECK_BATCH_SIZE);
   if (trustedUrls.length === 0) return null;
 
-  const results = await Promise.all(trustedUrls.map(async (candidateUrl) => ({
-    candidateUrl,
-    result: await quickCheckPdfUrl(candidateUrl)
-  })));
+  const results = [];
+  const controller = new AbortController();
 
-  for (const item of results) {
-    if (item.result.valid) {
-      return {
-        originalUrl: item.candidateUrl,
-        finalUrl: item.result.finalUrl || item.candidateUrl
+  const tasks = trustedUrls.map(async (candidateUrl) => {
+    try {
+      const result = await quickCheckPdfUrl(candidateUrl.url, controller.signal);
+      const item = {
+        candidateUrl,
+        result
       };
-    }
-  }
-
-  results.forEach(item => {
-    if (item.result.decisive) {
-      explicitNonPdfUrls.add(normalizeDownloadUrlKey(item.candidateUrl));
+      results.push(item);
+      if (item.result.valid) return item;
+      throw item;
+    } catch (e) {
+      throw e;
     }
   });
 
-  const inconclusiveTrusted = results.find(item => !item.result.decisive);
-  if (inconclusiveTrusted) {
+  try {
+    const firstValid = await Promise.any(tasks);
+    controller.abort(); // Cancel the other quick checks!
     return {
-      originalUrl: inconclusiveTrusted.candidateUrl,
-      finalUrl: inconclusiveTrusted.candidateUrl,
-      browserFallback: true
+      originalUrl: firstValid.candidateUrl.url,
+      finalUrl: firstValid.result.finalUrl || firstValid.candidateUrl.url,
+      source: firstValid.candidateUrl.source || "quick-check"
     };
+  } catch (err) {
+    results.forEach(item => {
+      if (item.result?.decisive) {
+        explicitNonPdfUrls.add(normalizeDownloadUrlKey(item.candidateUrl.url));
+      }
+    });
+
+    const inconclusiveTrusted = results.find(item => !item.result?.decisive);
+    if (inconclusiveTrusted) {
+      return {
+        originalUrl: inconclusiveTrusted.candidateUrl.url,
+        finalUrl: inconclusiveTrusted.candidateUrl.url,
+        browserFallback: true,
+        source: inconclusiveTrusted.candidateUrl.source || "quick-check-fallback"
+      };
+    }
+  } finally {
+    controller.abort();
   }
 
   return null;
@@ -397,128 +561,327 @@ async function findFirstVerifiedPdfUrl(urlsToTry, explicitNonPdfUrls = new Set()
   for (let i = 0; i < urlsToTry.length; i += PDF_CHECK_BATCH_SIZE) {
     const batch = urlsToTry
       .slice(i, i + PDF_CHECK_BATCH_SIZE)
-      .filter(candidateUrl => !explicitNonPdfUrls.has(normalizeDownloadUrlKey(candidateUrl)));
+      .map(candidate => typeof candidate === "string" ? { url: candidate } : candidate)
+      .filter(candidate => !explicitNonPdfUrls.has(normalizeDownloadUrlKey(candidate.url)));
     if (batch.length === 0) continue;
 
-    const verified = await Promise.any(batch.map(async (candidateUrl) => {
-      const pdfCheck = await checkPdfUrl(candidateUrl);
-      if (!pdfCheck.valid) {
-        throw new Error("Not a PDF response");
-      }
-      return {
-        originalUrl: candidateUrl,
-        finalUrl: pdfCheck.finalUrl || candidateUrl
-      };
-    })).catch(() => null);
+    const batchController = new AbortController();
 
-    if (verified) return verified;
+    try {
+      const verified = await Promise.any(batch.map(async (candidate) => {
+        const pdfCheck = await checkPdfUrl(candidate.url, batchController.signal);
+        if (!pdfCheck.valid) {
+          throw new Error("Not a PDF response");
+        }
+        return {
+          originalUrl: candidate.url,
+          finalUrl: pdfCheck.finalUrl || candidate.url,
+          source: candidate.source || "verified"
+        };
+      }));
+
+      // Successfully verified one! Abort all other requests in this batch.
+      batchController.abort();
+      return verified;
+    } catch (e) {
+      // Promise.any throws AggregateError if all failed
+    } finally {
+      batchController.abort();
+    }
   }
   return null;
 }
 
-function downloadPdf(url, filename, candidateUrls = []) {
-  return new Promise((resolve) => {
-    const urlsToTry = uniqueUrls([url, ...candidateUrls]).slice(0, MAX_DOWNLOAD_CANDIDATES);
-    if (urlsToTry.length === 0) {
-      resolve({ success: false, error: "Missing PDF URL" });
-      return;
-    }
+function getPdfDownloadRequestKey(candidates) {
+  const normalizedUrls = candidates
+    .slice(0, MAX_DOWNLOAD_CANDIDATES)
+    .map(candidate => normalizeDownloadUrlKey(candidate.url))
+    .filter(Boolean);
+  return `${normalizedUrls.length}:${normalizedUrls.slice(0, 16).join("|")}`;
+}
 
-    chrome.storage.local.get(["pdf_download_dir", "pdf_download_save_as"], async (config) => {
-      const explicitNonPdfUrls = new Set();
-      const fastTarget = await findFastTrustedPdfTarget(urlsToTry, explicitNonPdfUrls);
-      let verified = null;
-      let fallbackUrl = "";
-      if (fastTarget?.browserFallback) {
-        fallbackUrl = fastTarget.finalUrl;
-      } else {
-        verified = fastTarget || await findFirstVerifiedPdfUrl(urlsToTry, explicitNonPdfUrls);
-        fallbackUrl = verified ? "" : urlsToTry.find(candidateUrl => {
-          return isTrustedBrowserPdfUrl(candidateUrl) &&
-            !explicitNonPdfUrls.has(normalizeDownloadUrlKey(candidateUrl));
-        });
-      }
-      if (!verified && !fallbackUrl) {
+function getStorageAsync(keys) {
+  return new Promise(resolve => chrome.storage.local.get(keys, resolve));
+}
+
+function setStorageAsync(data) {
+  return new Promise(resolve => chrome.storage.local.set(data, resolve));
+}
+
+function getDownloadRequestCache(downloadCache) {
+  if (!downloadCache[PDF_REQUEST_CACHE_KEY] || typeof downloadCache[PDF_REQUEST_CACHE_KEY] !== "object") {
+    downloadCache[PDF_REQUEST_CACHE_KEY] = {};
+  }
+  return downloadCache[PDF_REQUEST_CACHE_KEY];
+}
+
+async function persistPdfDownloadCache(downloadCache) {
+  const requestCache = getDownloadRequestCache(downloadCache);
+  PP_CORE.cache?.pruneRecordObject?.(requestCache, {
+    maxEntries: PDF_REQUEST_CACHE_MAX_ENTRIES,
+    ttlMs: PDF_DOWNLOAD_CACHE_TTL_MS
+  });
+  PP_CORE.cache?.pruneRecordObject?.(downloadCache, {
+    maxEntries: PDF_URL_CACHE_MAX_ENTRIES,
+    ttlMs: PDF_DOWNLOAD_CACHE_TTL_MS,
+    preserveKeys: [PDF_REQUEST_CACHE_KEY]
+  });
+  await setStorageAsync({ pdf_download_cache: downloadCache });
+}
+
+function buildPdfDownloadDiagnostics(candidateSummary, attempted, options = {}) {
+  return {
+    candidateCount: candidateSummary.length,
+    attemptedCount: attempted.length,
+    firstSource: candidateSummary[0]?.source || "",
+    cacheHit: options.cacheHit || "none",
+    fastPath: Boolean(options.fastPath),
+    verificationMode: options.verificationMode || "unknown"
+  };
+}
+
+function startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source) {
+  return new Promise((resolve) => {
+    const downloadItem = { finalFilename, saveAs, requirePdf: true };
+    activeDownloadsByUrl.set(downloadUrl, downloadItem);
+    if (downloadUrl !== originalUrl) activeDownloadsByUrl.set(originalUrl, downloadItem);
+
+    chrome.downloads.download({
+      url: downloadUrl,
+      filename: finalFilename,
+      conflictAction: "uniquify",
+      saveAs
+    }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        activeDownloadsByUrl.delete(originalUrl);
+        activeDownloadsByUrl.delete(downloadUrl);
         resolve({
           success: false,
-          error: "候选链接均未返回 PDF 文件，已取消下载以避免保存 HTML 页面"
+          ok: false,
+          errorCode: "PDF_DOWNLOAD_FAILED",
+          error: chrome.runtime.lastError.message,
+          fallbackUrl: originalUrl,
+          source
         });
         return;
       }
 
-      const saveAs = config.pdf_download_save_as === true;
-      const finalFilename = saveAs ? (filename || "paper.pdf") : buildDownloadFilename(config.pdf_download_dir, filename);
-      const downloadUrl = verified ? verified.finalUrl : fallbackUrl;
-      const originalUrl = verified ? verified.originalUrl : fallbackUrl;
-
-      const downloadItem = { finalFilename, saveAs, requirePdf: true };
-      // Map by URL to handle early onDeterminingFilename fire before downloadId callback runs
-      activeDownloadsByUrl.set(downloadUrl, downloadItem);
-      if (downloadUrl !== originalUrl) activeDownloadsByUrl.set(originalUrl, downloadItem);
-
-      chrome.downloads.download({
-        url: downloadUrl,
+      activeDownloads.set(downloadId, downloadItem);
+      resolve({
+        success: true,
+        ok: true,
+        downloadId,
         filename: finalFilename,
-        conflictAction: "uniquify",
-        saveAs: saveAs
-      }, (downloadId) => {
-        if (chrome.runtime.lastError) {
-          activeDownloadsByUrl.delete(originalUrl);
-          activeDownloadsByUrl.delete(downloadUrl);
-          resolve({ success: false, error: chrome.runtime.lastError.message });
-          return;
-        }
-
-        // Map by download ID as highly reliable fallback
-        activeDownloads.set(downloadId, downloadItem);
-        resolve({ success: true, downloadId, filename: finalFilename });
+        source,
+        fallbackUrl: originalUrl
       });
     });
   });
 }
 
+function summarizePdfCandidates(candidates) {
+  return candidates.slice(0, MAX_DOWNLOAD_CANDIDATES).map(candidate => ({
+    url: candidate.url,
+    source: candidate.source || "unknown",
+    score: candidate.score || 0,
+    reason: candidate.reason || "",
+    browserFallback: Boolean(candidate.browserFallback)
+  }));
+}
+
+async function performPdfDownload(preparedCandidates, filename, requestKey) {
+  const config = await getStorageAsync(["pdf_download_dir", "pdf_download_save_as", "pdf_download_cache"]);
+  const downloadCache = config.pdf_download_cache || {};
+  const requestCache = getDownloadRequestCache(downloadCache);
+  const now = Date.now();
+  const saveAs = config.pdf_download_save_as === true;
+  const finalFilename = saveAs ? (filename || "paper.pdf") : buildDownloadFilename(config.pdf_download_dir, filename);
+  const candidateSummary = summarizePdfCandidates(preparedCandidates);
+  const cachedRequest = requestCache[requestKey];
+  if (cachedRequest?.ok && cachedRequest.url && now - cachedRequest.cachedAt <= PDF_DOWNLOAD_CACHE_TTL_MS) {
+    const attempted = [cachedRequest.url];
+    const result = await startChromePdfDownload(
+      cachedRequest.url,
+      cachedRequest.originalUrl || cachedRequest.url,
+      finalFilename,
+      saveAs,
+      cachedRequest.source || "pdf-request-cache"
+    );
+    return {
+      ...result,
+      candidates: candidateSummary,
+      attempted,
+      fallbackUrl: cachedRequest.originalUrl || cachedRequest.url,
+      diagnostics: buildPdfDownloadDiagnostics(candidateSummary, attempted, {
+        cacheHit: "request",
+        fastPath: true,
+        verificationMode: "request-cache"
+      })
+    };
+  }
+
+  const candidatesForAttempt = preparedCandidates.filter(candidate => {
+    const cached = downloadCache[normalizeDownloadUrlKey(candidate.url)];
+    return !(cached && cached.ok === false && now - cached.cachedAt <= PDF_FAILURE_CACHE_TTL_MS);
+  });
+  const activeCandidates = candidatesForAttempt.length ? candidatesForAttempt : preparedCandidates;
+
+  const cachedCandidate = activeCandidates.find(candidate => {
+    const cached = downloadCache[normalizeDownloadUrlKey(candidate.url)];
+    return cached && cached.ok && now - cached.cachedAt <= PDF_DOWNLOAD_CACHE_TTL_MS;
+  });
+  if (cachedCandidate) {
+    const cached = downloadCache[normalizeDownloadUrlKey(cachedCandidate.url)];
+    const cachedUrl = cached?.url || cachedCandidate.url;
+    const attempted = [cachedUrl];
+    return startChromePdfDownload(cachedUrl, cachedCandidate.url, finalFilename, saveAs, cachedCandidate.source || "pdf-cache")
+      .then(result => ({
+        ...result,
+        candidates: candidateSummary,
+        attempted,
+        diagnostics: buildPdfDownloadDiagnostics(candidateSummary, attempted, {
+          cacheHit: "url",
+          fastPath: true,
+          verificationMode: "url-cache"
+        })
+      }));
+  }
+
+  const explicitNonPdfUrls = new Set();
+  const fastTarget = await findFastTrustedPdfTarget(activeCandidates, explicitNonPdfUrls);
+  let verified = null;
+  let fallbackUrl = "";
+  let source = "";
+  if (fastTarget?.browserFallback) {
+    fallbackUrl = fastTarget.finalUrl;
+    source = fastTarget.source || "browser-fallback";
+  } else {
+    verified = fastTarget || await findFirstVerifiedPdfUrl(activeCandidates, explicitNonPdfUrls);
+    fallbackUrl = verified ? "" : activeCandidates.find(candidate => {
+      return isTrustedBrowserPdfUrl(candidate.url) &&
+        !candidate.browserFallback &&
+        !explicitNonPdfUrls.has(normalizeDownloadUrlKey(candidate.url));
+    })?.url || "";
+    if (verified) {
+      source = verified.source || "verified-candidate";
+    } else if (fallbackUrl) {
+      source = "verified-candidate";
+    } else {
+      // Robust fallback: if all checks failed (e.g. CORS/CFC), but we have a trusted browser PDF url, try it anyway!
+      const trustedFallback = activeCandidates.find(candidate => isTrustedBrowserPdfUrl(candidate.url) && !candidate.browserFallback);
+      if (trustedFallback) {
+        fallbackUrl = trustedFallback.url;
+        source = "trusted-fallback-unverified";
+      }
+    }
+  }
+
+  if (!verified && !fallbackUrl) {
+    preparedCandidates.forEach(candidate => {
+      downloadCache[normalizeDownloadUrlKey(candidate.url)] = { ok: false, cachedAt: now, url: candidate.url };
+    });
+    await persistPdfDownloadCache(downloadCache);
+    return {
+      success: false,
+      ok: false,
+      errorCode: "PDF_NOT_CONFIRMED",
+      error: "候选链接均未返回 PDF 文件，已取消下载以避免保存 HTML 页面",
+      candidates: candidateSummary,
+      attempted: candidateSummary.map(item => item.url),
+      fallbackUrl: candidateSummary[0]?.url || "",
+      source: "pdf-verification",
+      diagnostics: buildPdfDownloadDiagnostics(candidateSummary, candidateSummary.map(item => item.url), {
+        verificationMode: "failed"
+      })
+    };
+  }
+
+  const downloadUrl = verified ? verified.finalUrl : fallbackUrl;
+  const originalUrl = verified ? verified.originalUrl : fallbackUrl;
+  const result = await startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source);
+  const attempted = [downloadUrl];
+  // Persist only byte/header-verified targets. A browser fallback merely means
+  // that a download task was accepted; it may still resolve to a login HTML page.
+  if (result.ok && verified) {
+    const cacheRecord = {
+      ok: true,
+      cachedAt: now,
+      url: downloadUrl,
+      originalUrl,
+      source: source || "verified-candidate"
+    };
+    downloadCache[normalizeDownloadUrlKey(downloadUrl)] = cacheRecord;
+    if (originalUrl && originalUrl !== downloadUrl) {
+      downloadCache[normalizeDownloadUrlKey(originalUrl)] = cacheRecord;
+    }
+    requestCache[requestKey] = cacheRecord;
+    await persistPdfDownloadCache(downloadCache);
+  }
+  return {
+    ...result,
+    candidates: candidateSummary,
+    attempted,
+    fallbackUrl: originalUrl,
+    diagnostics: buildPdfDownloadDiagnostics(candidateSummary, attempted, {
+      fastPath: Boolean(verified && source === "quick-check"),
+      verificationMode: verified ? "verified" : "browser-fallback"
+    })
+  };
+}
+
+function downloadPdf(url, filename, candidateUrls = []) {
+  const preparedCandidates = (PP_CORE.pdf?.preparePdfCandidates
+    ? PP_CORE.pdf.preparePdfCandidates([url, ...candidateUrls])
+    : uniqueUrls([url, ...candidateUrls]).map(item => ({ url: item, score: isTrustedBrowserPdfUrl(item) ? 90 : 0 }))
+  ).slice(0, MAX_DOWNLOAD_CANDIDATES);
+
+  if (preparedCandidates.length === 0) {
+    return Promise.resolve({
+      success: false,
+      ok: false,
+      errorCode: "PDF_URL_MISSING",
+      error: "Missing PDF URL",
+      candidates: [],
+      attempted: [],
+      fallbackUrl: "",
+      source: "candidate-collector"
+    });
+  }
+
+  const requestKey = getPdfDownloadRequestKey(preparedCandidates);
+  const flightKey = `${requestKey}|${String(filename || "paper.pdf")}`;
+  if (pdfDownloadSingleFlight) {
+    return pdfDownloadSingleFlight.run(flightKey, () => performPdfDownload(preparedCandidates, filename, requestKey));
+  }
+  if (inFlightPdfDownloads.has(flightKey)) {
+    return inFlightPdfDownloads.get(flightKey);
+  }
+
+  const promise = performPdfDownload(preparedCandidates, filename, requestKey)
+    .finally(() => {
+      inFlightPdfDownloads.delete(flightKey);
+    });
+  inFlightPdfDownloads.set(flightKey, promise);
+  return promise;
+}
+
 function normalizeDoiForLookup(doi) {
-  return String(doi || "")
-    .trim()
+  if (PP_CORE.metadata?.extractDoi) {
+    return PP_CORE.metadata.extractDoi([doi]);
+  }
+  const normalized = String(doi || "").trim()
     .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
     .replace(/^doi:\s*/i, "")
     .replace(/[?#].*$/, "");
+  return /^10\.\d{4,9}\/\S+$/i.test(normalized) ? normalized : "";
 }
 
 function isWeakMetadataTitle(title, doi = "") {
-  const cleanTitle = String(title || "").trim();
-  if (!cleanTitle) return true;
-  if (/^https?:\/\//i.test(cleanTitle)) return true;
-  if (/\.pdf(\?|$)/i.test(cleanTitle)) return true;
-  if (/^(pdf|download|article|full text|acs publications)$/i.test(cleanTitle)) return true;
-
-  const cleanDoi = normalizeDoiForLookup(doi).toLowerCase();
-  const normalizedTitle = cleanTitle
-    .toLowerCase()
-    .replace(/^doi:\s*/, "")
-    .replace(/^https?:\/\/(dx\.)?doi\.org\//, "")
-    .replace(/[?#].*$/, "");
-  if (cleanDoi && normalizedTitle === cleanDoi) return true;
-  if (/^10\.\d{4,9}\//i.test(cleanTitle)) return true;
-  if (/^[a-z0-9_.-]+\.\d+[a-z]?\d*$/i.test(cleanTitle)) return true;
-
-  return cleanTitle.length < 8;
+  return PP_CORE.metadata?.isWeakTitle ? PP_CORE.metadata.isWeakTitle(title, doi) : !String(title || "").trim();
 }
 
 function applyCrossrefItem(metadata, item) {
-  if (!item) return;
-  if (item.DOI) metadata.doi = normalizeDoiForLookup(item.DOI);
-  if (item.title && item.title[0]) metadata.title = item.title[0];
-  if (item["container-title"] && item["container-title"][0]) {
-    metadata.journal = item["container-title"][0] || metadata.journal;
-  }
-  const dateParts = item.published?.["date-parts"] || item.created?.["date-parts"] || item.issued?.["date-parts"];
-  if (dateParts && dateParts[0] && dateParts[0][0]) {
-    metadata.year = dateParts[0][0] || metadata.year;
-  }
-  if (item.author) {
-    metadata.authors = item.author.map(a => `${a.given || ""} ${a.family || ""}`.trim()).filter(Boolean);
-  }
+  return PP_CORE.metadata?.applyCrossrefItem ? PP_CORE.metadata.applyCrossrefItem(metadata, item) : metadata;
 }
 
 /**
@@ -526,31 +889,45 @@ function applyCrossrefItem(metadata, item) {
  * Uses a CORS-free Fetch with standard HEAD, or GET with Range headers (bytes=0-1023)
  * to read the %PDF file header magic bytes without downloading the entire file.
  */
-async function checkPdfUrl(url) {
+async function checkPdfUrl(url, parentSignal = null) {
   if (!url) return { valid: false };
-  
-  try {
-    // Try a simple HEAD request first
+
+  if (parentSignal?.aborted) {
+    return { valid: false, errorCode: "PDF_ABORTED", reason: "Aborted by parent signal" };
+  }
+
+  const controller = new AbortController();
+
+  const onParentAbort = () => {
+    controller.abort();
+  };
+
+  if (parentSignal) {
+    parentSignal.addEventListener("abort", onParentAbort);
+  }
+
+  const headTask = (async () => {
     const headResponse = await fetchWithTimeout(url, {
       method: "HEAD",
       credentials: "include",
       headers: {
         "Accept": "application/pdf, */*"
       }
-    }, PDF_HEAD_TIMEOUT_MS);
+    }, PDF_HEAD_TIMEOUT_MS, controller.signal);
 
     if (headResponse.ok) {
       if (responseLooksPdf(headResponse)) {
         return { valid: true, finalUrl: headResponse.url };
       }
     }
-  } catch (e) {
-    console.log("HEAD request failed, falling back to GET Range request: ", e.message);
-  }
+    const classified = PP_CORE.pdf?.classifyPdfResponse?.(headResponse);
+    if (classified && classified.errorCode !== "PDF_NOT_CONFIRMED") {
+      return classified;
+    }
+    return { valid: false, errorCode: "PDF_NOT_CONFIRMED", reason: "HEAD not conclusive" };
+  })();
 
-  try {
-    // Fallback: GET request with Range header to read first 1KB of the file
-    // This solves servers that reject HEAD requests but allows partial content GET
+  const rangeTask = (async () => {
     const rangeResponse = await fetchWithTimeout(url, {
       method: "GET",
       credentials: "include",
@@ -558,7 +935,7 @@ async function checkPdfUrl(url) {
         "Range": "bytes=0-1023",
         "Accept": "application/pdf, */*"
       }
-    }, PDF_RANGE_TIMEOUT_MS);
+    }, PDF_RANGE_TIMEOUT_MS, controller.signal);
 
     if (rangeResponse.ok || rangeResponse.status === 206) {
       let value = null;
@@ -574,19 +951,70 @@ async function checkPdfUrl(url) {
       if (responseLooksPdf(rangeResponse, value)) {
         return { valid: true, finalUrl: rangeResponse.url };
       }
+      return PP_CORE.pdf?.classifyPdfResponse
+        ? PP_CORE.pdf.classifyPdfResponse(rangeResponse, value)
+        : { valid: false };
     }
-  } catch (e) {
-    console.log("GET range check failed: ", e.message);
-  }
+    return PP_CORE.pdf?.classifyPdfResponse
+      ? PP_CORE.pdf.classifyPdfResponse(rangeResponse)
+      : { valid: false };
+  })();
 
-  return { valid: false };
+  try {
+    return await new Promise((resolve) => {
+      let resolved = false;
+      let completedCount = 0;
+      const results = [];
+
+      const handleResult = (res, index) => {
+        if (resolved) return;
+        results[index] = res;
+        completedCount++;
+
+        if (res && res.valid) {
+          resolved = true;
+          controller.abort(); // Cancel the other check
+          resolve(res);
+          return;
+        }
+
+        if (completedCount === 2) {
+          resolved = true;
+          // Both finished, and neither is valid. Return the best error.
+          const decisive = results.find(value => value && value.errorCode && value.errorCode !== "PDF_NOT_CONFIRMED");
+          if (decisive) {
+            resolve(decisive);
+          } else {
+            resolve(results[0] || { valid: false, errorCode: "PDF_NOT_CONFIRMED", reason: "No PDF response detected" });
+          }
+        }
+      };
+
+      headTask.then(res => handleResult(res, 0)).catch(err => handleResult(PP_CORE.pdf?.classifyPdfError ? PP_CORE.pdf.classifyPdfError(err) : { valid: false, error: err.message }, 0));
+      rangeTask.then(res => handleResult(res, 1)).catch(err => handleResult(PP_CORE.pdf?.classifyPdfError ? PP_CORE.pdf.classifyPdfError(err) : { valid: false, error: err.message }, 1));
+
+      if (parentSignal) {
+        parentSignal.addEventListener("abort", () => {
+          if (!resolved) {
+            resolved = true;
+            controller.abort();
+            resolve({ valid: false, errorCode: "PDF_ABORTED", reason: "Aborted by parent signal" });
+          }
+        });
+      }
+    });
+  } finally {
+    if (parentSignal) {
+      parentSignal.removeEventListener("abort", onParentAbort);
+    }
+  }
 }
 
 /**
  * Queries Unpaywall & OpenAlex APIs concurrently to retrieve open access PDF links,
  * journal metrics (JCR quartiles, IF) and formats metadata, using cache if available.
  */
-async function fetchPaperMetadata(doi, title, clientJournal) {
+async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
   // If DOI is missing, try to resolve via title using OpenAlex
   let paperDoi = normalizeDoiForLookup(doi);
   const cacheKey = paperDoi || `title_${title}`;
@@ -601,192 +1029,196 @@ async function fetchPaperMetadata(doi, title, clientJournal) {
   const cache = storage.pdf_cache || {};
   if (cache[cacheKey]) {
     const cachedData = cache[cacheKey];
+    if (pageUrl && cachedData.pageUrl !== pageUrl) {
+      cachedData.pageUrl = pageUrl;
+      await chrome.storage.local.set({ pdf_cache: cache });
+    }
     const cachedAt = cachedData.cachedAt || 0;
-    const isExpired = Date.now() - cachedAt > CACHE_TTL_MS;
+    const expiresAt = cachedData.expiresAt || (cachedAt + CACHE_TTL_MS);
+    const isExpired = Date.now() > expiresAt;
+    cachedData.expiresAt = expiresAt;
+    cachedData.stale = isExpired;
 
     if (!isExpired && !isWeakMetadataTitle(cachedData.title, cachedData.doi)) {
-      // If a key is configured, but the cache has estimated values (isEstimated is not false),
-      // ignore cache hit to trigger a fresh easyScholar query!
-      if (!secretKey || cachedData.isEstimated === false) {
-        return { success: true, fromCache: true, data: cachedData };
+      // If a key is configured but cached metrics did not come from a trusted source,
+      // ignore cache hit to trigger a fresh easyScholar query.
+      if (!secretKey || cachedData.metricsSource === "easyScholar") {
+        return {
+          success: true,
+          ok: true,
+          fromCache: true,
+          data: cachedData,
+          source: cachedData.source || cachedData.metricsSource || "cache",
+          cachedAt: cachedData.cachedAt || null,
+          expiresAt: cachedData.expiresAt || null,
+          stale: false
+        };
       }
     } else {
       console.log("PaperPilot Pro: Metadata cache expired or legacy for key:", cacheKey);
     }
   }
 
-  let metadata = {
-    doi: paperDoi,
-    title: title,
-    pdfUrl: "",
-    journal: clientJournal || "",
-    publisher: "",
-    year: new Date().getFullYear(),
-    authors: [],
-    impactFactor: "N/A",
-    jcrQuartile: "N/A",
-    casPartition: "N/A",
-    citeScore: "N/A",
-    oaStatus: "Closed",
-    isEstimated: true,
-    ccfRank: "",
-    isCssci: false,
-    isPku: false,
-    sciWarn: ""
-  };
+  let metadata = PP_CORE.metadata?.createBaseMetadata
+    ? PP_CORE.metadata.createBaseMetadata({ doi: paperDoi, title, journal: clientJournal })
+    : {
+        doi: paperDoi,
+        title,
+        pdfUrl: "",
+        journal: clientJournal || "",
+        publisher: "",
+        year: new Date().getFullYear(),
+        authors: [],
+        impactFactor: "N/A",
+        jcrQuartile: "N/A",
+        casPartition: "N/A",
+        citeScore: "N/A",
+        oaStatus: "Closed",
+        isEstimated: false,
+        metricsSource: "unconfigured",
+        ccfRank: "",
+        isCssci: false,
+        isPku: false,
+        sciWarn: "",
+        sources: []
+      };
 
-  // 1. Resolve DOI or search via OpenAlex if DOI is empty
-  try {
-    let openAlexUrl = "";
-    if (paperDoi) {
-      openAlexUrl = `https://api.openalex.org/works/https://doi.org/${paperDoi}`;
-    } else if (title) {
-      openAlexUrl = `https://api.openalex.org/works?filter=title.search:${encodeURIComponent(title)}&limit=1`;
-    }
+  // Start easyScholar query immediately in parallel if journal/clientJournal is available
+  let easyScholarPromise = null;
+  const initialJournal = clientJournal || metadata.journal;
+  if (secretKey && initialJournal) {
+    easyScholarPromise = enqueueEasyScholar(initialJournal, secretKey).then(rankData => {
+      if (rankData) {
+        mapEasyScholarRank(metadata, rankData);
+      }
+    }).catch(err => console.warn("easyScholar lookup failed:", err.message));
+  }
 
-    if (openAlexUrl) {
-      const oaResponse = await fetch(openAlexUrl, {
-        headers: { "User-Agent": "mailto:paperpilot@gmail.com" }
-      });
+  // 1. Resolve DOI & fetch OpenAlex/Unpaywall in parallel if DOI is present
+  if (metadata.doi) {
+    const promises = [];
+
+    // OpenAlex lookup
+    const openAlexUrl = `https://api.openalex.org/works/https://doi.org/${metadata.doi}`;
+    promises.push(fetch(openAlexUrl, {
+      headers: { "User-Agent": "mailto:paperpilot@gmail.com" }
+    }).then(async (oaResponse) => {
       if (oaResponse.ok) {
         const oaData = await oaResponse.json();
         const work = oaData.results ? oaData.results[0] : oaData;
-        
-        if (work) {
-          metadata.title = work.title || metadata.title;
-          metadata.doi = work.doi ? work.doi.replace("https://doi.org/", "") : metadata.doi;
-          metadata.year = work.publication_year || metadata.year;
-          metadata.authors = (work.authorships || []).map(a => a.author.display_name);
-          
-          if (work.primary_location && work.primary_location.source) {
-            metadata.journal = work.primary_location.source.display_name || "";
-          }
-          
-          if (work.best_oa_location) {
-            metadata.pdfUrl = work.best_oa_location.pdf_url || work.best_oa_location.landing_page_url || "";
-            metadata.oaStatus = work.open_access ? (work.open_access.oa_status || "Open") : "Closed";
-          }
-          
-          // Fallback approximate metrics calculations based on citation rate / venue characteristics
-          // or simulated JCR lookup for popular venues
-          const journalLower = (metadata.journal || "").toLowerCase();
-          if (journalLower.includes("nature energy")) {
-            metadata.impactFactor = "56.7";
-            metadata.jcrQuartile = "Q1 (Energy & Fuels)";
-            metadata.citeScore = "108.2";
-            metadata.isEstimated = false;
-          } else if (journalLower.includes("nature nanotechnology")) {
-            metadata.impactFactor = "38.3";
-            metadata.jcrQuartile = "Q1 (Materials Science)";
-            metadata.citeScore = "72.4";
-            metadata.isEstimated = false;
-          } else if (journalLower.includes("nature communications")) {
-            metadata.impactFactor = "16.6";
-            metadata.jcrQuartile = "Q1 (Multidisciplinary)";
-            metadata.citeScore = "26.8";
-            metadata.isEstimated = false;
-          } else if (journalLower.includes("science")) {
-            metadata.impactFactor = "56.9";
-            metadata.jcrQuartile = "Q1 (Multidisciplinary)";
-            metadata.citeScore = "110.5";
-            metadata.isEstimated = false;
-          } else if (journalLower.includes("journal of the american chemical society") || journalLower.includes("j. am. chem. soc.")) {
-            metadata.impactFactor = "15.0";
-            metadata.jcrQuartile = "Q1 (Chemistry)";
-            metadata.citeScore = "28.5";
-            metadata.isEstimated = false;
-          } else {
-            // General heuristics for other journals based on OpenAlex citation counts
-            const citations = work.cited_by_count || 0;
-            const age = Math.max(1, new Date().getFullYear() - metadata.year);
-            const citationsPerYear = citations / age;
-            if (citationsPerYear > 50) {
-              metadata.impactFactor = (10 + Math.random() * 8).toFixed(1);
-              metadata.jcrQuartile = "Q1";
-              metadata.citeScore = (15 + Math.random() * 15).toFixed(1);
-            } else if (citationsPerYear > 15) {
-              metadata.impactFactor = (4 + Math.random() * 5).toFixed(1);
-              metadata.jcrQuartile = "Q2";
-              metadata.citeScore = (6 + Math.random() * 8).toFixed(1);
-            } else {
-              metadata.impactFactor = (1.5 + Math.random() * 2.5).toFixed(1);
-              metadata.jcrQuartile = "Q3";
-              metadata.citeScore = (2 + Math.random() * 3).toFixed(1);
-            }
-            metadata.isEstimated = true;
-          }
+        if (work && PP_CORE.metadata?.applyOpenAlexWork) {
+          PP_CORE.metadata.applyOpenAlexWork(metadata, work);
         }
       }
-    }
-  } catch (e) {
-    console.warn("OpenAlex lookup failed:", e.message);
-  }
+    }).catch(e => console.warn("OpenAlex lookup failed:", e.message)));
 
-  // Crossref API fallback for DOI/title resolution. PDF viewer pages often expose only a DOI-like title.
-  if (metadata.doi && isWeakMetadataTitle(metadata.title, metadata.doi)) {
-    try {
-      const crResponse = await fetch(`https://api.crossref.org/works/${encodeURIComponent(metadata.doi)}`);
-      if (crResponse.ok) {
-        const crData = await crResponse.json();
-        applyCrossrefItem(metadata, crData.message);
-      }
-    } catch (e) {
-      console.warn("Crossref DOI lookup failed:", e.message);
-    }
-  }
-
-  // Crossref API fallback for DOI resolution if DOI is unavailable but a usable title exists.
-  if (!metadata.doi && title && !isWeakMetadataTitle(title)) {
-    try {
-      const crResponse = await fetch(`https://api.crossref.org/works?query.title=${encodeURIComponent(title)}&rows=1`);
-      if (crResponse.ok) {
-        const crData = await crResponse.json();
-        if (crData.message && crData.message.items && crData.message.items.length > 0) {
-          applyCrossrefItem(metadata, crData.message.items[0]);
-        }
-      }
-    } catch (e) {
-      console.warn("Crossref lookup failed:", e.message);
-    }
-  }
-
-  // 2. Query Unpaywall as high-stability backup for PDF OA discovery (if DOI available)
-  if (metadata.doi && !metadata.pdfUrl) {
-    try {
-      const upResponse = await fetch(`https://api.unpaywall.org/v2/${metadata.doi}?email=paperpilot@gmail.com`);
+    // Unpaywall lookup
+    promises.push(fetch(`https://api.unpaywall.org/v2/${metadata.doi}?email=paperpilot@gmail.com`).then(async (upResponse) => {
       if (upResponse.ok) {
         const upData = await upResponse.json();
         if (upData.best_oa_location) {
-          metadata.pdfUrl = upData.best_oa_location.url_for_pdf || upData.best_oa_location.url || "";
-          metadata.oaStatus = upData.oa_status || "Open";
+          if (PP_CORE.metadata?.applyUnpaywall) {
+            PP_CORE.metadata.applyUnpaywall(metadata, upData);
+          } else {
+            metadata.pdfUrl = upData.best_oa_location.url_for_pdf || upData.best_oa_location.url || "";
+            metadata.oaStatus = upData.oa_status || "Open";
+          }
         }
       }
-    } catch (e) {
-      console.warn("Unpaywall lookup failed:", e.message);
+    }).catch(e => console.warn("Unpaywall lookup failed:", e.message)));
+
+    await Promise.all(promises);
+
+    // Crossref fallback if title is weak after OpenAlex
+    if (isWeakMetadataTitle(metadata.title, metadata.doi)) {
+      try {
+        const crResponse = await fetch(`https://api.crossref.org/works/${encodeURIComponent(metadata.doi)}`);
+        if (crResponse.ok) {
+          const crData = await crResponse.json();
+          applyCrossrefItem(metadata, crData.message);
+        }
+      } catch (e) {
+        console.warn("Crossref DOI lookup failed:", e.message);
+      }
+    }
+  } else {
+    // DOI is missing, sequentially resolve DOI via title first
+    if (title) {
+      try {
+        const openAlexUrl = `https://api.openalex.org/works?filter=title.search:${encodeURIComponent(title)}&limit=1`;
+        const oaResponse = await fetch(openAlexUrl, {
+          headers: { "User-Agent": "mailto:paperpilot@gmail.com" }
+        });
+        if (oaResponse.ok) {
+          const oaData = await oaResponse.json();
+          const work = oaData.results ? oaData.results[0] : oaData;
+          if (work && PP_CORE.metadata?.applyOpenAlexWork) {
+            PP_CORE.metadata.applyOpenAlexWork(metadata, work);
+          }
+        }
+      } catch (e) {
+        console.warn("OpenAlex title lookup failed:", e.message);
+      }
+    }
+
+    // Crossref lookup fallback if DOI is still missing
+    if (!metadata.doi && title && !isWeakMetadataTitle(title)) {
+      try {
+        const crResponse = await fetch(`https://api.crossref.org/works?query.title=${encodeURIComponent(title)}&rows=1`);
+        if (crResponse.ok) {
+          const crData = await crResponse.json();
+          if (crData.message && crData.message.items && crData.message.items.length > 0) {
+            applyCrossrefItem(metadata, crData.message.items[0]);
+          }
+        }
+      } catch (e) {
+        console.warn("Crossref title lookup failed:", e.message);
+      }
+    }
+
+    // If DOI was resolved, query Unpaywall
+    if (metadata.doi && !metadata.pdfUrl) {
+      try {
+        const upResponse = await fetch(`https://api.unpaywall.org/v2/${metadata.doi}?email=paperpilot@gmail.com`);
+        if (upResponse.ok) {
+          const upData = await upResponse.json();
+          if (upData.best_oa_location) {
+            if (PP_CORE.metadata?.applyUnpaywall) {
+              PP_CORE.metadata.applyUnpaywall(metadata, upData);
+            } else {
+              metadata.pdfUrl = upData.best_oa_location.url_for_pdf || upData.best_oa_location.url || "";
+              metadata.oaStatus = upData.oa_status || "Open";
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Unpaywall lookup failed:", e.message);
+      }
     }
   }
 
-  // Double check and verify the fetched PDF URL
+  // 2. Double check and verify the fetched PDF URL
   if (metadata.pdfUrl) {
     const check = await checkPdfUrl(metadata.pdfUrl);
     if (!check.valid) {
-      // If direct PDF is invalid, check if we have a landing page or copy DOI option later
       metadata.pdfUrl = "";
     } else {
       metadata.pdfUrl = check.finalUrl || metadata.pdfUrl;
     }
   }
 
-  // 3. Query easyScholar if secretKey and journal are available
-  try {
-    if (secretKey && metadata.journal) {
+  // 3. Await the early-started easyScholar lookup or trigger one sequentially if it wasn't started
+  if (easyScholarPromise) {
+    await easyScholarPromise;
+  } else if (secretKey && metadata.journal) {
+    try {
       const rankData = await enqueueEasyScholar(metadata.journal, secretKey);
       if (rankData) {
         mapEasyScholarRank(metadata, rankData);
       }
+    } catch (err) {
+      console.warn("easyScholar lookup failed:", err.message);
     }
-  } catch (err) {
-    console.warn("easyScholar lookup failed:", err.message);
   }
 
   // Map JCR Quartile to CAS Partition (only if not resolved by easyScholar)
@@ -803,11 +1235,28 @@ async function fetchPaperMetadata(doi, title, clientJournal) {
   }
 
   // Cache final metadata with timestamp for expiration eviction
+  metadata.pageUrl = pageUrl || metadata.pageUrl || "";
   metadata.cachedAt = Date.now();
+  metadata.expiresAt = metadata.cachedAt + CACHE_TTL_MS;
+  metadata.stale = false;
+  metadata.source = metadata.sources && metadata.sources.length ? metadata.sources.join(", ") : "local";
   cache[cacheKey] = metadata;
+  PP_CORE.cache?.pruneRecordObject?.(cache, {
+    maxEntries: 500,
+    ttlMs: 4 * CACHE_TTL_MS
+  });
   await chrome.storage.local.set({ pdf_cache: cache });
 
-  return { success: true, fromCache: false, data: metadata };
+  return {
+    success: true,
+    ok: true,
+    fromCache: false,
+    data: metadata,
+    source: metadata.source,
+    cachedAt: metadata.cachedAt,
+    expiresAt: metadata.expiresAt,
+    stale: metadata.stale
+  };
 }
 
 /**
@@ -817,7 +1266,7 @@ async function fetchPaperMetadata(doi, title, clientJournal) {
  */
 async function addFootprint(footprint) {
   if (!footprint || (!footprint.title && !footprint.doi)) {
-    return { success: false, error: "Invalid footprint data" };
+    return { success: false, ok: false, errorCode: "HISTORY_INVALID_RECORD", error: "Invalid footprint data" };
   }
 
   const storage = await chrome.storage.local.get("history");
@@ -851,7 +1300,7 @@ async function addFootprint(footprint) {
   }
 
   await chrome.storage.local.set({ history });
-  return { success: true, historyLength: history.length };
+  return { success: true, ok: true, historyLength: history.length, source: "chrome.storage.local" };
 }
 
 /**
@@ -1024,6 +1473,7 @@ async function testAIConnection() {
   });
   return {
     success: true,
+    ok: true,
     provider: config.provider,
     model: config.model,
     sample: text || "OK"
@@ -1033,55 +1483,35 @@ async function testAIConnection() {
 async function callAISummarize(abstract, title) {
   const config = await loadAiConfig();
 
-  // If no API key, return a highly accurate heuristic client-side mock summary to wow the user immediately.
-  if (providerNeedsApiKey(config.provider) && !config.apiKey) {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        // Extract core phrases or simulate reading the abstract.
-        // Let's generate a context-aware mock based on the title to look extremely realistic.
-        const mockSummary = generateContextualMockSummary(title, abstract);
-        resolve({ success: true, summary: mockSummary, provider: "local-heuristic-model" });
-      }, 1000);
-    });
-  }
-
   try {
-    const summaryText = await callAIProvider({
-      ...config,
-      title,
-      abstract
-    });
-    return { success: true, summary: summaryText, provider: config.provider };
+    if (PP_CORE.ai?.summarize) {
+      const result = await PP_CORE.ai.summarize({
+        ...config,
+        title,
+        abstract
+      });
+      return {
+        ...result,
+        success: result.ok,
+        summary: result.data?.summary || "",
+        provider: result.data?.provider || config.provider,
+        model: result.data?.model || config.model
+      };
+    }
+    const summaryText = await callAIProvider({ ...config, title, abstract });
+    return { success: true, ok: true, summary: summaryText, provider: config.provider, source: `ai/${config.provider}` };
   } catch (err) {
-    console.error("AI API call failed, falling back to local heuristic summary:", err);
-    const fallbackSummary = generateContextualMockSummary(title, abstract);
-    return { success: true, summary: `(API 错误，已自动启用本地学者引擎总结)\n${fallbackSummary}`, provider: "local-heuristic-model" };
+    const code = err.code === "AI_API_KEY_MISSING" || err.code === "AI_MODEL_MISSING" ? err.code : "AI_PROVIDER_ERROR";
+    return {
+      success: false,
+      ok: false,
+      summary: "",
+      provider: config.provider,
+      source: `ai/${config.provider}`,
+      errorCode: code,
+      error: err.message
+    };
   }
-}
-
-/**
- * Dynamic offline contextual summaries generator using sentences from the abstract.
- * Formats a premium 3-sentence TL;DR in Chinese.
- */
-function generateContextualMockSummary(title, abstract) {
-  if (!abstract) return "未检测到可供总结的文献摘要内容。";
-  
-  // Clean abstract and split into sentences
-  const cleaned = abstract.replace(/\s+/g, " ");
-  const sentences = cleaned.split(/(?<=[.!?])\s+/);
-  
-  // Choose key parts: first sentence (the goal), middle sentence, and last sentence (the impact/result)
-  const first = sentences[0] || "";
-  const last = sentences[sentences.length - 1] || "";
-  let middle = "";
-  if (sentences.length > 2) {
-    middle = sentences[Math.floor(sentences.length / 2)] || "";
-  }
-
-  // Build a Chinese structured TL;DR that translates/extracts values or looks extremely formal
-  return `1. **核心课题**：该研究探讨了“${title}”领域的关键技术突破及学术瓶颈。<br>` +
-         `2. **主要发现**：${middle ? `【关键论证】${middle}` : "该文献通过系统的实验比对和机理分析，揭示了核心参量之间的关联机制。"}<br>` +
-         `3. **学术价值**：研究成功拓展了该方向在实际科研场景中的应用边界，具有重大应用指导意义。`;
 }
 
 // FIFO rate-limiting queue for easyScholar API (max 2 requests per second)
@@ -1139,11 +1569,16 @@ async function fetchEasyScholarDirect(journalName, secretKey) {
 }
 
 function mapEasyScholarRank(metadata, rankData) {
+  if (PP_CORE.metadata?.applyEasyScholarRank) {
+    PP_CORE.metadata.applyEasyScholarRank(metadata, rankData);
+    return;
+  }
   if (!rankData || !rankData.officialRank || !rankData.officialRank.all) return;
   const all = rankData.officialRank.all;
 
   // Set isEstimated to false as we have official ranks resolved from easyScholar
   metadata.isEstimated = false;
+  metadata.metricsSource = "easyScholar";
 
   // 1. Impact Factor
   if (all.sciif) {
@@ -1186,8 +1621,22 @@ async function fetchEasyScholarForScholar(journalName) {
 
   const cache = settings.easyscholar_cache || {};
   const cacheKey = journalName.toLowerCase().trim();
+  const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   if (cache[cacheKey]) {
-    return { success: true, data: cache[cacheKey], fromCache: true };
+    cache[cacheKey].expiresAt = cache[cacheKey].expiresAt || ((cache[cacheKey].cachedAt || 0) + CACHE_TTL_MS);
+    cache[cacheKey].stale = Date.now() > cache[cacheKey].expiresAt;
+  }
+  if (cache[cacheKey] && !cache[cacheKey].stale) {
+    return {
+      success: true,
+      ok: true,
+      data: cache[cacheKey],
+      fromCache: true,
+      source: "easyScholar",
+      cachedAt: cache[cacheKey].cachedAt || null,
+      expiresAt: cache[cacheKey].expiresAt || null,
+      stale: false
+    };
   }
 
   // Enqueue easyScholar API request
@@ -1201,11 +1650,15 @@ async function fetchEasyScholarForScholar(journalName) {
       ccf: all.ccf || null,
       cssci: all.cssci === "是" || all.cssci === "收录",
       pku: all.pku === "是" || all.pku === "收录",
-      sciwarn: all.sciwarn && all.sciwarn !== "无" && all.sciwarn !== "否" ? all.sciwarn : null
+      sciwarn: all.sciwarn && all.sciwarn !== "无" && all.sciwarn !== "否" ? all.sciwarn : null,
+      source: "easyScholar",
+      cachedAt: Date.now(),
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      stale: false
     };
     cache[cacheKey] = formatted;
     await chrome.storage.local.set({ easyscholar_cache: cache });
-    return { success: true, data: formatted, fromCache: false };
+    return { success: true, ok: true, data: formatted, fromCache: false, source: "easyScholar", cachedAt: formatted.cachedAt };
   }
 
   return { success: false, error: "No ranks matched in easyScholar API" };

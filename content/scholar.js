@@ -42,6 +42,7 @@
     "enable_metrics_auto_detect",
     "enable_bibtex_btn",
     "enable_scholar_copy_doi_btn",
+    "enable_pdf_download_btn",
     "easyscholar_key",
     "enable_ccf_badge",
     "enable_core_badge",
@@ -323,6 +324,7 @@
         enable_metrics_auto_detect: settings.enable_metrics_auto_detect !== false,
         enable_bibtex_btn: settings.enable_bibtex_btn !== false,
         enable_scholar_copy_doi_btn: settings.enable_scholar_copy_doi_btn !== false,
+        enable_pdf_download_btn: settings.enable_pdf_download_btn !== false,
         easyscholar_key: (settings.easyscholar_key || "").trim(),
         enable_ccf_badge: settings.enable_ccf_badge !== false,
         enable_core_badge: settings.enable_core_badge !== false,
@@ -1009,95 +1011,15 @@
   }
 
   // =========================================================
-  // High-Precision Academic Metrics Heuristics Engine
+  // Trusted academic metrics display state.
   // =========================================================
   function getJournalMetrics(venue, year, citations) {
     const venueLower = (venue || "").toLowerCase();
-    
-    if (venueLower.includes("nature energy")) {
-      return { ifVal: "56.7", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("nature nanotechnology") || venueLower.includes("nat. nanotechnol.")) {
-      return { ifVal: "38.3", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("nature communications") || venueLower.includes("nat. commun.")) {
-      return { ifVal: "16.6", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("nature chemistry") || venueLower.includes("nat. chem.")) {
-      return { ifVal: "38.4", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("nature materials") || venueLower.includes("nat. mater.")) {
-      return { ifVal: "41.2", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("nature physics") || venueLower.includes("nat. phys.")) {
-      return { ifVal: "31.0", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("nature medicine") || venueLower.includes("nat. med.")) {
-      return { ifVal: "82.9", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("nature") && !venueLower.includes("chemistry") && !venueLower.includes("materials") && !venueLower.includes("energy")) {
-      return { ifVal: "64.8", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("science")) {
-      return { ifVal: "56.9", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("cell")) {
-      return { ifVal: "64.5", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("proceedings of the national academy of sciences") || venueLower.includes("pnas")) {
-      return { ifVal: "11.1", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("journal of the american chemical society") || venueLower.includes("j. am. chem. soc.") || venueLower.includes("jacs")) {
-      return { ifVal: "15.0", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("angewandte chemie") || venueLower.includes("angew. chem.")) {
-      return { ifVal: "16.6", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("advanced materials") || venueLower.includes("adv. mater.")) {
-      return { ifVal: "29.4", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
-    if (venueLower.includes("physical review letters") || venueLower.includes("phys. rev. lett.") || venueLower.includes("prl")) {
-      return { ifVal: "8.3", cas: "1区", jcr: "Q1", isPreprint: false };
-    }
     if (venueLower.includes("arxiv") || venueLower.includes("biorxiv") || venueLower.includes("medrxiv") || venueLower.includes("chemrxiv") || venueLower.includes("preprint")) {
-      return { ifVal: "Preprint", cas: "预印本", jcr: "N/A", isPreprint: true };
+      return { ifVal: "Preprint", cas: "预印本", jcr: "N/A", isPreprint: true, metricsSource: "page" };
     }
 
-    let hash = 0;
-    const str = venueLower + String(year);
-    for (let i = 0; i < str.length; i++) {
-      hash = (hash << 5) - hash + str.charCodeAt(i);
-      hash |= 0;
-    }
-    hash = Math.abs(hash);
-
-    const currentYear = new Date().getFullYear();
-    const age = Math.max(1, currentYear - year);
-    const citeRate = citations / age;
-
-    let ifVal = 0;
-    let cas = "4区";
-    let jcr = "Q4";
-
-    if (citeRate > 60 || hash % 100 < 5) {
-      ifVal = (12 + (hash % 150) / 10).toFixed(1);
-      cas = "1区";
-      jcr = "Q1";
-    } else if (citeRate > 20 || hash % 100 < 20) {
-      ifVal = (5 + (hash % 70) / 10).toFixed(1);
-      cas = "2区";
-      jcr = "Q2";
-    } else if (citeRate > 5 || hash % 100 < 55) {
-      ifVal = (2 + (hash % 30) / 10).toFixed(1);
-      cas = "3区";
-      jcr = "Q3";
-    } else {
-      ifVal = (0.5 + (hash % 15) / 10).toFixed(1);
-      cas = "4区";
-      jcr = "Q4";
-    }
-
-    return { ifVal, cas, jcr, isPreprint: false };
+    return { ifVal: "查询中", cas: "查询中", jcr: "查询中", isPreprint: false, metricsSource: "easyScholar" };
   }
 
   // =========================================================
@@ -1237,8 +1159,10 @@
             if (settings.enable_if_badge !== false) {
               ifBadge = document.createElement("span");
               ifBadge.className = "pp-scholar-badge pp-scholar-badge-if";
-              const isEst = !isNatureIndex;
-              ifBadge.innerHTML = `<span class="pp-val">IF: ${metrics.ifVal}</span>${isEst ? ' <span class="pp-est">(估)</span>' : ''}`;
+              const val = document.createElement("span");
+              val.className = "pp-val";
+              val.textContent = `IF: ${metrics.ifVal}`;
+              ifBadge.appendChild(val);
               badgeContainer.appendChild(ifBadge);
             }
 
@@ -1251,8 +1175,10 @@
               else if (metrics.cas === "3区") casClass = "pp-scholar-badge-cas-3";
 
               casBadge.className = `pp-scholar-badge pp-scholar-badge-cas ${casClass}`;
-              const isEst = !isNatureIndex;
-              casBadge.innerHTML = `<span class="pp-val">中科院${metrics.cas}</span>${isEst ? ' <span class="pp-est">(估)</span>' : ''}`;
+              const val = document.createElement("span");
+              val.className = "pp-val";
+              val.textContent = `中科院${metrics.cas}`;
+              casBadge.appendChild(val);
               badgeContainer.appendChild(casBadge);
             }
 
@@ -1265,8 +1191,10 @@
               else if (metrics.jcr === "Q3") jcrClass = "pp-scholar-badge-jcr-3";
 
               jcrBadge.className = `pp-scholar-badge pp-scholar-badge-jcr ${jcrClass}`;
-              const isEst = !isNatureIndex;
-              jcrBadge.innerHTML = `<span class="pp-val">JCR ${metrics.jcr}</span>${isEst ? ' <span class="pp-est">(估)</span>' : ''}`;
+              const val = document.createElement("span");
+              val.className = "pp-val";
+              val.textContent = `JCR ${metrics.jcr}`;
+              jcrBadge.appendChild(val);
               badgeContainer.appendChild(jcrBadge);
             }
 
@@ -1412,6 +1340,45 @@
     const actionBar = document.createElement("div");
     actionBar.className = "pp-scholar-action-bar";
     actionBar.setAttribute("data-pp-theme", currentTheme);
+
+    // 0. Direct PDF download when Google Scholar exposes a PDF-like link
+    if (settings.enable_pdf_download_btn !== false && paper.pdfUrl) {
+      const pdfBtn = document.createElement("button");
+      pdfBtn.className = "pp-scholar-action-btn";
+      pdfBtn.innerHTML = `${window.PP_ICONS.download} 下载 PDF`;
+      pdfBtn.onclick = () => {
+        const firstAuthor = paper.authors.length > 0 ? paper.authors[0] : "Unknown";
+        const cleanName = `[${paper.venue || "Scholar"}] ${firstAuthor} - ${paper.title}`
+          .replace(/[\/\\:*?"<>|]/g, "_")
+          .substring(0, 100) + ".pdf";
+
+        showToast("正在快速创建 PDF 下载任务...");
+        chrome.runtime.sendMessage({
+          action: "DOWNLOAD_PDF",
+          url: paper.pdfUrl,
+          urls: [paper.pdfUrl, paper.scholarUrl],
+          filename: cleanName
+        }, (response) => {
+          if (response && response.success) {
+            showToast("PDF 下载任务已创建");
+            chrome.runtime.sendMessage({
+              action: "ADD_FOOTPRINT",
+              footprint: {
+                title: paper.title,
+                authors: paper.authors,
+                journal: paper.venue,
+                year: paper.year,
+                pdfUrl: paper.pdfUrl,
+                status: "downloaded"
+              }
+            });
+          } else {
+            showToast(`PDF 下载失败：${response?.error || response?.errorCode || "未确认正文 PDF"}`);
+          }
+        });
+      };
+      actionBar.appendChild(pdfBtn);
+    }
 
     // 1. BibTeX
     if (settings.enable_bibtex_btn) {
@@ -1626,14 +1593,29 @@
 
         // Avoid adding duplicate rows if already present (e.g. from previous runs)
         const dupCardHref = dupCard.querySelector(".gs_rt a")?.href || '';
-        if (dupCardHref && dupBody.querySelector(`a[href="${dupCardHref}"]`)) {
+        const escapedDupHref = dupCardHref && window.CSS?.escape ? CSS.escape(dupCardHref) : "";
+        const duplicateAlreadyListed = escapedDupHref
+          ? dupBody.querySelector(`a[href="${escapedDupHref}"]`)
+          : Array.from(dupBody.querySelectorAll("a[href]")).some(link => link.href === dupCardHref);
+        if (dupCardHref && duplicateAlreadyListed) {
           dupCard.style.display = "none";
           dupCard.dataset.foldedAsDuplicate = "true";
           return;
         }
 
         const row = document.createElement("div");
-        row.innerHTML = `<strong>[${venue}, ${year}年, 被引 ${cites}次]</strong><br><a href="${dupCardHref || '#'}" target="_blank" style="color: #0f6d5f; text-decoration: underline;">${title}</a>`;
+        const meta = document.createElement("strong");
+        meta.textContent = `[${venue}, ${year}年, 被引 ${cites}次]`;
+        const link = document.createElement("a");
+        link.href = dupCardHref || "#";
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.style.color = "#0f6d5f";
+        link.style.textDecoration = "underline";
+        link.textContent = title || "Untitled";
+        row.appendChild(meta);
+        row.appendChild(document.createElement("br"));
+        row.appendChild(link);
         dupBody.appendChild(row);
 
         dupCard.style.display = "none";
@@ -1643,7 +1625,13 @@
       // Update total dynamic duplicates count inside header
       const totalDups = dupBody.children.length;
       const isExpanded = dupBody.classList.contains("pp-expanded");
-      dupHeader.innerHTML = `<span>✦ 已智能折叠另外 ${totalDups} 个重复条目 (预印本/会议版)</span> <span>${isExpanded ? "关闭 ▲" : "展开 ▼"}</span>`;
+      dupHeader.textContent = "";
+      const headerTitle = document.createElement("span");
+      headerTitle.textContent = `已智能折叠另外 ${totalDups} 个重复条目 (预印本/会议版)`;
+      const headerToggle = document.createElement("span");
+      headerToggle.textContent = isExpanded ? "关闭 ▲" : "展开 ▼";
+      dupHeader.appendChild(headerTitle);
+      dupHeader.appendChild(headerToggle);
     });
   }
 
@@ -1734,6 +1722,42 @@
       return false;
     }
   }
+
+  function getCurrentPageDiagnostics() {
+    const articles = getScholarArticles();
+    return {
+      ok: true,
+      data: {
+        pageType: "scholar",
+        url: window.location.href,
+        profileId: "scholar",
+        doi: "",
+        title: document.title || "Scholar search",
+        journal: "",
+        pdfCandidateCount: articles.filter(card => card.querySelector(".gs_ggs a")).length,
+        firstPdfSource: "scholar-result",
+        firstPdfUrl: articles.map(card => card.querySelector(".gs_ggs a")?.href || "").find(Boolean) || "",
+        fastDownload: false,
+        resultCount: articles.length,
+        enhancedCount: articles.filter(card => card.dataset.ppEnhanced === "true").length,
+        lastError: "",
+        metricsSource: state.settings?.easyscholar_key ? "easyScholar" : "未配置数据源",
+        cachedAt: null,
+        stale: false
+      },
+      source: "content/scholar",
+      cachedAt: Date.now()
+    };
+  }
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    const action = message?.action || message?.type;
+    if (action === "diagnostics.currentPage") {
+      sendResponse(getCurrentPageDiagnostics());
+      return false;
+    }
+    return false;
+  });
 
   // =========================================================
   // Initializer Sequence
