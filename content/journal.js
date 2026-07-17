@@ -1969,11 +1969,20 @@
       }, 350);
     };
 
-    const observer = new MutationObserver(checkRoute);
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true
-    });
+    // Article identity is represented by URL, title and citation metadata, so
+    // watching the document head plus a low-frequency URL poll avoids a
+    // permanent full-page subtree observer on mutation-heavy journal apps.
+    if (document.head) {
+      const observer = new MutationObserver(checkRoute);
+      observer.observe(document.head, {
+        childList: true,
+        subtree: true,
+        attributes: true
+      });
+    }
+    setInterval(() => {
+      if (document.visibilityState !== "hidden") checkRoute();
+    }, 1500);
     window.addEventListener("popstate", checkRoute, { passive: true });
     window.addEventListener("hashchange", checkRoute, { passive: true });
   }

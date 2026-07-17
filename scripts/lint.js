@@ -5,6 +5,7 @@ const root = path.resolve(__dirname, "..");
 const files = [
   "manifest.json",
   "background/background.js",
+  "background/page-activation.js",
   "content/detector.js",
   "content/scholar.js",
   "content/journal.js",
@@ -16,6 +17,7 @@ const files = [
   "core/metadata.js",
   "core/site-profiles.js",
   "core/pdf.js",
+  "core/pdf-verifier.js",
   "core/pdf-discovery.js",
   "core/ai.js",
   "core/citation.js",

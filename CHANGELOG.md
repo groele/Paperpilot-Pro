@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.3.0 - 2026-07-17
+
+### Added
+- Independent PDF verifier and page-activation modules with focused regression coverage.
+- Direct adapters for OpenReview, ACL Anthology, PMLR, NeurIPS proceedings, and CVF Open Access.
+
+### Changed
+- Converted publisher URL handling to a data-driven adapter registry.
+- Replaced eager parallel PDF probes with adaptive hedged HEAD/Range verification.
+- Replaced full-page mutation observers with bounded head observation and low-frequency route checks.
+
+### Fixed
+- Accumulate split response chunks before checking the PDF signature and reject HTML/JSON disguised as binary downloads.
+- Preserve functional download parameters in candidate identities and hash every candidate in request-cache keys.
+- Retry failed dynamic injection, avoid duplicate runtime/CSS injection, queue same-URL downloads safely, and invalidate stale signed-link caches.
+- Cache only definitive negative PDF checks; transient timeouts, authentication failures, and network errors remain retryable.
+
 ## v1.2.0 - 2026-07-16
 
 ### Added

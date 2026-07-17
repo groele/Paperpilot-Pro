@@ -22,7 +22,9 @@
     try {
       const url = new URL(rawUrl);
       url.hash = "";
-      ["download", "downloadpdf", "downloadPdf", "utm_source", "utm_medium", "utm_campaign"].forEach(param => {
+      // Only remove tracking parameters. Publisher download parameters may be
+      // functional (or signed) and must remain part of the candidate identity.
+      ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid", "fbclid"].forEach(param => {
         url.searchParams.delete(param);
       });
       return url.href.replace(/\?$/, "");
@@ -86,14 +88,9 @@
 
   function isSupplementaryPdfCandidate(candidate) {
     const text = `${candidate?.text || ""} ${candidate?.title || ""} ${candidate?.reason || ""} ${candidate?.url || ""}`.toLowerCase();
-    return text.includes("supplementary") ||
-      text.includes("supplemental") ||
+    return /\b(?:supplementary|supplemental|references?|citations?|bibtex|ris)\b/i.test(text) ||
       text.includes("supporting information") ||
-      text.includes("peer review") ||
-      text.includes("references") ||
-      text.includes("citation") ||
-      text.includes("bibtex") ||
-      text.includes("ris");
+      text.includes("peer review");
   }
 
   function buildPublisherPdfCandidates(rawUrl) {
@@ -114,90 +111,6 @@
           browserFallback: Boolean(candidate.requiresBrowser)
         }));
       }
-    }
-
-    const host = url.hostname.toLowerCase();
-    const path = url.pathname;
-    const lowerPath = path.toLowerCase();
-    const doiPathMatch = path.match(/\/doi\/(?:full\/|abs\/)?(10\.[^?#]+)/i);
-    const doiPath = doiPathMatch ? decodeURIComponent(doiPathMatch[1]).replace(/\/$/, "") : "";
-
-    if (host.includes("nature.com") && /\/articles\/[^/?#]+$/i.test(path) && !lowerPath.endsWith(".pdf")) {
-      candidates.push({
-        url: `${url.origin}${path}.pdf`,
-        source: "publisher-rule:nature",
-        reason: "Nature article URL maps to .pdf",
-        score: 98
-      });
-    }
-
-    if (host.includes("science.org") && doiPath && !lowerPath.includes("/doi/pdf/")) {
-      candidates.push({
-        url: `${url.origin}/doi/pdf/${doiPath}`,
-        source: "publisher-rule:science",
-        reason: "Science DOI URL maps to /doi/pdf/{doi}",
-        score: 94
-      });
-    }
-
-    if ((host.includes("wiley.com") || host.includes("pubs.acs.org")) && doiPath && !lowerPath.includes("/doi/pdf/")) {
-      candidates.push({
-        url: `${url.origin}/doi/pdf/${doiPath}`,
-        source: host.includes("pubs.acs.org") ? "publisher-rule:acs" : "publisher-rule:wiley",
-        reason: "Publisher DOI URL maps to /doi/pdf/{doi}",
-        score: 94
-      });
-    }
-
-    if (host.includes("ieeexplore.ieee.org")) {
-      const docMatch = path.match(/\/document\/(\d+)/i) || `${path}${url.search}`.match(/[?&]arnumber=(\d+)/i);
-      if (docMatch && docMatch[1]) {
-        candidates.push({
-          url: `${url.origin}/stamp/stamp.jsp?tp=&arnumber=${docMatch[1]}`,
-          source: "publisher-rule:ieee",
-          reason: "IEEE document URL maps to stamp PDF viewer",
-          score: 90
-        });
-      }
-    }
-
-    if (host.includes("frontiersin.org")) {
-      const frontiersMatch = path.match(/\/articles\/(10\.[^/]+\/[^/]+)\/(?:full|abstract)?$/i);
-      if (frontiersMatch && frontiersMatch[1]) {
-        candidates.push({
-          url: `${url.origin}/articles/${decodeURIComponent(frontiersMatch[1])}/pdf`,
-          source: "publisher-rule:frontiers",
-          reason: "Frontiers article URL maps to /pdf",
-          score: 92
-        });
-      }
-    }
-
-    if (host === "arxiv.org" && /^\/abs\/[^/?#]+/i.test(path)) {
-      candidates.push({
-        url: `${url.origin}${path.replace(/^\/abs\//i, "/pdf/")}`,
-        source: "publisher-rule:arxiv",
-        reason: "arXiv abstract URL maps to /pdf/",
-        score: 98
-      });
-    }
-
-    if ((host.includes("springer.com") || host.includes("springerlink.com")) && /^\/article\/10\./i.test(path)) {
-      candidates.push({
-        url: `${url.origin}/content/pdf/${decodeURIComponent(path.replace(/^\/article\//i, ""))}.pdf`,
-        source: "publisher-rule:springer",
-        reason: "Springer DOI article URL maps to content/pdf",
-        score: 92
-      });
-    }
-
-    if ((host === "pmc.ncbi.nlm.nih.gov" || host.endsWith(".pmc.ncbi.nlm.nih.gov")) && /\/articles\/PMC\d+/i.test(path)) {
-      candidates.push({
-        url: `${url.origin}${path.replace(/\/$/, "")}/pdf/`,
-        source: "publisher-rule:pmc",
-        reason: "PMC article URL exposes PDF endpoint",
-        score: 90
-      });
     }
 
     return candidates;
@@ -310,33 +223,50 @@
       contentType.includes("application/json");
   }
 
+  function prefixLooksLikeMarkup(firstChunk) {
+    if (!firstChunk || firstChunk.length === 0) return false;
+    const limit = Math.min(firstChunk.length, 512);
+    let prefix = "";
+    for (let index = 0; index < limit; index += 1) {
+      const value = firstChunk[index];
+      if (value === 0) continue;
+      prefix += String.fromCharCode(value);
+    }
+    const trimmed = prefix.replace(/^\uFEFF?\s*/, "").toLowerCase();
+    return trimmed.startsWith("<!doctype html") ||
+      trimmed.startsWith("<html") ||
+      trimmed.startsWith("<?xml") ||
+      trimmed.startsWith("{") ||
+      trimmed.startsWith("[");
+  }
+
   function classifyPdfResponse(response, firstChunk = null) {
     const status = response?.status || 0;
     const finalUrl = response?.url || "";
     if (response?.ok && responseLooksPdf(response, firstChunk)) {
-      return { valid: true, errorCode: null, reason: "pdf-response", finalUrl };
+      return { valid: true, decisive: true, transient: false, errorCode: null, reason: "pdf-response", finalUrl };
     }
     if (status === 401 || status === 403) {
-      return { valid: false, errorCode: "PDF_AUTH_REQUIRED", reason: `HTTP ${status}`, finalUrl };
+      return { valid: false, decisive: false, transient: true, errorCode: "PDF_AUTH_REQUIRED", reason: `HTTP ${status}`, finalUrl };
     }
     if (status === 404 || status === 410) {
-      return { valid: false, errorCode: "PDF_NOT_FOUND", reason: `HTTP ${status}`, finalUrl };
+      return { valid: false, decisive: true, transient: false, errorCode: "PDF_NOT_FOUND", reason: `HTTP ${status}`, finalUrl };
     }
-    if (response && responseLooksDefinitelyHtml(response)) {
-      return { valid: false, errorCode: "PDF_HTML_RESPONSE", reason: "html-response", finalUrl };
+    if (response && (responseLooksDefinitelyHtml(response) || prefixLooksLikeMarkup(firstChunk))) {
+      return { valid: false, decisive: true, transient: false, errorCode: "PDF_HTML_RESPONSE", reason: "html-response", finalUrl };
     }
-    return { valid: false, errorCode: "PDF_NOT_CONFIRMED", reason: status ? `HTTP ${status}` : "not-confirmed", finalUrl };
+    return { valid: false, decisive: false, transient: false, errorCode: "PDF_NOT_CONFIRMED", reason: status ? `HTTP ${status}` : "not-confirmed", finalUrl };
   }
 
   function classifyPdfError(error) {
     const message = String(error?.message || error || "");
     if (/abort|timeout|timed out/i.test(message)) {
-      return { valid: false, errorCode: "PDF_TIMEOUT", reason: message };
+      return { valid: false, decisive: false, transient: true, errorCode: "PDF_TIMEOUT", reason: message };
     }
     if (/failed to fetch|network/i.test(message)) {
-      return { valid: false, errorCode: "PDF_NETWORK_ERROR", reason: message };
+      return { valid: false, decisive: false, transient: true, errorCode: "PDF_NETWORK_ERROR", reason: message };
     }
-    return { valid: false, errorCode: "PDF_UNKNOWN_ERROR", reason: message };
+    return { valid: false, decisive: false, transient: true, errorCode: "PDF_UNKNOWN_ERROR", reason: message };
   }
 
   function sanitizeDownloadSegment(segment) {
@@ -369,6 +299,7 @@
     shouldFastDownloadCandidate,
     responseLooksPdf,
     responseLooksDefinitelyHtml,
+    prefixLooksLikeMarkup,
     classifyPdfResponse,
     classifyPdfError,
     sanitizeDownloadSegment,

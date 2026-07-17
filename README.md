@@ -8,7 +8,7 @@
 ![Type](https://img.shields.io/badge/type-Chrome%20Extension-blue?style=flat-square)
 ![Workflow](https://img.shields.io/badge/workflow-literature%20engine-green?style=flat-square)
 ![Architecture](https://img.shields.io/badge/architecture-browser--native-purple?style=flat-square)
-![Version](https://img.shields.io/badge/version-1.2.0-6f42c1?style=flat-square)
+![Version](https://img.shields.io/badge/version-1.3.0-6f42c1?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
 
 Part of **ResearchFlow Lab** — a local-first research productivity ecosystem for literature, manuscripts, data, and scientific visualization.
@@ -48,7 +48,7 @@ Academic literature discovery is still highly fragmented. Researchers often jump
 | DOI Tools | Detects and copies DOI from literature pages | 检测并复制 DOI |
 | On-demand Page Activation | Uses a lightweight detector before loading the full journal runtime on long-tail academic sites | 通过轻量探测器按需激活长尾期刊与机构仓储页面 |
 | Modular PDF Discovery | Detects PDF metadata, controls, viewers, JSON-LD, URL parameters, and open Shadow DOM | 识别 PDF 元标签、按钮、查看器、JSON-LD、URL 参数和开放 Shadow DOM |
-| PDF Verification & Diagnostics | Races bounded HEAD/Range checks, reuses verified requests, and reports cache/verification status | 并行校验候选链接、复用已验证请求并显示缓存与校验诊断 |
+| PDF Verification & Diagnostics | Uses bounded hedged HEAD/Range checks, reuses verified requests, and reports cache/verification status | 使用有界对冲式 HEAD/Range 校验、复用已验证请求并显示缓存与校验诊断 |
 | BibTeX Export | Generates or copies BibTeX-style citation information | 生成或复制 BibTeX 引用 |
 | Markdown Notes | Generates structured literature note templates | 生成结构化 Markdown 读书笔记 |
 | AI Summary | Uses optional local/user-configured AI providers for literature summaries | 使用用户配置的 AI 模型进行文献总结 |
@@ -84,7 +84,7 @@ PaperPilot Pro
 ├── Runtime Layer
 │   ├── Google Scholar enhancer
 │   ├── SPA-aware publisher-page metacard
-│   ├── parallel HEAD/Range PDF verification
+│   ├── adaptive hedged HEAD/Range PDF verification
 │   └── browser download and filename management
 └── Presentation Layer
     ├── current-page diagnostics
@@ -134,7 +134,7 @@ Typical use cases:
 
 ```text
 PaperPilot Pro
-├── background/        # MV3 service worker and download orchestration
+├── background/        # MV3 service worker, page activation, and download orchestration
 ├── content/           # lightweight detector plus Scholar/journal runtimes
 ├── core/              # reusable and independently tested modules
 ├── popup/             # settings, history, and current-page diagnostics
@@ -145,7 +145,11 @@ PaperPilot Pro
 └── CHANGELOG.md
 ```
 
-The exact directory layout may evolve as the project becomes more modular.
+Key extension points are intentionally isolated: publisher URL rules are registered in
+`core/site-profiles.js`, byte/header verification lives in `core/pdf-verifier.js`, generic
+DOM discovery lives in `core/pdf-discovery.js`, and dynamic page injection lives in
+`background/page-activation.js`. New publisher support should normally add one adapter and
+one fixture-backed test without modifying the download state machine.
 
 ---
 

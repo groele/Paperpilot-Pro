@@ -45,6 +45,11 @@ function assertContentScriptRouting() {
     ["https://ieeexplore.ieee.org/document/1234567", false, true],
     ["https://www.nature.com/articles/s41586-026-00000-0", false, true],
     ["https://arxiv.org/abs/2601.01234", false, true],
+    ["https://openreview.net/forum?id=Demo123", false, true],
+    ["https://aclanthology.org/2026.acl-long.1/", false, true],
+    ["https://proceedings.mlr.press/v235/demo24a.html", false, true],
+    ["https://papers.nips.cc/paper_files/paper/2025/hash/demo-Abstract-Conference.html", false, true],
+    ["https://openaccess.thecvf.com/content/CVPR2026/html/demo.html", false, true],
     ["https://pmc.ncbi.nlm.nih.gov/articles/PMC1234567/", false, true]
   ];
 
@@ -133,6 +138,10 @@ function assertPerformanceBudgets() {
 
   const detectorBytes = fs.statSync(path.join(root, "content/detector.js")).size;
   assert.equal(detectorBytes < 5000, true, `All-page detector is too large: ${detectorBytes} bytes`);
+  const detector = fs.readFileSync(path.join(root, "content/detector.js"), "utf8");
+  assert.equal(detector.includes("observer.observe(document.documentElement"), false, "Detector must not observe the full page subtree");
+  const journal = fs.readFileSync(path.join(root, "content/journal.js"), "utf8");
+  assert.equal(journal.includes("observer.observe(document.documentElement"), false, "Journal SPA watcher must not observe the full page subtree");
 }
 
 function assertPackageExcludesTests() {

@@ -6,14 +6,17 @@ try {
     "../core/metadata.js",
     "../core/site-profiles.js",
     "../core/pdf.js",
+    "../core/pdf-verifier.js",
     "../core/ai.js",
-    "../core/citation.js"
+    "../core/citation.js",
+    "page-activation.js"
   );
 } catch (err) {
   console.warn("PaperPilot Pro: core modules could not be loaded", err);
 }
 
 const PP_CORE = globalThis.PaperPilotCore || {};
+const PP_BACKGROUND = globalThis.PaperPilotBackground || {};
 
 /**
  * PaperPilot Pro - Service Worker (background.js)
@@ -41,51 +44,6 @@ function withMessageDuration(source, handler) {
       durationMs: Date.now() - start,
       diagnostics: null
     }));
-}
-
-const JOURNAL_RUNTIME_FILES = [
-  "core/messaging.js",
-  "core/sanitize.js",
-  "core/metadata.js",
-  "core/site-profiles.js",
-  "core/citation.js",
-  "core/pdf.js",
-  "core/pdf-discovery.js",
-  "lib/svg-icons.js",
-  "content/journal.js"
-];
-
-function scriptingCall(method, details) {
-  return new Promise((resolve, reject) => {
-    chrome.scripting[method](details, result => {
-      const error = chrome.runtime.lastError;
-      if (error) reject(new Error(error.message));
-      else resolve(result);
-    });
-  });
-}
-
-async function activateJournalPage(sender, requestedUrl) {
-  const tabId = sender?.tab?.id;
-  const frameId = Number(sender?.frameId || 0);
-  const senderUrl = sender?.url || sender?.tab?.url || "";
-  if (!Number.isInteger(tabId) || frameId !== 0 || !/^https?:\/\//i.test(senderUrl)) {
-    return { ok: false, success: false, errorCode: "PAGE_ACTIVATION_DENIED", error: "Unsupported sender" };
-  }
-  if (requestedUrl) {
-    try {
-      if (new URL(requestedUrl).origin !== new URL(senderUrl).origin) {
-        return { ok: false, success: false, errorCode: "PAGE_ACTIVATION_DENIED", error: "Sender origin changed" };
-      }
-    } catch (_) {
-      return { ok: false, success: false, errorCode: "PAGE_ACTIVATION_DENIED", error: "Invalid sender URL" };
-    }
-  }
-
-  const target = { tabId, frameIds: [frameId] };
-  await scriptingCall("insertCSS", { target, files: ["content/journal.css"] });
-  await scriptingCall("executeScript", { target, files: JOURNAL_RUNTIME_FILES });
-  return { ok: true, success: true, source: "dynamic-journal-activation" };
 }
 
 // Initialize default settings on install
@@ -189,7 +147,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const action = message.action || message.type;
 
   if (action === "ACTIVATE_JOURNAL_PAGE" || action === "page.activateJournal") {
-    withMessageDuration("page-activation-service", () => activateJournalPage(sender, message.url))
+    withMessageDuration("page-activation-service", () => PP_BACKGROUND.pageActivation.activate(sender, message.url))
       .then(result => sendResponse(result));
     return true;
   }
@@ -279,20 +237,61 @@ function buildDownloadFilename(downloadDir, filename) {
 
 // Active download trackers to match dynamic PDF downloads for forced renaming
 const activeDownloads = new Map(); // downloadId -> { finalFilename, saveAs }
-const activeDownloadsByUrl = new Map(); // url -> { finalFilename, saveAs }
+const activeDownloadsByUrl = new Map(); // url -> queued download descriptors
+
+function queueActiveDownloadUrl(url, descriptor) {
+  if (!url) return;
+  const key = normalizeDownloadUrlKey(url);
+  const queue = activeDownloadsByUrl.get(key) || [];
+  queue.push(descriptor);
+  activeDownloadsByUrl.set(key, queue);
+}
+
+function removeActiveDownloadDescriptor(descriptor) {
+  if (!descriptor) return;
+  for (const [url, queue] of activeDownloadsByUrl.entries()) {
+    const remaining = queue.filter(item => item !== descriptor);
+    if (remaining.length) activeDownloadsByUrl.set(url, remaining);
+    else activeDownloadsByUrl.delete(url);
+  }
+}
+
+function findActiveDownloadDescriptor(item) {
+  const byId = activeDownloads.get(item.id);
+  if (byId) return byId;
+  for (const rawUrl of [item.url, item.finalUrl]) {
+    if (!rawUrl) continue;
+    const queue = activeDownloadsByUrl.get(normalizeDownloadUrlKey(rawUrl));
+    if (queue?.length) return queue[0];
+  }
+  return null;
+}
+
+function invalidateTrackedPdfCache(descriptor) {
+  if (!descriptor) return;
+  chrome.storage.local.get("pdf_download_cache", storage => {
+    const cache = storage.pdf_download_cache || {};
+    delete cache[normalizeDownloadUrlKey(descriptor.downloadUrl)];
+    delete cache[normalizeDownloadUrlKey(descriptor.originalUrl)];
+    if (descriptor.requestKey && cache[PDF_REQUEST_CACHE_KEY]) {
+      delete cache[PDF_REQUEST_CACHE_KEY][descriptor.requestKey];
+    }
+    chrome.storage.local.set({ pdf_download_cache: cache });
+  });
+}
 
 // Intercept filename determination to override server-side Content-Disposition headers (e.g. Wiley, Springer)
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  const custom = activeDownloads.get(item.id) || activeDownloadsByUrl.get(item.url) || activeDownloadsByUrl.get(item.finalUrl);
+  const custom = findActiveDownloadDescriptor(item);
   if (custom) {
     const mime = (item.mime || "").toLowerCase();
     const finalUrl = item.finalUrl || item.url || "";
     const finalUrlLooksPdf = isTrustedBrowserPdfUrl(finalUrl);
     if (custom.requirePdf && ((mime && !mime.includes("pdf")) || (!mime && item.finalUrl && !finalUrlLooksPdf))) {
       chrome.downloads.cancel(item.id, () => {});
+      invalidateTrackedPdfCache(custom);
       activeDownloads.delete(item.id);
-      activeDownloadsByUrl.delete(item.url);
-      if (item.finalUrl) activeDownloadsByUrl.delete(item.finalUrl);
+      removeActiveDownloadDescriptor(custom);
       suggest({ filename: custom.finalFilename, conflictAction: "uniquify" });
       return;
     }
@@ -302,8 +301,7 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
     });
     // Clean up
     activeDownloads.delete(item.id);
-    activeDownloadsByUrl.delete(item.url);
-    if (item.finalUrl) activeDownloadsByUrl.delete(item.finalUrl);
+    removeActiveDownloadDescriptor(custom);
     return;
   }
 
@@ -395,13 +393,10 @@ chrome.downloads.onChanged.addListener((delta) => {
     const downloadId = delta.id;
     const tracked = activeDownloads.get(downloadId);
     if (tracked) {
+      if (delta.state.current === "interrupted") invalidateTrackedPdfCache(tracked);
       activeDownloads.delete(downloadId);
       // Clean up corresponding URL tracker as well
-      for (const [url, item] of activeDownloadsByUrl.entries()) {
-        if (item === tracked) {
-          activeDownloadsByUrl.delete(url);
-        }
-      }
+      removeActiveDownloadDescriptor(tracked);
     }
   }
 });
@@ -425,14 +420,6 @@ function isSameUrl(a, b) {
   return normalizeDownloadUrlKey(a).replace(/\/$/, "") === normalizeDownloadUrlKey(b).replace(/\/$/, "");
 }
 
-function responseLooksPdf(response, firstChunk = null) {
-  return PP_CORE.pdf?.responseLooksPdf ? PP_CORE.pdf.responseLooksPdf(response, firstChunk) : false;
-}
-
-function responseLooksDefinitelyHtml(response) {
-  return PP_CORE.pdf?.responseLooksDefinitelyHtml ? PP_CORE.pdf.responseLooksDefinitelyHtml(response) : false;
-}
-
 const PDF_CHECK_BATCH_SIZE = 8;
 const MAX_DOWNLOAD_CANDIDATES = 32;
 const PDF_FAST_HEAD_TIMEOUT_MS = 700;
@@ -445,60 +432,24 @@ const PDF_URL_CACHE_MAX_ENTRIES = 320;
 const PDF_REQUEST_CACHE_MAX_ENTRIES = 120;
 const pdfDownloadSingleFlight = PP_CORE.cache?.createSingleFlight?.();
 const inFlightPdfDownloads = new Map();
-
-async function fetchWithTimeout(url, options, timeoutMs, externalSignal = null) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  const onAbort = () => {
-    controller.abort();
-  };
-
-  if (externalSignal) {
-    if (externalSignal.aborted) {
-      clearTimeout(timer);
-      throw new DOMException("Aborted", "AbortError");
-    }
-    externalSignal.addEventListener("abort", onAbort);
-  }
-
-  try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-  } finally {
-    clearTimeout(timer);
-    if (externalSignal) {
-      externalSignal.removeEventListener("abort", onAbort);
-    }
-  }
-}
+const pdfVerifier = PP_CORE.pdfVerifier?.create?.({
+  fetchImpl: (...args) => fetch(...args),
+  headTimeoutMs: PDF_HEAD_TIMEOUT_MS,
+  rangeTimeoutMs: PDF_RANGE_TIMEOUT_MS,
+  hedgeDelayMs: 140,
+  maxPrefixBytes: 1024
+});
+const quickPdfVerifier = PP_CORE.pdfVerifier?.create?.({
+  fetchImpl: (...args) => fetch(...args),
+  headTimeoutMs: PDF_FAST_HEAD_TIMEOUT_MS,
+  rangeTimeoutMs: PDF_RANGE_TIMEOUT_MS,
+  hedgeDelayMs: 140,
+  maxPrefixBytes: 1024
+});
 
 async function quickCheckPdfUrl(url, signal = null) {
-  try {
-    const response = await fetchWithTimeout(url, {
-      method: "HEAD",
-      credentials: "include",
-      headers: {
-        "Accept": "application/pdf, */*"
-      }
-    }, PDF_FAST_HEAD_TIMEOUT_MS, signal);
-
-    if (response.ok && responseLooksPdf(response)) {
-      return { valid: true, finalUrl: response.url };
-    }
-    if (response.ok && responseLooksDefinitelyHtml(response)) {
-      return { valid: false, decisive: true };
-    }
-    if (response.status === 404 || response.status === 410) {
-      return { valid: false, decisive: true };
-    }
-  } catch (e) {
-    return { valid: false, decisive: false };
-  }
-
-  return { valid: false, decisive: false };
+  if (!quickPdfVerifier) return { valid: false, decisive: false, transient: true, errorCode: "PDF_VERIFIER_UNAVAILABLE" };
+  return quickPdfVerifier.quickVerify(url, signal);
 }
 
 async function findFastTrustedPdfTarget(urlsToTry, explicitNonPdfUrls) {
@@ -541,15 +492,6 @@ async function findFastTrustedPdfTarget(urlsToTry, explicitNonPdfUrls) {
       }
     });
 
-    const inconclusiveTrusted = results.find(item => !item.result?.decisive);
-    if (inconclusiveTrusted) {
-      return {
-        originalUrl: inconclusiveTrusted.candidateUrl.url,
-        finalUrl: inconclusiveTrusted.candidateUrl.url,
-        browserFallback: true,
-        source: inconclusiveTrusted.candidateUrl.source || "quick-check-fallback"
-      };
-    }
   } finally {
     controller.abort();
   }
@@ -557,7 +499,7 @@ async function findFastTrustedPdfTarget(urlsToTry, explicitNonPdfUrls) {
   return null;
 }
 
-async function findFirstVerifiedPdfUrl(urlsToTry, explicitNonPdfUrls = new Set()) {
+async function findFirstVerifiedPdfUrl(urlsToTry, explicitNonPdfUrls = new Set(), verificationResults = []) {
   for (let i = 0; i < urlsToTry.length; i += PDF_CHECK_BATCH_SIZE) {
     const batch = urlsToTry
       .slice(i, i + PDF_CHECK_BATCH_SIZE)
@@ -570,6 +512,10 @@ async function findFirstVerifiedPdfUrl(urlsToTry, explicitNonPdfUrls = new Set()
     try {
       const verified = await Promise.any(batch.map(async (candidate) => {
         const pdfCheck = await checkPdfUrl(candidate.url, batchController.signal);
+        verificationResults.push({ candidate, result: pdfCheck });
+        if (pdfCheck.decisive) {
+          explicitNonPdfUrls.add(normalizeDownloadUrlKey(candidate.url));
+        }
         if (!pdfCheck.valid) {
           throw new Error("Not a PDF response");
         }
@@ -597,7 +543,7 @@ function getPdfDownloadRequestKey(candidates) {
     .slice(0, MAX_DOWNLOAD_CANDIDATES)
     .map(candidate => normalizeDownloadUrlKey(candidate.url))
     .filter(Boolean);
-  return `${normalizedUrls.length}:${normalizedUrls.slice(0, 16).join("|")}`;
+  return PP_CORE.cache?.hashStringList?.(normalizedUrls) || `${normalizedUrls.length}:${normalizedUrls.join("|")}`;
 }
 
 function getStorageAsync(keys) {
@@ -640,11 +586,11 @@ function buildPdfDownloadDiagnostics(candidateSummary, attempted, options = {}) 
   };
 }
 
-function startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source) {
+function startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source, requestKey = "") {
   return new Promise((resolve) => {
-    const downloadItem = { finalFilename, saveAs, requirePdf: true };
-    activeDownloadsByUrl.set(downloadUrl, downloadItem);
-    if (downloadUrl !== originalUrl) activeDownloadsByUrl.set(originalUrl, downloadItem);
+    const downloadItem = { finalFilename, saveAs, requirePdf: true, downloadUrl, originalUrl, requestKey };
+    queueActiveDownloadUrl(downloadUrl, downloadItem);
+    if (downloadUrl !== originalUrl) queueActiveDownloadUrl(originalUrl, downloadItem);
 
     chrome.downloads.download({
       url: downloadUrl,
@@ -653,8 +599,7 @@ function startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs,
       saveAs
     }, (downloadId) => {
       if (chrome.runtime.lastError) {
-        activeDownloadsByUrl.delete(originalUrl);
-        activeDownloadsByUrl.delete(downloadUrl);
+        removeActiveDownloadDescriptor(downloadItem);
         resolve({
           success: false,
           ok: false,
@@ -705,19 +650,27 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
       cachedRequest.originalUrl || cachedRequest.url,
       finalFilename,
       saveAs,
-      cachedRequest.source || "pdf-request-cache"
+      cachedRequest.source || "pdf-request-cache",
+      requestKey
     );
-    return {
-      ...result,
-      candidates: candidateSummary,
-      attempted,
-      fallbackUrl: cachedRequest.originalUrl || cachedRequest.url,
-      diagnostics: buildPdfDownloadDiagnostics(candidateSummary, attempted, {
-        cacheHit: "request",
-        fastPath: true,
-        verificationMode: "request-cache"
-      })
-    };
+    if (result.ok) {
+      return {
+        ...result,
+        candidates: candidateSummary,
+        attempted,
+        fallbackUrl: cachedRequest.originalUrl || cachedRequest.url,
+        diagnostics: buildPdfDownloadDiagnostics(candidateSummary, attempted, {
+          cacheHit: "request",
+          fastPath: true,
+          verificationMode: "request-cache"
+        })
+      };
+    }
+    // Signed publisher links can expire before the 24-hour cache TTL. Remove
+    // the stale route and continue through fresh candidate verification.
+    delete requestCache[requestKey];
+    delete downloadCache[normalizeDownloadUrlKey(cachedRequest.url)];
+    if (cachedRequest.originalUrl) delete downloadCache[normalizeDownloadUrlKey(cachedRequest.originalUrl)];
   }
 
   const candidatesForAttempt = preparedCandidates.filter(candidate => {
@@ -734,8 +687,9 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
     const cached = downloadCache[normalizeDownloadUrlKey(cachedCandidate.url)];
     const cachedUrl = cached?.url || cachedCandidate.url;
     const attempted = [cachedUrl];
-    return startChromePdfDownload(cachedUrl, cachedCandidate.url, finalFilename, saveAs, cachedCandidate.source || "pdf-cache")
-      .then(result => ({
+    const result = await startChromePdfDownload(cachedUrl, cachedCandidate.url, finalFilename, saveAs, cachedCandidate.source || "pdf-cache", requestKey);
+    if (result.ok) {
+      return {
         ...result,
         candidates: candidateSummary,
         attempted,
@@ -744,41 +698,34 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
           fastPath: true,
           verificationMode: "url-cache"
         })
-      }));
+      };
+    }
+    delete downloadCache[normalizeDownloadUrlKey(cachedCandidate.url)];
+    delete downloadCache[normalizeDownloadUrlKey(cachedUrl)];
   }
 
   const explicitNonPdfUrls = new Set();
+  const verificationResults = [];
   const fastTarget = await findFastTrustedPdfTarget(activeCandidates, explicitNonPdfUrls);
-  let verified = null;
-  let fallbackUrl = "";
-  let source = "";
-  if (fastTarget?.browserFallback) {
-    fallbackUrl = fastTarget.finalUrl;
-    source = fastTarget.source || "browser-fallback";
-  } else {
-    verified = fastTarget || await findFirstVerifiedPdfUrl(activeCandidates, explicitNonPdfUrls);
-    fallbackUrl = verified ? "" : activeCandidates.find(candidate => {
-      return isTrustedBrowserPdfUrl(candidate.url) &&
-        !candidate.browserFallback &&
-        !explicitNonPdfUrls.has(normalizeDownloadUrlKey(candidate.url));
-    })?.url || "";
-    if (verified) {
-      source = verified.source || "verified-candidate";
-    } else if (fallbackUrl) {
-      source = "verified-candidate";
-    } else {
-      // Robust fallback: if all checks failed (e.g. CORS/CFC), but we have a trusted browser PDF url, try it anyway!
-      const trustedFallback = activeCandidates.find(candidate => isTrustedBrowserPdfUrl(candidate.url) && !candidate.browserFallback);
-      if (trustedFallback) {
-        fallbackUrl = trustedFallback.url;
-        source = "trusted-fallback-unverified";
-      }
-    }
-  }
+  const verified = fastTarget || await findFirstVerifiedPdfUrl(activeCandidates, explicitNonPdfUrls, verificationResults);
+  const fallbackUrl = verified ? "" : activeCandidates.find(candidate => {
+    return isTrustedBrowserPdfUrl(candidate.url) &&
+      !candidate.browserFallback &&
+      !explicitNonPdfUrls.has(normalizeDownloadUrlKey(candidate.url));
+  })?.url || "";
+  const source = verified
+    ? verified.source || "verified-candidate"
+    : fallbackUrl ? "trusted-fallback-unverified" : "";
 
   if (!verified && !fallbackUrl) {
-    preparedCandidates.forEach(candidate => {
-      downloadCache[normalizeDownloadUrlKey(candidate.url)] = { ok: false, cachedAt: now, url: candidate.url };
+    verificationResults.forEach(({ candidate, result }) => {
+      if (!result?.decisive) return;
+      downloadCache[normalizeDownloadUrlKey(candidate.url)] = {
+        ok: false,
+        cachedAt: now,
+        url: candidate.url,
+        errorCode: result.errorCode || "PDF_NOT_CONFIRMED"
+      };
     });
     await persistPdfDownloadCache(downloadCache);
     return {
@@ -798,8 +745,11 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
 
   const downloadUrl = verified ? verified.finalUrl : fallbackUrl;
   const originalUrl = verified ? verified.originalUrl : fallbackUrl;
-  const result = await startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source);
-  const attempted = [downloadUrl];
+  const result = await startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source, requestKey);
+  const attempted = uniqueUrls([
+    ...verificationResults.map(item => item.candidate?.url),
+    downloadUrl
+  ]);
   // Persist only byte/header-verified targets. A browser fallback merely means
   // that a download task was accepted; it may still resolve to a login HTML page.
   if (result.ok && verified) {
@@ -890,124 +840,10 @@ function applyCrossrefItem(metadata, item) {
  * to read the %PDF file header magic bytes without downloading the entire file.
  */
 async function checkPdfUrl(url, parentSignal = null) {
-  if (!url) return { valid: false };
-
-  if (parentSignal?.aborted) {
-    return { valid: false, errorCode: "PDF_ABORTED", reason: "Aborted by parent signal" };
+  if (!pdfVerifier) {
+    return { valid: false, decisive: false, transient: true, errorCode: "PDF_VERIFIER_UNAVAILABLE" };
   }
-
-  const controller = new AbortController();
-
-  const onParentAbort = () => {
-    controller.abort();
-  };
-
-  if (parentSignal) {
-    parentSignal.addEventListener("abort", onParentAbort);
-  }
-
-  const headTask = (async () => {
-    const headResponse = await fetchWithTimeout(url, {
-      method: "HEAD",
-      credentials: "include",
-      headers: {
-        "Accept": "application/pdf, */*"
-      }
-    }, PDF_HEAD_TIMEOUT_MS, controller.signal);
-
-    if (headResponse.ok) {
-      if (responseLooksPdf(headResponse)) {
-        return { valid: true, finalUrl: headResponse.url };
-      }
-    }
-    const classified = PP_CORE.pdf?.classifyPdfResponse?.(headResponse);
-    if (classified && classified.errorCode !== "PDF_NOT_CONFIRMED") {
-      return classified;
-    }
-    return { valid: false, errorCode: "PDF_NOT_CONFIRMED", reason: "HEAD not conclusive" };
-  })();
-
-  const rangeTask = (async () => {
-    const rangeResponse = await fetchWithTimeout(url, {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Range": "bytes=0-1023",
-        "Accept": "application/pdf, */*"
-      }
-    }, PDF_RANGE_TIMEOUT_MS, controller.signal);
-
-    if (rangeResponse.ok || rangeResponse.status === 206) {
-      let value = null;
-      if (rangeResponse.body) {
-        const reader = rangeResponse.body.getReader();
-        const chunk = await reader.read();
-        value = chunk.value || null;
-        try {
-          await reader.cancel();
-        } catch (_) {}
-      }
-
-      if (responseLooksPdf(rangeResponse, value)) {
-        return { valid: true, finalUrl: rangeResponse.url };
-      }
-      return PP_CORE.pdf?.classifyPdfResponse
-        ? PP_CORE.pdf.classifyPdfResponse(rangeResponse, value)
-        : { valid: false };
-    }
-    return PP_CORE.pdf?.classifyPdfResponse
-      ? PP_CORE.pdf.classifyPdfResponse(rangeResponse)
-      : { valid: false };
-  })();
-
-  try {
-    return await new Promise((resolve) => {
-      let resolved = false;
-      let completedCount = 0;
-      const results = [];
-
-      const handleResult = (res, index) => {
-        if (resolved) return;
-        results[index] = res;
-        completedCount++;
-
-        if (res && res.valid) {
-          resolved = true;
-          controller.abort(); // Cancel the other check
-          resolve(res);
-          return;
-        }
-
-        if (completedCount === 2) {
-          resolved = true;
-          // Both finished, and neither is valid. Return the best error.
-          const decisive = results.find(value => value && value.errorCode && value.errorCode !== "PDF_NOT_CONFIRMED");
-          if (decisive) {
-            resolve(decisive);
-          } else {
-            resolve(results[0] || { valid: false, errorCode: "PDF_NOT_CONFIRMED", reason: "No PDF response detected" });
-          }
-        }
-      };
-
-      headTask.then(res => handleResult(res, 0)).catch(err => handleResult(PP_CORE.pdf?.classifyPdfError ? PP_CORE.pdf.classifyPdfError(err) : { valid: false, error: err.message }, 0));
-      rangeTask.then(res => handleResult(res, 1)).catch(err => handleResult(PP_CORE.pdf?.classifyPdfError ? PP_CORE.pdf.classifyPdfError(err) : { valid: false, error: err.message }, 1));
-
-      if (parentSignal) {
-        parentSignal.addEventListener("abort", () => {
-          if (!resolved) {
-            resolved = true;
-            controller.abort();
-            resolve({ valid: false, errorCode: "PDF_ABORTED", reason: "Aborted by parent signal" });
-          }
-        });
-      }
-    });
-  } finally {
-    if (parentSignal) {
-      parentSignal.removeEventListener("abort", onParentAbort);
-    }
-  }
+  return pdfVerifier.verify(url, parentSignal);
 }
 
 /**

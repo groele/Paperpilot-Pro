@@ -12,6 +12,9 @@ function loadCore(...files) {
     console,
     setTimeout,
     clearTimeout,
+    AbortController,
+    DOMException,
+    Uint8Array,
     PaperPilotCore: {}
   };
   sandbox.globalThis = sandbox;
@@ -184,6 +187,78 @@ test("PDF detection accepts a standards-compliant header within the first 1024 b
   assert.equal(core.pdf.responseLooksPdf({ headers: {}, ok: true }, chunk), true);
 });
 
+test("PDF response classification rejects markup disguised as binary data", () => {
+  const core = loadCore("core/pdf.js");
+  const html = new Uint8Array(Buffer.from("<!doctype html><title>Login</title>"));
+  const result = core.pdf.classifyPdfResponse({
+    ok: true,
+    status: 200,
+    headers: { "content-type": "application/octet-stream" },
+    url: "https://example.org/paper.pdf"
+  }, html);
+  assert.equal(result.valid, false);
+  assert.equal(result.errorCode, "PDF_HTML_RESPONSE");
+  assert.equal(result.decisive, true);
+});
+
+test("PDF verifier accumulates split stream chunks and hedges only when HEAD is inconclusive", async () => {
+  const core = loadCore("core/pdf.js", "core/pdf-verifier.js");
+  const calls = [];
+  const chunks = [
+    new Uint8Array([0, 0]),
+    new Uint8Array([0x25, 0x50]),
+    new Uint8Array([0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37])
+  ];
+  const fetchImpl = async (_url, options) => {
+    calls.push(options.method);
+    if (options.method === "HEAD") {
+      return { ok: true, status: 200, url: "https://example.org/paper", headers: {} };
+    }
+    let index = 0;
+    return {
+      ok: true,
+      status: 206,
+      url: "https://example.org/paper",
+      headers: { "content-type": "application/octet-stream" },
+      body: {
+        getReader() {
+          return {
+            async read() {
+              if (index >= chunks.length) return { done: true };
+              return { done: false, value: chunks[index++] };
+            },
+            async cancel() {}
+          };
+        }
+      }
+    };
+  };
+  const verifier = core.pdfVerifier.create({ fetchImpl, hedgeDelayMs: 0 });
+  const result = await verifier.verify("https://example.org/paper");
+  assert.equal(result.valid, true);
+  assert.deepEqual(calls, ["HEAD", "GET"]);
+
+  const headOnlyCalls = [];
+  const headOnly = core.pdfVerifier.create({
+    hedgeDelayMs: 20,
+    fetchImpl: async (_url, options) => {
+      headOnlyCalls.push(options.method);
+      return { ok: true, status: 200, url: "https://example.org/direct.pdf", headers: { "content-type": "application/pdf" } };
+    }
+  });
+  assert.equal((await headOnly.verify("https://example.org/direct.pdf")).valid, true);
+  assert.deepEqual(headOnlyCalls, ["HEAD"]);
+
+  const headRejectsGetWorks = core.pdfVerifier.create({
+    hedgeDelayMs: 0,
+    fetchImpl: async (_url, options) => options.method === "HEAD"
+      ? { ok: false, status: 404, url: "https://example.org/head-disabled", headers: {} }
+      : { ok: true, status: 206, url: "https://example.org/head-disabled", headers: { "content-type": "application/pdf" } }
+  });
+  const recovered = await headRejectsGetWorks.verify("https://example.org/head-disabled");
+  assert.equal(recovered.valid, true, "GET verification must recover when a publisher rejects HEAD");
+});
+
 test("PDF URL cache keys preserve case-sensitive paths", () => {
   const core = loadCore("core/pdf.js");
   assert.notEqual(
@@ -209,6 +284,15 @@ test("cache helper expires and bounds persistent records", () => {
   assert.deepEqual(Object.keys(records).sort(), ["b", "keep"]);
 });
 
+test("request cache hashing includes every candidate without exposing raw URLs", () => {
+  const core = loadCore("core/cache.js");
+  const shared = Array.from({ length: 16 }, (_, index) => `https://example.org/${index}.pdf`);
+  const first = core.cache.hashStringList([...shared, "https://example.org/a.pdf"]);
+  const second = core.cache.hashStringList([...shared, "https://example.org/b.pdf"]);
+  assert.notEqual(first, second);
+  assert.equal(first.includes("https://"), false);
+});
+
 test("PDF discovery extracts nested viewer URLs and recognizes query-based PDF routes", () => {
   const core = loadCore("core/pdf.js", "core/pdf-discovery.js");
   const viewer = "https://repo.example/viewer?file=" + encodeURIComponent("/files/Paper.PDF?token=abc");
@@ -220,7 +304,7 @@ test("PDF discovery extracts nested viewer URLs and recognizes query-based PDF r
 });
 
 test("PDF candidate preparation scores publisher rules and filters non-article PDFs", () => {
-  const core = loadCore("core/messaging.js", "core/pdf.js");
+  const core = loadCore("core/messaging.js", "core/site-profiles.js", "core/pdf.js");
 
   const nature = core.pdf.buildPublisherPdfCandidates("https://www.nature.com/articles/s41586-026-00000-0");
   assert.equal(nature[0].url, "https://www.nature.com/articles/s41586-026-00000-0.pdf");
@@ -236,9 +320,10 @@ test("PDF candidate preparation scores publisher rules and filters non-article P
     { url: "https://example.org/article.pdf?download=1", text: "Download PDF", source: "duplicate" }
   ]);
 
-  assert.equal(prepared.length, 1);
+  assert.equal(prepared.length, 2);
   assert.equal(prepared[0].url, "https://example.org/article.pdf");
   assert.equal(prepared[0].score >= 90, true);
+  assert.equal(prepared[1].url, "https://example.org/article.pdf?download=1");
 });
 
 test("PDF publisher rules cover common journal hosts", () => {
@@ -314,6 +399,22 @@ test("modular site adapters cover eLife, PeerJ, PLOS and J-STAGE", () => {
     assert.equal(profile.pdfCandidates[0].url.includes(pdfPart), true);
   }
   assert.equal(typeof core.siteProfiles.register, "function");
+});
+
+test("conference and repository adapters resolve stable PDF routes", () => {
+  const core = loadCore("core/metadata.js", "core/site-profiles.js");
+  const cases = [
+    ["https://openreview.net/forum?id=Demo123", "openreview", "https://openreview.net/pdf?id=Demo123"],
+    ["https://aclanthology.org/2026.acl-long.1/", "acl-anthology", "https://aclanthology.org/2026.acl-long.1.pdf"],
+    ["https://proceedings.mlr.press/v235/demo24a.html", "pmlr", "https://proceedings.mlr.press/v235/demo24a.pdf"],
+    ["https://papers.nips.cc/paper_files/paper/2025/hash/demo-Abstract-Conference.html", "neurips", "demo-Paper-Conference.pdf"],
+    ["https://openaccess.thecvf.com/content/CVPR2026/html/Demo_Paper_CVPR_2026_paper.html", "cvf", "/papers/Demo_Paper_CVPR_2026_paper.pdf"]
+  ];
+  for (const [url, id, expected] of cases) {
+    const profile = core.siteProfiles.resolve(url);
+    assert.equal(profile.id, id);
+    assert.equal(profile.pdfCandidates[0].url.includes(expected), true);
+  }
 });
 
 test("fast PDF download only applies to trusted PDF-like URLs", () => {
@@ -428,12 +529,58 @@ test("manifest uses only a lightweight detector for broad page coverage", () => 
 test("journal runtime is guarded, SPA-aware and delegates discovery to the core module", () => {
   const journal = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
   const background = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
+  const activation = fs.readFileSync(path.join(__dirname, "..", "background/page-activation.js"), "utf8");
   assert.match(journal, /__PAPERPILOT_JOURNAL_LOADED__/);
   assert.match(journal, /pdfDiscovery\?\.collect/);
   assert.match(journal, /installPageLifecycleWatcher/);
   assert.match(background, /ACTIVATE_JOURNAL_PAGE/);
-  assert.match(background, /JOURNAL_RUNTIME_FILES/);
+  assert.match(activation, /JOURNAL_RUNTIME_FILES/);
+  assert.match(activation, /PAGE_ACTIVATION_INCOMPLETE/);
   assert.match(background, /pruneRecordObject/);
+});
+
+test("dynamic page activation is origin-bound, confirmed and idempotent", async () => {
+  const calls = [];
+  let loaded = false;
+  const sandbox = {
+    URL,
+    PaperPilotBackground: {},
+    chrome: {
+      runtime: { lastError: null },
+      scripting: {
+        executeScript(details, callback) {
+          calls.push(["executeScript", Boolean(details.files)]);
+          if (details.files) {
+            loaded = true;
+            callback([]);
+          } else {
+            callback([{ result: loaded }]);
+          }
+        },
+        insertCSS(_details, callback) {
+          calls.push(["insertCSS", true]);
+          callback();
+        }
+      }
+    }
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "background/page-activation.js"), "utf8"), sandbox);
+
+  const sender = { tab: { id: 7, url: "https://repository.example/article" }, frameId: 0, url: "https://repository.example/article" };
+  const first = await sandbox.PaperPilotBackground.pageActivation.activate(sender, sender.url);
+  assert.equal(first.ok, true);
+  assert.equal(first.alreadyActive, false);
+  assert.deepEqual(calls.map(item => item[0]), ["executeScript", "insertCSS", "executeScript", "executeScript"]);
+
+  calls.length = 0;
+  const second = await sandbox.PaperPilotBackground.pageActivation.activate(sender, sender.url);
+  assert.equal(second.alreadyActive, true);
+  assert.deepEqual(calls.map(item => item[0]), ["executeScript"]);
+
+  const denied = await sandbox.PaperPilotBackground.pageActivation.activate(sender, "https://attacker.example/article");
+  assert.equal(denied.errorCode, "PAGE_ACTIVATION_DENIED");
 });
 
 test("popup and content scripts expose current-page diagnostics", () => {
