@@ -5,12 +5,20 @@
   let activationInFlight = false;
   let activated = false;
   let observer = null;
+  let bodyObserver = null;
   let debounceTimer = null;
   const timers = new Set();
 
   function detectAcademicPage() {
     const contentType = String(document.contentType || "").toLowerCase();
     if (contentType.includes("application/pdf")) return "pdf-document";
+
+    const urlText = `${window.location.href} ${document.title || ""}`;
+    const hasDoiRoute = /\b10\.\d{4,9}\//i.test(urlText);
+    const directPdfControl = document.querySelector(
+      "a[href*='.pdf' i],a[href*='/pdf/' i],a[href*='/pdfft' i],a[download][href*='pdf' i],button[aria-label*='pdf' i],button[title*='pdf' i]"
+    );
+    if (directPdfControl || hasDoiRoute) return directPdfControl ? "pdf-control" : "doi-route";
 
     if (document.querySelector("meta[name='citation_pdf_url' i],meta[name='bepress_citation_pdf_url' i],link[type='application/pdf']")) {
       return "pdf-metadata";
@@ -29,7 +37,9 @@
 
   function stop() {
     observer?.disconnect();
+    bodyObserver?.disconnect();
     observer = null;
+    bodyObserver = null;
     clearTimeout(debounceTimer);
     timers.forEach(clearTimeout);
     timers.clear();
@@ -72,6 +82,16 @@
       debounceTimer = setTimeout(check, 180);
     });
     observer.observe(document.head, { childList: true, subtree: true, attributes: true });
+    const attachBodyObserver = () => {
+      if (!document.body || bodyObserver) return;
+      bodyObserver = new MutationObserver(() => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(check, 220);
+      });
+      bodyObserver.observe(document.body, { childList: true, subtree: true });
+    };
+    attachBodyObserver();
+    setTimeout(attachBodyObserver, 500);
     scheduleCheck(45000);
     const stopTimer = setTimeout(stop, 50000);
     timers.add(stopTimer);

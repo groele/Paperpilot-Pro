@@ -87,6 +87,22 @@
       ]));
   }
 
+  function genericDoiPdfCandidates(context, options = {}) {
+    if (!context?.doi) return [];
+    const routes = options.routes || [
+      [`${context.url.origin}/doi/pdf/${context.doi}`, "DOI PDF endpoint"],
+      [`${context.url.origin}/doi/epdf/${context.doi}`, "DOI ePDF endpoint"],
+      [`${context.url.origin}/article/${context.doi}/pdf`, "Article DOI PDF endpoint"]
+    ];
+    return routes.map(([url, reason], index) => pdfCandidate(
+      url,
+      `publisher-rule:${options.id || "generic-doi"}`,
+      reason,
+      Math.max(84, Number(options.score || 88) - index * 2),
+      { confidence: "medium" }
+    ));
+  }
+
   function registerDefaults() {
     add("elife",
       ({ host, path }) => (host.includes("elifesciences.org") || host.includes("elife.org")) && /\/articles\/\d+/i.test(path),
@@ -212,6 +228,37 @@
     addDoiPdfAdapter("iop", host => host.includes("iopscience.iop.org"), context => `${context.url.origin}/article/${context.doi}/pdf`, "IOP DOI URL maps to /article/{doi}/pdf");
     addDoiPdfAdapter("acm", host => host.includes("dl.acm.org"), context => `${context.url.origin}/doi/pdf/${context.doi}`, "ACM DOI URL maps to /doi/pdf/{doi}");
 
+    add("sage",
+      ({ host, doi }) => host.includes("sagepub.com") && Boolean(doi),
+      context => profileWithDoi("sage", context, genericDoiPdfCandidates(context, { id: "sage" })));
+
+    add("aip",
+      ({ host, doi }) => (host.includes("pubs.aip.org") || host === "aip.org" || host.endsWith(".aip.org")) && Boolean(doi),
+      context => profileWithDoi("aip", context, genericDoiPdfCandidates(context, {
+        id: "aip",
+        routes: [
+          [`${context.url.origin}/doi/pdf/${context.doi}`, "AIP DOI PDF endpoint"],
+          [`${context.url.origin}/article/${context.doi}/pdf`, "AIP article PDF endpoint"]
+        ]
+      })));
+
+    add("aps",
+      ({ host, path }) => host.includes("aps.org") && /\/abstract\//i.test(path),
+      context => profileWithDoi("aps", context, [
+        pdfCandidate(`${context.url.origin}${context.path.replace(/\/abstract\//i, "/pdf/")}`, "publisher-rule:aps", "APS abstract route maps to PDF route", 94),
+        ...genericDoiPdfCandidates(context, { id: "aps", score: 86 })
+      ]));
+
+    add("bmj",
+      ({ host, doi }) => host.includes("bmj.com") && Boolean(doi),
+      context => profileWithDoi("bmj", context, genericDoiPdfCandidates(context, {
+        id: "bmj",
+        routes: [
+          [`${context.url.origin}/content/${context.doi}.full.pdf`, "BMJ full PDF endpoint"],
+          [`${context.url.origin}/doi/pdf/${context.doi}`, "BMJ DOI PDF endpoint"]
+        ]
+      })));
+
     const metadataDrivenHosts = [
       ["oup", "oup.com"], ["cambridge", "cambridge.org"], ["zenodo", "zenodo.org"],
       ["figshare", "figshare.com"], ["osf", "osf.io"], ["europepmc", "europepmc.org"],
@@ -221,7 +268,7 @@
     ];
     metadataDrivenHosts.forEach(([id, hostname]) => add(id,
       ({ host }) => host.includes(hostname),
-      context => profileWithDoi(id, context)));
+      context => profileWithDoi(id, context, genericDoiPdfCandidates(context, { id, score: 84 }))));
   }
 
   registerDefaults();
@@ -251,6 +298,7 @@
   root.siteProfiles = {
     COMMON_METADATA_SELECTORS,
     COMMON_CHALLENGE_SIGNALS,
+    genericDoiPdfCandidates,
     resolve,
     register,
     adapters

@@ -1,21 +1,36 @@
 # Changelog
 
+## v1.4.0 - 2026-07-18
+
+### Added
+- Broader Chrome PDF compatibility for SAGE, APS, AIP, BMJ, DOI-driven long-tail publishers, blob URLs, and session-bound page downloads.
+- In-memory verified-target reuse, verification single-flight coordination, and richer PDF transport diagnostics.
+
+### Changed
+- Optimized high-confidence PDF discovery and dynamic journal activation for faster one-click downloads.
+- Added regression and performance coverage for page-context fallback, non-standard PDF routes, and repeated downloads.
+
 ## v1.3.0 - 2026-07-17
 
 ### Added
 - Independent PDF verifier and page-activation modules with focused regression coverage.
 - Direct adapters for OpenReview, ACL Anthology, PMLR, NeurIPS proceedings, and CVF Open Access.
+- Dashboard Overview shortcut for toggling the PDF save-location prompt, synchronized with global settings.
+- Chrome page-context fallback for blob, session-bound, and non-standard PDF download controls.
+- Additional DOI route adapters for SAGE, APS, AIP, BMJ, and metadata-driven long-tail publishers.
 
 ### Changed
 - Converted publisher URL handling to a data-driven adapter registry.
 - Replaced eager parallel PDF probes with adaptive hedged HEAD/Range verification.
 - Replaced full-page mutation observers with bounded head observation and low-frequency route checks.
+- Short-circuited high-confidence PDF discovery, added in-memory verified-target reuse, and separated verification single-flight from download-task creation.
 
 ### Fixed
 - Accumulate split response chunks before checking the PDF signature and reject HTML/JSON disguised as binary downloads.
 - Preserve functional download parameters in candidate identities and hash every candidate in request-cache keys.
 - Retry failed dynamic injection, avoid duplicate runtime/CSS injection, queue same-URL downloads safely, and invalidate stale signed-link caches.
 - Cache only definitive negative PDF checks; transient timeouts, authentication failures, and network errors remain retryable.
+- Added transport, fallback, discovery-mode, and duration diagnostics for PDF downloads.
 
 ## v1.2.0 - 2026-07-16
 

@@ -8,7 +8,7 @@
 ![Type](https://img.shields.io/badge/type-Chrome%20Extension-blue?style=flat-square)
 ![Workflow](https://img.shields.io/badge/workflow-literature%20engine-green?style=flat-square)
 ![Architecture](https://img.shields.io/badge/architecture-browser--native-purple?style=flat-square)
-![Version](https://img.shields.io/badge/version-1.3.0-6f42c1?style=flat-square)
+![Version](https://img.shields.io/badge/version-1.4.0-6f42c1?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
 
 Part of **ResearchFlow Lab** — a local-first research productivity ecosystem for literature, manuscripts, data, and scientific visualization.

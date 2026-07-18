@@ -73,6 +73,15 @@
     }
   }
 
+  function isPageActionPdfUrl(rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      return url.protocol === "blob:";
+    } catch (e) {
+      return false;
+    }
+  }
+
   function hasScienceDirectSignedPdfParams(url) {
     return Boolean(url.searchParams.get("md5") && url.searchParams.get("pid"));
   }
@@ -125,7 +134,8 @@
     } catch (e) {
       return null;
     }
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    const pageAction = url.protocol === "blob:";
+    if (url.protocol !== "http:" && url.protocol !== "https:" && !pageAction) return null;
 
     const candidate = {
       url: url.href,
@@ -133,8 +143,16 @@
       source: base.source || "unknown",
       reason: base.reason || "",
       score: Number.isFinite(base.score) ? base.score : 0,
-      browserFallback: Boolean(base.browserFallback)
+      browserFallback: Boolean(base.browserFallback || pageAction || base.requiresBrowser),
+      requiresBrowser: Boolean(base.requiresBrowser || pageAction),
+      transport: base.transport || (pageAction ? "page-context" : "chrome-download")
     };
+
+    if (pageAction) {
+      candidate.score = Math.max(candidate.score, 86);
+      candidate.reason = candidate.reason || "Page-owned blob PDF requires browser-context download";
+      return candidate;
+    }
 
     const host = url.hostname.toLowerCase();
     const path = url.pathname.toLowerCase();
@@ -188,6 +206,7 @@
     return Boolean(candidate &&
       candidate.score >= 92 &&
       !candidate.browserFallback &&
+      !candidate.requiresBrowser &&
       isTrustedBrowserPdfUrl(candidate.url));
   }
 
@@ -293,6 +312,7 @@
     normalizeCandidateDedupeKey,
     uniqueUrls,
     isTrustedBrowserPdfUrl,
+    isPageActionPdfUrl,
     isSupplementaryPdfCandidate,
     buildPublisherPdfCandidates,
     preparePdfCandidates,

@@ -213,7 +213,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (action === "DOWNLOAD_PDF" || action === "pdf.download") {
-    withMessageDuration("download-service", () => downloadPdf(message.url, message.filename, message.urls || message.candidates || []))
+    withMessageDuration("download-service", () => downloadPdf(
+      message.url,
+      message.filename,
+      message.urls || message.candidates || [],
+      { tabId: sender?.tab?.id, pageUrl: message.pageUrl || sender?.url || sender?.tab?.url || "" }
+    ))
       .then(result => sendResponse(result))
       .catch(err => {
         console.error("PDF download failed:", err);
@@ -426,12 +431,16 @@ const PDF_FAST_HEAD_TIMEOUT_MS = 700;
 const PDF_HEAD_TIMEOUT_MS = 1400;
 const PDF_RANGE_TIMEOUT_MS = 1800;
 const PDF_DOWNLOAD_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const PDF_SIGNED_URL_CACHE_TTL_MS = 20 * 60 * 1000;
 const PDF_FAILURE_CACHE_TTL_MS = 2 * 60 * 1000;
 const PDF_REQUEST_CACHE_KEY = "__requests";
 const PDF_URL_CACHE_MAX_ENTRIES = 320;
 const PDF_REQUEST_CACHE_MAX_ENTRIES = 120;
 const pdfDownloadSingleFlight = PP_CORE.cache?.createSingleFlight?.();
+const pdfVerificationSingleFlight = PP_CORE.cache?.createSingleFlight?.();
 const inFlightPdfDownloads = new Map();
+let pdfRuntimeStatePromise = null;
+let pdfRuntimeState = null;
 const pdfVerifier = PP_CORE.pdfVerifier?.create?.({
   fetchImpl: (...args) => fetch(...args),
   headTimeoutMs: PDF_HEAD_TIMEOUT_MS,
@@ -447,6 +456,57 @@ const quickPdfVerifier = PP_CORE.pdfVerifier?.create?.({
   maxPrefixBytes: 1024
 });
 
+function isSignedPdfUrl(rawUrl) {
+  return /[?&](?:md5|pid|token|signature|expires|downloadtoken|auth)=/i.test(String(rawUrl || ""));
+}
+
+function getPdfCacheTtl(recordOrUrl) {
+  const url = typeof recordOrUrl === "string" ? recordOrUrl : recordOrUrl?.url;
+  return isSignedPdfUrl(url) ? PDF_SIGNED_URL_CACHE_TTL_MS : PDF_DOWNLOAD_CACHE_TTL_MS;
+}
+
+function isFreshPdfCacheRecord(record, now = Date.now()) {
+  return Boolean(record?.ok && record.cachedAt && now - record.cachedAt <= getPdfCacheTtl(record));
+}
+
+async function getPdfRuntimeState() {
+  if (pdfRuntimeState) return pdfRuntimeState;
+  if (!pdfRuntimeStatePromise) {
+    pdfRuntimeStatePromise = getStorageAsync([
+      "pdf_download_save_as",
+      "pdf_download_dir",
+      "pdf_download_cache"
+    ]).then(config => {
+      pdfRuntimeState = {
+        saveAs: config.pdf_download_save_as === true,
+        downloadDir: config.pdf_download_dir || "PaperPilot Pro",
+        downloadCache: config.pdf_download_cache && typeof config.pdf_download_cache === "object"
+          ? config.pdf_download_cache
+          : {}
+      };
+      return pdfRuntimeState;
+    }).finally(() => {
+      pdfRuntimeStatePromise = null;
+    });
+  }
+  return pdfRuntimeStatePromise;
+}
+
+function updatePdfRuntimeState(changes) {
+  if (!pdfRuntimeState) return;
+  if (changes.pdf_download_save_as) pdfRuntimeState.saveAs = changes.pdf_download_save_as.newValue === true;
+  if (changes.pdf_download_dir) pdfRuntimeState.downloadDir = changes.pdf_download_dir.newValue || "PaperPilot Pro";
+  if (changes.pdf_download_cache) {
+    pdfRuntimeState.downloadCache = changes.pdf_download_cache.newValue || {};
+  }
+}
+
+if (chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "local") updatePdfRuntimeState(changes);
+  });
+}
+
 async function quickCheckPdfUrl(url, signal = null) {
   if (!quickPdfVerifier) return { valid: false, decisive: false, transient: true, errorCode: "PDF_VERIFIER_UNAVAILABLE" };
   return quickPdfVerifier.quickVerify(url, signal);
@@ -455,7 +515,9 @@ async function quickCheckPdfUrl(url, signal = null) {
 async function findFastTrustedPdfTarget(urlsToTry, explicitNonPdfUrls) {
   const trustedUrls = urlsToTry
     .map(candidate => typeof candidate === "string" ? { url: candidate } : candidate)
-    .filter(candidate => isTrustedBrowserPdfUrl(candidate.url))
+    .filter(candidate => PP_CORE.pdf?.shouldFastDownloadCandidate
+      ? PP_CORE.pdf.shouldFastDownloadCandidate(candidate)
+      : isTrustedBrowserPdfUrl(candidate.url))
     .slice(0, PDF_CHECK_BATCH_SIZE);
   if (trustedUrls.length === 0) return null;
 
@@ -572,6 +634,7 @@ async function persistPdfDownloadCache(downloadCache) {
     ttlMs: PDF_DOWNLOAD_CACHE_TTL_MS,
     preserveKeys: [PDF_REQUEST_CACHE_KEY]
   });
+  if (pdfRuntimeState) pdfRuntimeState.downloadCache = downloadCache;
   await setStorageAsync({ pdf_download_cache: downloadCache });
 }
 
@@ -582,7 +645,11 @@ function buildPdfDownloadDiagnostics(candidateSummary, attempted, options = {}) 
     firstSource: candidateSummary[0]?.source || "",
     cacheHit: options.cacheHit || "none",
     fastPath: Boolean(options.fastPath),
-    verificationMode: options.verificationMode || "unknown"
+    verificationMode: options.verificationMode || "unknown",
+    discoveryMode: options.discoveryMode || "candidate-cache",
+    transport: options.transport || "unknown",
+    fallbackUsed: Boolean(options.fallbackUsed),
+    durationMs: Number.isFinite(options.durationMs) ? options.durationMs : 0
   };
 }
 
@@ -618,7 +685,96 @@ function startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs,
         downloadId,
         filename: finalFilename,
         source,
+        transport: "chrome-download",
+        fallbackUsed: false,
         fallbackUrl: originalUrl
+      });
+    });
+  });
+}
+
+function startPageContextPdfDownload(tabId, pageUrl, downloadUrl, filename, source) {
+  if (!Number.isInteger(tabId) || tabId < 0 || !downloadUrl) {
+    return Promise.resolve({
+      success: false,
+      ok: false,
+      errorCode: "PDF_PAGE_CONTEXT_UNAVAILABLE",
+      error: "Current Chrome tab is unavailable",
+      fallbackUrl: downloadUrl,
+      source
+    });
+  }
+
+  return new Promise(resolve => {
+    chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      world: "MAIN",
+      func: async (url, requestedFilename) => {
+        const clickAnchor = (anchor, fallbackName) => {
+          if (!anchor) return false;
+          if (fallbackName && !anchor.download) anchor.download = fallbackName;
+          anchor.click();
+          return true;
+        };
+
+        const anchors = Array.from(document.querySelectorAll("a[href],area[href]"));
+        const matching = anchors.find(anchor => anchor.href === url || anchor.getAttribute("href") === url);
+        if (clickAnchor(matching, requestedFilename)) return { ok: true, mode: "page-link" };
+
+        if (url.startsWith("blob:") || /^https?:\/\//i.test(url)) {
+          try {
+            const response = await fetch(url, { credentials: "include" });
+            if (response.ok) {
+              const blob = await response.blob();
+              const objectUrl = URL.createObjectURL(blob);
+              const anchor = document.createElement("a");
+              anchor.href = objectUrl;
+              anchor.download = requestedFilename || "paper.pdf";
+              anchor.style.display = "none";
+              document.documentElement.appendChild(anchor);
+              anchor.click();
+              setTimeout(() => {
+                anchor.remove();
+                URL.revokeObjectURL(objectUrl);
+              }, 30000);
+              return { ok: true, mode: "page-fetch" };
+            }
+          } catch (_) {}
+        }
+
+        const fallback = document.createElement("a");
+        fallback.href = url;
+        fallback.download = requestedFilename || "paper.pdf";
+        fallback.target = "_blank";
+        fallback.rel = "noopener";
+        document.documentElement.appendChild(fallback);
+        fallback.click();
+        setTimeout(() => fallback.remove(), 1000);
+        return { ok: true, mode: "page-anchor-fallback" };
+      },
+      args: [downloadUrl, filename]
+    }, result => {
+      const error = chrome.runtime.lastError;
+      if (error || !result?.[0]?.result?.ok) {
+        resolve({
+          success: false,
+          ok: false,
+          errorCode: "PDF_PAGE_CONTEXT_FAILED",
+          error: error?.message || "Page-context download failed",
+          fallbackUrl: downloadUrl,
+          source
+        });
+        return;
+      }
+      resolve({
+        success: true,
+        ok: true,
+        filename,
+        source,
+        transport: "page-context",
+        fallbackUsed: true,
+        pageMode: result[0].result.mode,
+        fallbackUrl: pageUrl || downloadUrl
       });
     });
   });
@@ -630,20 +786,57 @@ function summarizePdfCandidates(candidates) {
     source: candidate.source || "unknown",
     score: candidate.score || 0,
     reason: candidate.reason || "",
-    browserFallback: Boolean(candidate.browserFallback)
+    browserFallback: Boolean(candidate.browserFallback),
+    requiresBrowser: Boolean(candidate.requiresBrowser),
+    transport: candidate.transport || (candidate.requiresBrowser ? "page-context" : "chrome-download")
   }));
 }
 
-async function performPdfDownload(preparedCandidates, filename, requestKey) {
-  const config = await getStorageAsync(["pdf_download_dir", "pdf_download_save_as", "pdf_download_cache"]);
-  const downloadCache = config.pdf_download_cache || {};
+function verifyPdfCandidates(activeCandidates, requestKey) {
+  const run = async () => {
+    const explicitNonPdfUrls = new Set();
+    const verificationResults = [];
+    const httpCandidates = activeCandidates.filter(candidate => {
+      if (candidate.requiresBrowser || PP_CORE.pdf?.isPageActionPdfUrl?.(candidate.url)) return false;
+      return /^https?:\/\//i.test(candidate.url);
+    });
+    const fastTarget = await findFastTrustedPdfTarget(httpCandidates, explicitNonPdfUrls);
+    const verified = fastTarget || await findFirstVerifiedPdfUrl(httpCandidates, explicitNonPdfUrls, verificationResults);
+    const fallbackUrl = verified ? "" : httpCandidates.find(candidate => {
+      return isTrustedBrowserPdfUrl(candidate.url) &&
+        !candidate.browserFallback &&
+        !explicitNonPdfUrls.has(normalizeDownloadUrlKey(candidate.url));
+    })?.url || "";
+    const pageFallbackKeys = new Set(verificationResults
+      .filter(item => ["PDF_AUTH_REQUIRED", "PDF_NETWORK_ERROR", "PDF_TIMEOUT"].includes(item.result?.errorCode))
+      .map(item => normalizeDownloadUrlKey(item.candidate?.url)));
+    return {
+      verified,
+      fallbackUrl,
+      explicitNonPdfUrls,
+      verificationResults,
+      pageCandidate: activeCandidates.find(candidate =>
+        candidate.requiresBrowser || candidate.browserFallback || pageFallbackKeys.has(normalizeDownloadUrlKey(candidate.url))
+      ) || null,
+      pageFallbackKeys
+    };
+  };
+  return pdfVerificationSingleFlight
+    ? pdfVerificationSingleFlight.run(requestKey, run)
+    : run();
+}
+
+async function performPdfDownload(preparedCandidates, filename, requestKey, context = {}) {
+  const startedAt = Date.now();
+  const runtime = await getPdfRuntimeState();
+  const downloadCache = runtime.downloadCache;
   const requestCache = getDownloadRequestCache(downloadCache);
   const now = Date.now();
-  const saveAs = config.pdf_download_save_as === true;
-  const finalFilename = saveAs ? (filename || "paper.pdf") : buildDownloadFilename(config.pdf_download_dir, filename);
+  const saveAs = runtime.saveAs;
+  const finalFilename = saveAs ? (filename || "paper.pdf") : buildDownloadFilename(runtime.downloadDir, filename);
   const candidateSummary = summarizePdfCandidates(preparedCandidates);
   const cachedRequest = requestCache[requestKey];
-  if (cachedRequest?.ok && cachedRequest.url && now - cachedRequest.cachedAt <= PDF_DOWNLOAD_CACHE_TTL_MS) {
+  if (isFreshPdfCacheRecord(cachedRequest) && cachedRequest.url) {
     const attempted = [cachedRequest.url];
     const result = await startChromePdfDownload(
       cachedRequest.url,
@@ -662,7 +855,9 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
         diagnostics: buildPdfDownloadDiagnostics(candidateSummary, attempted, {
           cacheHit: "request",
           fastPath: true,
-          verificationMode: "request-cache"
+          verificationMode: "request-cache",
+          transport: result.transport,
+          durationMs: Date.now() - startedAt
         })
       };
     }
@@ -681,7 +876,7 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
 
   const cachedCandidate = activeCandidates.find(candidate => {
     const cached = downloadCache[normalizeDownloadUrlKey(candidate.url)];
-    return cached && cached.ok && now - cached.cachedAt <= PDF_DOWNLOAD_CACHE_TTL_MS;
+    return isFreshPdfCacheRecord(cached);
   });
   if (cachedCandidate) {
     const cached = downloadCache[normalizeDownloadUrlKey(cachedCandidate.url)];
@@ -696,7 +891,9 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
         diagnostics: buildPdfDownloadDiagnostics(candidateSummary, attempted, {
           cacheHit: "url",
           fastPath: true,
-          verificationMode: "url-cache"
+          verificationMode: "url-cache",
+          transport: result.transport,
+          durationMs: Date.now() - startedAt
         })
       };
     }
@@ -704,20 +901,13 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
     delete downloadCache[normalizeDownloadUrlKey(cachedUrl)];
   }
 
-  const explicitNonPdfUrls = new Set();
-  const verificationResults = [];
-  const fastTarget = await findFastTrustedPdfTarget(activeCandidates, explicitNonPdfUrls);
-  const verified = fastTarget || await findFirstVerifiedPdfUrl(activeCandidates, explicitNonPdfUrls, verificationResults);
-  const fallbackUrl = verified ? "" : activeCandidates.find(candidate => {
-    return isTrustedBrowserPdfUrl(candidate.url) &&
-      !candidate.browserFallback &&
-      !explicitNonPdfUrls.has(normalizeDownloadUrlKey(candidate.url));
-  })?.url || "";
+  const resolved = await verifyPdfCandidates(activeCandidates, requestKey);
+  const { verified, fallbackUrl, explicitNonPdfUrls, verificationResults, pageCandidate, pageFallbackKeys } = resolved;
   const source = verified
     ? verified.source || "verified-candidate"
     : fallbackUrl ? "trusted-fallback-unverified" : "";
 
-  if (!verified && !fallbackUrl) {
+  if (!verified && !fallbackUrl && !pageCandidate) {
     verificationResults.forEach(({ candidate, result }) => {
       if (!result?.decisive) return;
       downloadCache[normalizeDownloadUrlKey(candidate.url)] = {
@@ -727,7 +917,7 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
         errorCode: result.errorCode || "PDF_NOT_CONFIRMED"
       };
     });
-    await persistPdfDownloadCache(downloadCache);
+    void persistPdfDownloadCache(downloadCache).catch(() => {});
     return {
       success: false,
       ok: false,
@@ -738,14 +928,23 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
       fallbackUrl: candidateSummary[0]?.url || "",
       source: "pdf-verification",
       diagnostics: buildPdfDownloadDiagnostics(candidateSummary, candidateSummary.map(item => item.url), {
-        verificationMode: "failed"
+        verificationMode: "failed",
+        durationMs: Date.now() - startedAt
       })
     };
   }
 
   const downloadUrl = verified ? verified.finalUrl : fallbackUrl;
   const originalUrl = verified ? verified.originalUrl : fallbackUrl;
-  const result = await startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source, requestKey);
+  const pageUrl = context.pageUrl || "";
+  const canUsePageContext = Number.isInteger(context.tabId) && context.tabId >= 0;
+  const usePageContext = Boolean(pageCandidate && !verified && canUsePageContext && (
+    !fallbackUrl || pageCandidate.requiresBrowser || pageCandidate.browserFallback ||
+    pageFallbackKeys?.has(normalizeDownloadUrlKey(pageCandidate.url))
+  ));
+  const result = usePageContext
+    ? await startPageContextPdfDownload(context.tabId, pageUrl, pageCandidate.url, finalFilename, pageCandidate.source || "page-context")
+    : await startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source, requestKey);
   const attempted = uniqueUrls([
     ...verificationResults.map(item => item.candidate?.url),
     downloadUrl
@@ -765,7 +964,7 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
       downloadCache[normalizeDownloadUrlKey(originalUrl)] = cacheRecord;
     }
     requestCache[requestKey] = cacheRecord;
-    await persistPdfDownloadCache(downloadCache);
+    void persistPdfDownloadCache(downloadCache).catch(() => {});
   }
   return {
     ...result,
@@ -774,12 +973,16 @@ async function performPdfDownload(preparedCandidates, filename, requestKey) {
     fallbackUrl: originalUrl,
     diagnostics: buildPdfDownloadDiagnostics(candidateSummary, attempted, {
       fastPath: Boolean(verified && source === "quick-check"),
-      verificationMode: verified ? "verified" : "browser-fallback"
+      verificationMode: verified ? "verified" : "browser-fallback",
+      transport: result.transport,
+      fallbackUsed: Boolean(result.fallbackUsed),
+      discoveryMode: usePageContext ? "page-context-fallback" : "verified-candidate",
+      durationMs: Date.now() - startedAt
     })
   };
 }
 
-function downloadPdf(url, filename, candidateUrls = []) {
+function downloadPdf(url, filename, candidateUrls = [], context = {}) {
   const preparedCandidates = (PP_CORE.pdf?.preparePdfCandidates
     ? PP_CORE.pdf.preparePdfCandidates([url, ...candidateUrls])
     : uniqueUrls([url, ...candidateUrls]).map(item => ({ url: item, score: isTrustedBrowserPdfUrl(item) ? 90 : 0 }))
@@ -801,13 +1004,13 @@ function downloadPdf(url, filename, candidateUrls = []) {
   const requestKey = getPdfDownloadRequestKey(preparedCandidates);
   const flightKey = `${requestKey}|${String(filename || "paper.pdf")}`;
   if (pdfDownloadSingleFlight) {
-    return pdfDownloadSingleFlight.run(flightKey, () => performPdfDownload(preparedCandidates, filename, requestKey));
+    return pdfDownloadSingleFlight.run(flightKey, () => performPdfDownload(preparedCandidates, filename, requestKey, context));
   }
   if (inFlightPdfDownloads.has(flightKey)) {
     return inFlightPdfDownloads.get(flightKey);
   }
 
-  const promise = performPdfDownload(preparedCandidates, filename, requestKey)
+  const promise = performPdfDownload(preparedCandidates, filename, requestKey, context)
     .finally(() => {
       inFlightPdfDownloads.delete(flightKey);
     });

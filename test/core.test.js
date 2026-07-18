@@ -201,6 +201,19 @@ test("PDF response classification rejects markup disguised as binary data", () =
   assert.equal(result.decisive, true);
 });
 
+test("PDF candidates preserve page-owned blob resources for Chrome fallback", () => {
+  const core = loadCore("core/pdf.js");
+  const prepared = core.pdf.preparePdfCandidates([{
+    url: "blob:https://publisher.example/2f6c0f2e-1f0f-4b54-8c2c-123456789abc",
+    source: "explicit-pdf-button",
+    text: "Download PDF"
+  }]);
+  assert.equal(prepared.length, 1);
+  assert.equal(prepared[0].requiresBrowser, true);
+  assert.equal(prepared[0].transport, "page-context");
+  assert.equal(core.pdf.shouldFastDownloadCandidate(prepared[0]), false);
+});
+
 test("PDF verifier accumulates split stream chunks and hedges only when HEAD is inconclusive", async () => {
   const core = loadCore("core/pdf.js", "core/pdf-verifier.js");
   const calls = [];
@@ -303,6 +316,32 @@ test("PDF discovery extracts nested viewer URLs and recognizes query-based PDF r
   assert.equal(core.pdfDiscovery.looksLikePdfUrl("https://repo.example/article/file?id=10.1/demo&type=pdf"), true);
 });
 
+test("PDF discovery accepts explicit blob download controls", () => {
+  const core = loadCore("core/pdf.js", "core/pdf-discovery.js");
+  const element = {
+    tagName: "A",
+    textContent: "Download PDF",
+    getAttribute(name) {
+      if (name === "href") return "blob:https://repo.example/123";
+      return "";
+    }
+  };
+  const fakeDocument = {
+    contentType: "text/html",
+    documentElement: { children: [] },
+    scripts: [],
+    querySelectorAll() { return [element]; }
+  };
+  const result = core.pdfDiscovery.collect(fakeDocument, "https://repo.example/article", {
+    maxCandidates: 8,
+    maxNodes: 1,
+    maxElementsPerRoot: 8,
+    maxScriptChars: 0
+  });
+  assert.equal(result.candidates[0].url, "blob:https://repo.example/123");
+  assert.equal(result.candidates[0].requiresBrowser, true);
+});
+
 test("PDF candidate preparation scores publisher rules and filters non-article PDFs", () => {
   const core = loadCore("core/messaging.js", "core/site-profiles.js", "core/pdf.js");
 
@@ -344,6 +383,12 @@ test("PDF publisher rules cover common journal hosts", () => {
 
   const frontiers = core.pdf.buildPublisherPdfCandidates("https://www.frontiersin.org/articles/10.3389/fphy.2026.1234567/full");
   assert.equal(frontiers[0].url, "https://www.frontiersin.org/articles/10.3389/fphy.2026.1234567/pdf");
+
+  const sage = core.pdf.buildPublisherPdfCandidates("https://journals.sagepub.com/doi/10.1177/00000000261234567");
+  assert.equal(sage[0].url, "https://journals.sagepub.com/doi/pdf/10.1177/00000000261234567");
+
+  const aps = core.pdf.buildPublisherPdfCandidates("https://link.aps.org/abstract/10.1103/PhysRevDemo.1.1");
+  assert.equal(aps[0].url, "https://link.aps.org/pdf/10.1103/PhysRevDemo.1.1");
 });
 
 test("site profiles expose DOI, PDF, metadata and challenge signals for common publishers", () => {
@@ -489,6 +534,27 @@ test("journal content caches site profile resolution per URL", () => {
   assert.match(source, /attemptedCount/);
 });
 
+test("Chrome download path exposes transport, fallback and discovery diagnostics", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
+
+  assert.match(source, /transport: "chrome-download"/);
+  assert.match(source, /transport: "page-context"/);
+  assert.match(source, /fallbackUsed/);
+  assert.match(source, /discoveryMode/);
+  assert.match(source, /pdfVerificationSingleFlight/);
+  assert.match(source, /PDF_SIGNED_URL_CACHE_TTL_MS/);
+  assert.match(source, /world: "MAIN"/);
+});
+
+test("broad detector activates for DOI and PDF controls without full-document observer", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "content/detector.js"), "utf8");
+
+  assert.match(source, /hasDoiRoute/);
+  assert.match(source, /directPdfControl/);
+  assert.match(source, /bodyObserver/);
+  assert.doesNotMatch(source, /observer\.observe\(document\.documentElement/);
+});
+
 test("Scholar rendering avoids estimated metric labels and unsafe duplicate selectors", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "content/scholar.js"), "utf8");
 
@@ -593,6 +659,19 @@ test("popup and content scripts expose current-page diagnostics", () => {
   assert.match(popup, /btn-open-first-pdf/);
   assert.match(journal, /getCurrentPageDiagnostics/);
   assert.match(scholar, /getCurrentPageDiagnostics/);
+});
+
+test("Dashboard Overview exposes and synchronizes the PDF save-as shortcut", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "popup/popup.html"), "utf8");
+  const popup = fs.readFileSync(path.join(__dirname, "..", "popup/popup.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "..", "popup/popup.css"), "utf8");
+
+  assert.match(html, /id="overview-pdf-download-save-as"/);
+  assert.match(html, /id="setting-pdf-download-save-as"/);
+  assert.match(popup, /function syncPdfDownloadSaveAsControls/);
+  assert.match(popup, /function persistPdfDownloadSaveAs/);
+  assert.match(popup, /changes\.pdf_download_save_as/);
+  assert.match(css, /\.pp-popup-overview-control/);
 });
 
 test("citation exports create unique stable keys and include provenance fields", () => {

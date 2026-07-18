@@ -77,6 +77,18 @@
         </div>
       </div>
 
+      <div class="pp-popup-overview-control" id="overview-save-as-control" data-active="false">
+        <span class="pp-popup-overview-control-icon" aria-hidden="true">↗</span>
+        <span class="pp-popup-overview-control-copy">
+          <span class="pp-popup-overview-control-title">下载时弹出选择路径窗口</span>
+          <span class="pp-popup-overview-control-state" id="overview-pdf-download-save-as-state">静默保存到配置目录</span>
+        </span>
+        <label class="pp-popup-switch pp-popup-switch-compact" title="切换下载路径确认窗口">
+          <input type="checkbox" id="overview-pdf-download-save-as" aria-label="下载时弹出选择路径窗口">
+          <span class="pp-popup-switch-slider"></span>
+        </label>
+      </div>
+
       <div class="pp-popup-page-diagnostics" id="page-diagnostics">
         <span class="pp-popup-setting-lbl">当前页面诊断</span>
         <p class="pp-popup-setting-desc" id="page-diagnostics-text">正在读取当前标签页状态...</p>
@@ -396,7 +408,7 @@
             <div class="pp-popup-setting-row">
               <span class="pp-popup-setting-lbl">下载时弹出选择路径窗口</span>
               <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-pdf-download-save-as">
+                <input type="checkbox" id="setting-pdf-download-save-as" aria-label="下载时弹出选择路径窗口">
                 <span class="pp-popup-switch-slider"></span>
               </label>
             </div>

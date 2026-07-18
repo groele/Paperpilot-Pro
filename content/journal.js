@@ -434,7 +434,8 @@
       maxNodes: 3000,
       maxShadowRoots: 16,
       maxElementsPerRoot: 2500,
-      maxScriptChars: 400000
+      maxScriptChars: 400000,
+      deferDeepScan: true
     });
     if (discovery) {
       const specialized = [
@@ -601,7 +602,9 @@
       PDF_HTML_RESPONSE: "候选链接返回的是网页而不是 PDF",
       PDF_TIMEOUT: "PDF 校验超时，可尝试重新下载",
       PDF_NETWORK_ERROR: "网络请求失败，请检查代理或机构网络",
-      PDF_DOWNLOAD_FAILED: "浏览器下载任务创建失败"
+      PDF_DOWNLOAD_FAILED: "浏览器下载任务创建失败",
+      PDF_PAGE_CONTEXT_UNAVAILABLE: "当前页面无法执行原生 PDF 下载",
+      PDF_PAGE_CONTEXT_FAILED: "页面上下文 PDF 下载失败"
     };
     return map[code] || response?.error || "PDF 下载失败";
   }
@@ -625,6 +628,10 @@
       if (cacheLabel) parts.push(cacheLabel);
       if (perf.verificationMode) parts.push(perf.verificationMode);
       if (Number.isFinite(perf.attemptedCount)) parts.push(`尝试 ${perf.attemptedCount}`);
+      if (perf.discoveryMode && perf.discoveryMode !== "candidate-cache") parts.push(`发现 ${perf.discoveryMode}`);
+      if (perf.transport) parts.push(`传输 ${perf.transport}`);
+      if (perf.fallbackUsed) parts.push("页面回退");
+      if (Number.isFinite(perf.durationMs) && perf.durationMs > 0) parts.push(`${perf.durationMs}ms`);
     }
     if (response && !response.ok && !response.success) {
       parts.push(formatPdfDownloadError(response));
@@ -1714,7 +1721,8 @@
             action: "DOWNLOAD_PDF",
             url: paperMeta.pdfUrl,
             urls: buildDownloadUrlCandidates(),
-            filename: cleanName
+            filename: cleanName,
+            pageUrl: window.location.href
           }, (response) => {
             if (response && response.success) {
               const savedPath = response.filename ? `：${response.filename}` : "";

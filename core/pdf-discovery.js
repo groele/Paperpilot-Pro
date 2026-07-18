@@ -46,6 +46,18 @@
     }
   }
 
+  function toResourceUrl(rawUrl, baseUrl) {
+    if (!rawUrl) return "";
+    try {
+      const url = new URL(decodePageEscapes(rawUrl), baseUrl || undefined);
+      if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "blob:") return "";
+      if (url.protocol !== "blob:") url.hash = "";
+      return url.href;
+    } catch (_) {
+      return "";
+    }
+  }
+
   function looksLikePdfUrl(rawUrl, baseUrl) {
     const normalized = toHttpUrl(rawUrl, baseUrl);
     if (!normalized) return false;
@@ -94,7 +106,7 @@
 
   function addCandidate(state, rawUrl, details = {}) {
     if (state.items.length >= state.maxCandidates) return;
-    const url = toHttpUrl(rawUrl, state.baseUrl);
+    const url = toResourceUrl(rawUrl, state.baseUrl);
     if (!url) return;
     const key = root.pdf?.normalizeCandidateDedupeKey
       ? root.pdf.normalizeCandidateDedupeKey(url)
@@ -135,11 +147,31 @@
     }
 
     const explicitPdfType = type.includes("application/pdf") || (tag === "link" && rel.includes("alternate") && type.includes("pdf"));
+    const positive = POSITIVE_TEXT.test(text);
+
+    // Most pages contain hundreds of ordinary anchors. Inspect their primary
+    // href first and avoid probing every data-* attribute unless the element
+    // is already a plausible PDF control. This keeps discovery fast without
+    // losing support for non-standard data attributes.
+    if (tag === "a" || tag === "area") {
+      const href = element?.getAttribute?.("href") || "";
+      if (href) {
+        if (looksLikePdfUrl(href, state.baseUrl) || positive) {
+          addCandidate(state, href, {
+            source: positive ? "explicit-pdf-control" : "dom-pdf-resource",
+            text,
+            reason: "matched anchor PDF signal",
+            score: positive ? 95 : 86
+          });
+          return;
+        }
+      }
+    }
+
     for (const attribute of URL_ATTRIBUTES) {
       const value = element?.getAttribute?.(attribute);
       if (!value) continue;
       const likelyUrl = looksLikePdfUrl(value, state.baseUrl);
-      const positive = POSITIVE_TEXT.test(text);
       if (!likelyUrl && !positive && !explicitPdfType && !attribute.includes("pdf")) continue;
       addCandidate(state, value, {
         source: explicitPdfType ? "application-pdf-resource" : (positive ? "explicit-pdf-control" : "dom-pdf-resource"),
@@ -251,9 +283,20 @@
         elements = Array.from(rootNode.querySelectorAll(selector)).slice(0, Number(options.maxElementsPerRoot || 2500));
       } catch (_) {}
       state.diagnostics.elementsScanned += elements.length;
-      elements.forEach(element => scanElement(element, state));
+      for (const element of elements) {
+        scanElement(element, state);
+        if (state.items.length >= state.maxCandidates) break;
+      }
     });
-    scanScripts(documentRef, state, Number(options.maxScriptChars || 400000));
+    const hasHighConfidenceCandidate = state.items.some(item => Number(item.score || 0) >= 95);
+    const shouldScanScripts = options.deferDeepScan !== true || !hasHighConfidenceCandidate;
+    if (shouldScanScripts) {
+      scanScripts(documentRef, state, Number(options.maxScriptChars || 400000));
+      state.diagnostics.discoveryMode = hasHighConfidenceCandidate ? "full-after-priority" : "full";
+    } else {
+      state.diagnostics.discoveryMode = "priority-short-circuit";
+      state.diagnostics.scriptChars = 0;
+    }
 
     const prepared = root.pdf?.preparePdfCandidates
       ? root.pdf.preparePdfCandidates(state.items, { baseUrl })
@@ -267,6 +310,7 @@
   root.pdfDiscovery = {
     PDF_META_NAMES,
     toHttpUrl,
+    toResourceUrl,
     looksLikePdfUrl,
     extractViewerUrls,
     collect

@@ -35,7 +35,10 @@ const initPopup = () => {
 
   const setStorage = (data, callback) => {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set(data, callback);
+      chrome.storage.local.set(data, () => {
+        const error = chrome.runtime?.lastError;
+        if (callback) callback(error ? new Error(error.message) : null);
+      });
     } else {
       console.warn("chrome.storage.local is not available. Falling back to localStorage.");
       Object.keys(data).forEach(k => {
@@ -43,7 +46,7 @@ const initPopup = () => {
           localStorage.setItem(k, JSON.stringify(data[k]));
         } catch (e) {}
       });
-      if (callback) callback();
+      if (callback) callback(null);
     }
   };
 
@@ -58,6 +61,9 @@ const initPopup = () => {
   const exportAllBtn = document.getElementById("btn-export-all");
   const exportFormatSelect = document.getElementById("setting-export-format");
   const overviewStatusPill = document.getElementById("overview-status-pill");
+  const overviewSaveAsControl = document.getElementById("overview-save-as-control");
+  const overviewPdfDownloadSaveAs = document.getElementById("overview-pdf-download-save-as");
+  const overviewPdfDownloadSaveAsState = document.getElementById("overview-pdf-download-save-as-state");
   const pageDiagnosticsText = document.getElementById("page-diagnostics-text");
   const refreshPageDiagnosticsBtn = document.getElementById("btn-refresh-page-diagnostics");
   const openFirstPdfBtn = document.getElementById("btn-open-first-pdf");
@@ -125,6 +131,7 @@ const initPopup = () => {
   let activeEditIndex = -1;
   let currentHistoryQuery = "";
   let currentDiagnostics = null;
+  let currentPdfDownloadSaveAs = false;
   const inputSaveTimers = new Map();
   const AI_PROVIDER_DEFAULTS = {
     openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
@@ -233,7 +240,12 @@ const initPopup = () => {
       ai_base_url: configAiBaseUrl.value.trim(),
       ai_api_key: configAiKey.value.trim(),
       ai_prompt: configAiPrompt.value
-    }, () => {
+    }, (error) => {
+      if (error) {
+        testAiBtn.disabled = false;
+        setAiTestStatus(`Settings save failed: ${error.message}`, "error");
+        return;
+      }
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         chrome.runtime.sendMessage({ action: "TEST_AI_CONNECTION" }, (response) => {
           testAiBtn.disabled = false;
@@ -303,7 +315,11 @@ const initPopup = () => {
   }
 
   function persistHistory(successMsg) {
-    setStorage({ history: historyData }, () => {
+    setStorage({ history: historyData }, (error) => {
+      if (error) {
+        showToast("Research Record 保存失败");
+        return;
+      }
       renderCurrentFootprints();
       showToast(successMsg);
     });
@@ -396,6 +412,33 @@ const initPopup = () => {
     }
   }
 
+  function syncPdfDownloadSaveAsControls(isEnabled) {
+    const enabled = Boolean(isEnabled);
+    currentPdfDownloadSaveAs = enabled;
+    if (configPdfDownloadSaveAs) configPdfDownloadSaveAs.checked = enabled;
+    if (overviewPdfDownloadSaveAs) overviewPdfDownloadSaveAs.checked = enabled;
+    if (overviewSaveAsControl) overviewSaveAsControl.dataset.active = String(enabled);
+    if (overviewPdfDownloadSaveAsState) {
+      overviewPdfDownloadSaveAsState.textContent = enabled
+        ? "每次下载前询问保存位置"
+        : "静默保存到配置目录";
+    }
+  }
+
+  function persistPdfDownloadSaveAs(isEnabled) {
+    const previousValue = currentPdfDownloadSaveAs;
+    const nextValue = Boolean(isEnabled);
+    syncPdfDownloadSaveAsControls(nextValue);
+    setStorage({ pdf_download_save_as: nextValue }, (error) => {
+      if (error) {
+        syncPdfDownloadSaveAsControls(previousValue);
+        showToast("设置保存失败，已恢复原状态");
+        return;
+      }
+      showToast(nextValue ? "已开启下载路径选择窗口" : "已恢复静默下载");
+    });
+  }
+
   function classifyActiveUrl(urlValue) {
     let url;
     try {
@@ -414,7 +457,8 @@ const initPopup = () => {
       "cell.com", "thelancet.com", "plos.org", "mdpi.com", "frontiersin.org", "tandfonline.com",
       "sagepub.com", "oup.com", "cambridge.org", "rsc.org", "aps.org", "pnas.org", "aip.org",
       "iopscience.iop.org", "spiedigitallibrary.org", "dl.acm.org", "jstor.org", "projecteuclid.org",
-      "jstage.jst.go.jp", "pubmed.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov", "ncbi.nlm.nih.gov"
+      "jstage.jst.go.jp", "pubmed.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov", "ncbi.nlm.nih.gov",
+      "openreview.net", "aclanthology.org", "proceedings.mlr.press", "papers.nips.cc", "openaccess.thecvf.com"
     ];
     if (journalHosts.some(domain => host === domain || host.endsWith(`.${domain}`)) || /\b10\.\d{4,9}\//i.test(urlValue || "") || path.includes("/article/")) {
       return { type: "journal", label: "论文/期刊页：元卡、PDF 与 AI 模块可用" };
@@ -560,7 +604,7 @@ const initPopup = () => {
     "enable_cite_badge"
   ], (config) => {
     if (config.auto_redirect !== undefined) configRedirect.checked = config.auto_redirect;
-    if (config.pdf_download_save_as !== undefined) configPdfDownloadSaveAs.checked = config.pdf_download_save_as;
+    syncPdfDownloadSaveAsControls(config.pdf_download_save_as === true);
     if (config.pdf_naming !== undefined) configPdfNaming.value = config.pdf_naming;
     configPdfDownloadDir.value = config.pdf_download_dir !== undefined ? config.pdf_download_dir : "PaperPilot Pro";
     if (config.ai_provider !== undefined) configAiProvider.value = config.ai_provider;
@@ -620,14 +664,22 @@ const initPopup = () => {
   const saveSetting = (key, value, successMsg = "设置已保存") => {
     const data = {};
     data[key] = value;
-    setStorage(data, () => {
+    setStorage(data, (error) => {
+      if (error) {
+        showToast("设置保存失败，请重试");
+        return;
+      }
       showToast(successMsg);
       updateFeatureStatusGrid();
     });
   };
 
   const saveSettings = (data, successMsg = "设置已保存") => {
-    setStorage(data, () => {
+    setStorage(data, (error) => {
+      if (error) {
+        showToast("设置保存失败，请重试");
+        return;
+      }
       showToast(successMsg);
       updateFeatureStatusGrid();
     });
@@ -650,7 +702,17 @@ const initPopup = () => {
   };
 
   configRedirect.onchange = () => saveSetting("auto_redirect", configRedirect.checked, "自动重定向设置已同步");
-  configPdfDownloadSaveAs.onchange = () => saveSetting("pdf_download_save_as", configPdfDownloadSaveAs.checked, "下载另存为设置已同步");
+  configPdfDownloadSaveAs.onchange = () => persistPdfDownloadSaveAs(configPdfDownloadSaveAs.checked);
+  if (overviewPdfDownloadSaveAs) {
+    overviewPdfDownloadSaveAs.onchange = () => persistPdfDownloadSaveAs(overviewPdfDownloadSaveAs.checked);
+  }
+  if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === "local" && changes.pdf_download_save_as) {
+        syncPdfDownloadSaveAsControls(changes.pdf_download_save_as.newValue === true);
+      }
+    });
+  }
   configPdfNaming.onchange = () => saveSetting("pdf_naming", configPdfNaming.value, "文件命名模板保存成功");
   configPdfDownloadDir.oninput = () => saveSettingDebounced("pdf_download_dir", configPdfDownloadDir.value.trim(), "PDF 下载子目录已保存");
   configPdfDownloadDir.onchange = () => flushSettingSave("pdf_download_dir", configPdfDownloadDir.value.trim(), "PDF 下载子目录已保存");

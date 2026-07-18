@@ -51,8 +51,10 @@
     if (await probe(target)) {
       return { ok: true, success: true, source: "dynamic-journal-activation", alreadyActive: true };
     }
-    await scriptingCall("insertCSS", { target, files: ["content/journal.css"] });
-    await scriptingCall("executeScript", { target, files: JOURNAL_RUNTIME_FILES });
+    await Promise.all([
+      scriptingCall("insertCSS", { target, files: ["content/journal.css"] }),
+      scriptingCall("executeScript", { target, files: JOURNAL_RUNTIME_FILES })
+    ]);
     if (!await probe(target)) {
       return { ok: false, success: false, errorCode: "PAGE_ACTIVATION_INCOMPLETE", error: "Journal runtime did not initialize" };
     }
