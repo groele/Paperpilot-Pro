@@ -435,6 +435,10 @@ const initPopup = () => {
         showToast("设置保存失败，已恢复原状态");
         return;
       }
+      chrome.runtime.sendMessage({
+        action: "UPDATE_PDF_DOWNLOAD_SETTINGS",
+        saveAs: nextValue
+      }, () => void chrome.runtime.lastError);
       showToast(nextValue ? "已开启下载路径选择窗口" : "已恢复静默下载");
     });
   }

@@ -1356,7 +1356,10 @@
         chrome.runtime.sendMessage({
           action: "DOWNLOAD_PDF",
           url: paper.pdfUrl,
-          urls: [paper.pdfUrl, paper.scholarUrl],
+          urls: [
+            { url: paper.pdfUrl, source: "scholar-pdf-link", reason: "Scholar exposed a direct PDF link", score: 96 },
+            paper.scholarUrl ? { url: paper.scholarUrl, source: "scholar-landing", reason: "Scholar result landing page", score: 60 } : null
+          ].filter(Boolean),
           filename: cleanName
         }, (response) => {
           if (response && response.success) {

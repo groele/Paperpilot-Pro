@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.4.1 - 2026-07-20
+
+### Fixed
+- Kept Chrome's Save As prompt authoritative for page-context fallbacks so downloads no longer silently bypass the selected-path dialog.
+- Removed full-file Data URL conversion that delayed native PDF download dispatch.
+
+### Changed
+- Dispatch high-confidence PDF candidates directly to Chrome while verification and cache warming continue in the background.
+- Prewarm and actively synchronize PDF download settings to remove per-click storage latency.
+- Treat direct Scholar PDF links as high-confidence native download candidates.
+
 ## v1.4.0 - 2026-07-18
 
 ### Added

@@ -28,6 +28,91 @@ function loadCore(...files) {
   return sandbox.PaperPilotCore;
 }
 
+function loadBackgroundHarness() {
+  const calls = { downloads: [], fetches: [], cancellations: [] };
+  const listeners = {};
+  const storageData = {
+    pdf_download_save_as: false,
+    pdf_download_dir: "PaperPilot Pro",
+    pdf_download_cache: {}
+  };
+  const sandbox = {
+    URL,
+    Date,
+    Math,
+    performance,
+    setTimeout,
+    clearTimeout,
+    queueMicrotask,
+    AbortController,
+    DOMException,
+    Uint8Array,
+    console: { log() {}, warn() {}, error() {} },
+    fetch: async (url, options = {}) => {
+      calls.fetches.push({ url, method: options.method || "GET" });
+      return {
+        ok: true,
+        status: 200,
+        url,
+        headers: { get: name => String(name).toLowerCase() === "content-type" ? "application/pdf" : "" },
+        body: null
+      };
+    },
+    PaperPilotCore: {},
+    PaperPilotBackground: {},
+    chrome: {
+      runtime: {
+        lastError: null,
+        onInstalled: { addListener(listener) { listeners.installed = listener; } },
+        onMessage: { addListener(listener) { listeners.message = listener; } }
+      },
+      storage: {
+        local: {
+          get(keys, callback) {
+            const names = Array.isArray(keys) ? keys : [keys];
+            const result = {};
+            names.forEach(name => { if (name in storageData) result[name] = storageData[name]; });
+            queueMicrotask(() => callback(result));
+          },
+          set(values, callback) {
+            Object.assign(storageData, values);
+            queueMicrotask(() => callback?.());
+          }
+        },
+        onChanged: { addListener(listener) { listeners.storage = listener; } }
+      },
+      downloads: {
+        download(options, callback) {
+          calls.downloads.push(options);
+          callback(7);
+        },
+        cancel(downloadId, callback) {
+          calls.cancellations.push(downloadId);
+          callback?.();
+        },
+        onDeterminingFilename: { addListener(listener) { listeners.filename = listener; } },
+        onChanged: { addListener(listener) { listeners.downloadChanged = listener; } }
+      },
+      scripting: {
+        executeScript(_options, callback) { callback([{ result: { ok: true, mode: "page-link" } }]); },
+        insertCSS(_options, callback) { callback?.(); }
+      }
+    }
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  sandbox.importScripts = (...files) => {
+    files.forEach(file => {
+      const source = fs.readFileSync(path.resolve(__dirname, "..", "background", file), "utf8");
+      vm.runInContext(source, sandbox, { filename: file });
+    });
+  };
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "background", "background.js"), "utf8"), sandbox, {
+    filename: "background/background.js"
+  });
+  return { sandbox, calls, listeners, storageData };
+}
+
 test("AI summary reports missing API key instead of creating a fake summary", async () => {
   const core = loadCore("core/messaging.js", "core/ai.js");
 
@@ -523,6 +608,27 @@ test("background PDF downloads cache successful request keys and expose performa
   assert.match(source, /verificationMode/);
 });
 
+test("high-confidence PDF dispatch creates the native Chrome task before blocking verification", async () => {
+  const { sandbox, calls } = loadBackgroundHarness();
+  const candidate = {
+    url: "https://repository.example/article.pdf",
+    source: "explicit-pdf-control",
+    reason: "explicit PDF button",
+    score: 96
+  };
+  const startedAt = performance.now();
+  const result = await sandbox.downloadPdf(candidate.url, "article.pdf", [candidate]);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.equal(result.ok, true);
+  assert.equal(result.diagnostics.verificationMode, "native-guarded");
+  assert.equal(result.diagnostics.discoveryMode, "native-direct");
+  assert.equal(calls.downloads.length, 1);
+  assert.equal(calls.downloads[0].url, candidate.url);
+  assert.ok(result.diagnostics.durationMs < 50, `reported dispatch took ${result.diagnostics.durationMs} ms`);
+  assert.ok(elapsedMs < 100, `native dispatch took ${elapsedMs.toFixed(1)} ms`);
+});
+
 test("journal content caches site profile resolution per URL", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
 
@@ -544,6 +650,27 @@ test("Chrome download path exposes transport, fallback and discovery diagnostics
   assert.match(source, /pdfVerificationSingleFlight/);
   assert.match(source, /PDF_SIGNED_URL_CACHE_TTL_MS/);
   assert.match(source, /world: "MAIN"/);
+  assert.match(source, /shouldDispatchNativeImmediately/);
+  assert.match(source, /verifyNativeDownloadInBackground/);
+  assert.match(source, /verificationMode: "native-guarded"/);
+  assert.match(source, /discoveryMode: "native-direct"/);
+  assert.doesNotMatch(source, /readAsDataURL|startDataUrlPdfDownload|page-data-url/);
+});
+
+test("PDF Save As preference is prewarmed and synchronized without per-click storage reads", () => {
+  const journal = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
+  const scholar = fs.readFileSync(path.join(__dirname, "..", "content/scholar.js"), "utf8");
+  const background = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
+  const popup = fs.readFileSync(path.join(__dirname, "..", "popup/popup.js"), "utf8");
+
+  assert.doesNotMatch(journal, /saveAs: config\.pdf_download_save_as/);
+  assert.doesNotMatch(scholar, /chrome\.storage\.local\.get\("pdf_download_save_as"/);
+  assert.match(background, /UPDATE_PDF_DOWNLOAD_SETTINGS/);
+  assert.match(background, /void getPdfRuntimeState\(\)\.catch/);
+  assert.match(background, /pdfRuntimeOverrides/);
+  assert.match(popup, /UPDATE_PDF_DOWNLOAD_SETTINGS/);
+  assert.match(background, /forceNativeSaveAs/);
+  assert.match(background, /args: \[downloadUrl, filename\]/);
 });
 
 test("broad detector activates for DOI and PDF controls without full-document observer", () => {
