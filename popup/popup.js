@@ -1305,7 +1305,28 @@ const initPopup = () => {
         linkIcon.title = "在新标签页中打开链接";
         linkIcon.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>`;
 
+        // 1-Click Copy BibTeX button
+        const bibBtn = document.createElement("button");
+        bibBtn.type = "button";
+        bibBtn.className = "pp-foot-copy-btn";
+        bibBtn.textContent = "Bib";
+        bibBtn.title = "一键复制该文献的 BibTeX 引用";
+        bibBtn.onclick = (event) => {
+          event.stopPropagation();
+          const citation = window.PaperPilotCore?.citation;
+          const text = citation
+            ? citation.buildBibtexEntries([item])
+            : `@article{paper_${item.year || 2026},\n  title={${item.title || ""}},\n  journal={${item.journal || ""}},\n  year={${item.year || 2026}},\n  doi={${item.doi || ""}}\n}`;
+          navigator.clipboard.writeText(text).then(() => {
+            item.status = "copied_bibtex";
+            persistHistory("已将 BibTeX 引用写入剪贴板");
+          }).catch(() => {
+            showToast("剪贴板写入失败，请检查浏览器权限");
+          });
+        };
+
         tools.appendChild(starBtn);
+        tools.appendChild(bibBtn);
         tools.appendChild(delBtn);
         tools.appendChild(linkIcon);
 
