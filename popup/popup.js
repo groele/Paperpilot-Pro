@@ -977,51 +977,117 @@ const initPopup = () => {
       items.forEach((item) => {
         const recordIndex = historyData.indexOf(item);
         const card = document.createElement("div");
-        card.className = `pp-popup-foot-item ${item.starred ? 'pp-starred' : ''}`;
-        
+        card.className = `pp-foot-card ${item.starred ? 'pp-foot-card--starred' : ''}`;
+
+        // --- Status mapping ---
         let statusText = "已访问";
         let statusClass = "visited";
+        let statusIcon = "👁";
         if (item.status === "downloaded") {
           statusText = "已下载";
           statusClass = "downloaded";
+          statusIcon = "📥";
         } else if (item.status === "copied_bibtex") {
-          statusText = "复制 BibTeX";
-          statusClass = "copied_bibtex";
+          statusText = "BibTeX";
+          statusClass = "bibtex";
+          statusIcon = "📋";
         } else if (item.status === "copied_doi") {
-          statusText = "复制 DOI";
-          statusClass = "copied_bibtex";
+          statusText = "DOI";
+          statusClass = "bibtex";
+          statusIcon = "📋";
         } else if (item.status === "copied_citation") {
-          statusText = "复制引用";
-          statusClass = "copied_bibtex";
+          statusText = "笔记";
+          statusClass = "bibtex";
+          statusIcon = "📝";
         }
 
-        const main = document.createElement("div");
-        main.className = "pp-popup-foot-main";
-        main.setAttribute("role", "button");
-        main.setAttribute("tabindex", "0");
-        main.setAttribute("title", "打开该文献链接");
+        // --- Left accent bar ---
+        const accentBar = document.createElement("div");
+        accentBar.className = `pp-foot-accent ${statusClass}`;
 
-        const title = document.createElement("div");
-        title.className = "pp-popup-foot-title";
-        title.textContent = item.title || "Untitled paper";
+        // --- Card body ---
+        const body = document.createElement("div");
+        body.className = "pp-foot-body";
 
-        const meta = document.createElement("div");
-        meta.className = "pp-popup-foot-meta";
+        // --- Top row: title + star ---
+        const topRow = document.createElement("div");
+        topRow.className = "pp-foot-top-row";
 
-        const journal = document.createElement("span");
-        journal.className = "pp-popup-foot-journal";
-        journal.textContent = `${item.journal || "Other"} (${item.year || "N/A"})`;
+        const titleEl = document.createElement("div");
+        titleEl.className = "pp-foot-title";
+        titleEl.textContent = item.title || "Untitled paper";
+        titleEl.title = item.title || "";
 
-        const status = document.createElement("span");
-        status.className = `pp-popup-foot-status ${statusClass}`;
-        status.textContent = statusText;
+        const starBtn = document.createElement("button");
+        starBtn.type = "button";
+        starBtn.className = `pp-foot-star ${item.starred ? 'active' : ''}`;
+        starBtn.innerHTML = item.starred
+          ? `<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`
+          : `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+        starBtn.title = item.starred ? "取消精选收藏" : "精选收藏此文献";
+        starBtn.onclick = (event) => {
+          event.stopPropagation();
+          item.starred = !item.starred;
+          persistHistory(item.starred ? "已加入精选文献收藏" : "已取消精选收藏");
+        };
 
-        meta.appendChild(journal);
-        meta.appendChild(status);
-        main.appendChild(title);
-        main.appendChild(meta);
+        topRow.appendChild(titleEl);
+        topRow.appendChild(starBtn);
 
-        const openRecordTarget = () => {
+        // --- Meta row: journal + year + status badge ---
+        const metaRow = document.createElement("div");
+        metaRow.className = "pp-foot-meta-row";
+
+        const journalEl = document.createElement("span");
+        journalEl.className = "pp-foot-journal";
+        const journalName = item.journal || "Other";
+        const yearStr = item.year ? ` · ${item.year}` : "";
+        journalEl.textContent = `${journalName}${yearStr}`;
+
+        const statusBadge = document.createElement("span");
+        statusBadge.className = `pp-foot-status-badge ${statusClass}`;
+        statusBadge.innerHTML = `${statusIcon} ${statusText}`;
+
+        metaRow.appendChild(journalEl);
+        metaRow.appendChild(statusBadge);
+
+        // --- DOI / Authors row ---
+        const infoRow = document.createElement("div");
+        infoRow.className = "pp-foot-info-row";
+        const hasAuthors = item.authors && item.authors.length > 0;
+        const hasDoi = !!item.doi;
+        if (hasAuthors) {
+          const authorsEl = document.createElement("span");
+          authorsEl.className = "pp-foot-authors";
+          const authorList = Array.isArray(item.authors) ? item.authors : [item.authors];
+          const displayed = authorList.slice(0, 2).join(", ") + (authorList.length > 2 ? " 等" : "");
+          authorsEl.textContent = displayed;
+          infoRow.appendChild(authorsEl);
+        }
+        if (hasDoi) {
+          const doiEl = document.createElement("span");
+          doiEl.className = "pp-foot-doi-pill";
+          doiEl.textContent = `DOI`;
+          doiEl.title = item.doi;
+          infoRow.appendChild(doiEl);
+        }
+
+        body.appendChild(topRow);
+        body.appendChild(metaRow);
+        if (hasAuthors || hasDoi) body.appendChild(infoRow);
+
+        // --- Action bar ---
+        const actions = document.createElement("div");
+        actions.className = "pp-foot-actions";
+
+        // Open link
+        const openBtn = document.createElement("button");
+        openBtn.type = "button";
+        openBtn.className = "pp-foot-action-btn pp-foot-open-btn";
+        openBtn.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> 打开`;
+        openBtn.title = "打开文献链接或 PDF";
+        openBtn.onclick = (event) => {
+          event.stopPropagation();
           const targetUrl = item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "");
           if (targetUrl) {
             window.open(targetUrl, "_blank");
@@ -1030,86 +1096,66 @@ const initPopup = () => {
             window.open(`https://www.google.com/search?q=${encodeURIComponent(item.title)}`, "_blank");
           }
         };
+        actions.appendChild(openBtn);
 
-        main.onclick = openRecordTarget;
-        main.onkeydown = (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            openRecordTarget();
-          }
+        // BibTeX
+        const bibtexBtn = document.createElement("button");
+        bibtexBtn.type = "button";
+        bibtexBtn.className = "pp-foot-action-btn";
+        bibtexBtn.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> BibTeX`;
+        bibtexBtn.title = "一键复制该文献的 BibTeX 引用";
+        bibtexBtn.onclick = (event) => {
+          event.stopPropagation();
+          const citation = window.PaperPilotCore?.citation;
+          const entry = citation ? citation.buildBibtexEntries([{
+            ...item,
+            url: item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "")
+          }]) : `@article{paper,\n  title={${item.title}},\n  journal={${item.journal}},\n  year={${item.year}}\n}`;
+          navigator.clipboard.writeText(entry).then(() => {
+            item.status = "copied_bibtex";
+            persistHistory("BibTeX 引用已写入剪贴板！");
+          });
         };
+        actions.appendChild(bibtexBtn);
 
-      const actions = document.createElement("div");
-      actions.className = "pp-popup-foot-actions";
+        // Markdown
+        const mdBtn = document.createElement("button");
+        mdBtn.type = "button";
+        mdBtn.className = "pp-foot-action-btn";
+        mdBtn.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> MD`;
+        mdBtn.title = "一键复制 Markdown 笔记模板";
+        mdBtn.onclick = (event) => {
+          event.stopPropagation();
+          const mdContent = `### 文献笔记：${item.title}\n` +
+            `- **发表期刊**：*${item.journal || "N/A"}* (${item.year || "N/A"})\n` +
+            `- **DOI**：${item.doi ? `[${item.doi}](https://doi.org/${item.doi})` : "暂无"}\n` +
+            `- **直链 PDF**：${item.pdfUrl || "无免费 PDF"}\n\n` +
+            `> **研究要点与创新点**:\n- \n`;
+          navigator.clipboard.writeText(mdContent).then(() => {
+            item.status = "copied_citation";
+            persistHistory("Markdown 笔记模板已写入剪贴板！");
+          });
+        };
+        actions.appendChild(mdBtn);
 
-      // Star / Favorite toggle button
-      const starBtn = document.createElement("button");
-      starBtn.type = "button";
-      starBtn.className = `pp-popup-foot-action-btn pp-star-btn ${item.starred ? 'active' : ''}`;
-      starBtn.textContent = item.starred ? "⭐" : "☆";
-      starBtn.title = item.starred ? "取消精选收藏" : "精选收藏此文献";
-      starBtn.onclick = (event) => {
-        event.stopPropagation();
-        item.starred = !item.starred;
-        persistHistory(item.starred ? "已加入精选文献收藏" : "已取消精选收藏");
-      };
-      actions.appendChild(starBtn);
+        // Edit
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "pp-foot-action-btn pp-foot-edit-btn";
+        editBtn.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+        editBtn.title = `编辑 ${item.title || "Research Record"}`;
+        editBtn.setAttribute("aria-label", `编辑 ${item.title || "Research Record"}`);
+        editBtn.onclick = (event) => {
+          event.stopPropagation();
+          openRecordEditor(recordIndex, editBtn);
+        };
+        actions.appendChild(editBtn);
 
-      // Quick BibTeX button
-      const bibtexBtn = document.createElement("button");
-      bibtexBtn.type = "button";
-      bibtexBtn.className = "pp-popup-foot-action-btn";
-      bibtexBtn.textContent = "BibTeX";
-      bibtexBtn.title = "一键复制该文献的 BibTeX 引用";
-      bibtexBtn.onclick = (event) => {
-        event.stopPropagation();
-        const citation = window.PaperPilotCore?.citation;
-        const entry = citation ? citation.buildBibtexEntries([{
-          ...item,
-          url: item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "")
-        }]) : `@article{paper,\n  title={${item.title}},\n  journal={${item.journal}},\n  year={${item.year}}\n}`;
-        navigator.clipboard.writeText(entry).then(() => {
-          item.status = "copied_bibtex";
-          persistHistory("BibTeX 引用已写入剪贴板！");
-        });
-      };
-      actions.appendChild(bibtexBtn);
-
-      // Quick Markdown button
-      const mdBtn = document.createElement("button");
-      mdBtn.type = "button";
-      mdBtn.className = "pp-popup-foot-action-btn";
-      mdBtn.textContent = "MD";
-      mdBtn.title = "一键复制 Markdown 笔记模板";
-      mdBtn.onclick = (event) => {
-        event.stopPropagation();
-        const mdContent = `### 文献笔记：${item.title}\n` +
-          `- **发表期刊**：*${item.journal || "N/A"}* (${item.year || "N/A"})\n` +
-          `- **DOI**：${item.doi ? `[${item.doi}](https://doi.org/${item.doi})` : "暂无"}\n` +
-          `- **直链 PDF**：${item.pdfUrl || "无免费 PDF"}\n\n` +
-          `> **研究要点与创新点**:\n- \n`;
-        navigator.clipboard.writeText(mdContent).then(() => {
-          item.status = "copied_citation";
-          persistHistory("Markdown 笔记模板已写入剪贴板！");
-        });
-      };
-      actions.appendChild(mdBtn);
-
-      const editBtn = document.createElement("button");
-      editBtn.type = "button";
-      editBtn.className = "pp-popup-foot-action-btn";
-      editBtn.textContent = "编辑";
-      editBtn.setAttribute("aria-label", `编辑 ${item.title || "Research Record"}`);
-      editBtn.onclick = (event) => {
-        event.stopPropagation();
-        openRecordEditor(recordIndex, editBtn);
-      };
-      actions.appendChild(editBtn);
-
-      card.appendChild(main);
-      card.appendChild(actions);
-      historyList.appendChild(card);
-    });
+        card.appendChild(accentBar);
+        card.appendChild(body);
+        card.appendChild(actions);
+        historyList.appendChild(card);
+      });
   }
 
   // 5. Fuzzy filtering
