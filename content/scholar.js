@@ -674,11 +674,22 @@
       panel.setAttribute("data-pp-theme", currentTheme);
       
       panel.innerHTML = `
-        <div class="pp-scholar-panel-title">
-          ${window.PP_ICONS.filter}
-          本地科研高级过滤
+        <div class="pp-scholar-panel-header">
+          <div class="pp-scholar-panel-title">
+            ${window.PP_ICONS.filter}
+            <span>智能检索重排与过滤</span>
+          </div>
+          <span class="pp-scholar-panel-badge" id="pp-filter-count-badge">已展示全部</span>
         </div>
-        <div class="pp-scholar-panel-subtitle">基于已有网页结果，100%零开销安全过滤</div>
+        <div class="pp-scholar-panel-subtitle">本地零开销无感过滤 • 实时动态重排</div>
+
+        <!-- Quick Filter Presets -->
+        <div class="pp-scholar-presets-bar">
+          <button type="button" class="pp-preset-btn" id="pp-preset-cite" title="快速筛选被引量≥100的文献">🔥 100+被引</button>
+          <button type="button" class="pp-preset-btn" id="pp-preset-year" title="快速筛选近3年发表文献">📅 近3年</button>
+          <button type="button" class="pp-preset-btn" id="pp-preset-ni" title="仅保留自然指数/核心期刊">🏆 仅NI顶刊</button>
+          <button type="button" class="pp-preset-btn pp-preset-reset" id="pp-preset-reset" title="重置所有筛选">🔄 重置</button>
+        </div>
         
         <div class="pp-scholar-slider-group">
           <div class="pp-scholar-slider-label">
@@ -697,15 +708,52 @@
         </div>
 
         <div class="pp-scholar-source-list">
-          <div class="pp-scholar-panel-title" style="font-size: 12px; margin-top: 6px; justify-content: space-between;">
-            <span>期刊源匹配过滤</span>
-            <span style="font-size: 11px; font-weight: normal; color: var(--pp-primary); cursor: pointer;" id="pp-toggle-all">全选</span>
+          <div class="pp-scholar-panel-title" style="font-size: 11.5px; margin-top: 4px; justify-content: space-between;">
+            <span>期刊来源匹配过滤</span>
+            <button type="button" class="pp-scholar-mini-toggle-link" id="pp-toggle-all">全选</button>
           </div>
           <div id="pp-source-items-wrap"></div>
         </div>
         <div id="pp-source-more" style="color: var(--pp-primary); font-size: 11px; cursor: pointer; user-select: none; text-align: center; margin-top: 4px; display: none;">展开更多 ▼</div>
       `;
       sidebar.insertBefore(panel, sidebar.firstChild);
+
+      // Presets event handlers
+      panel.querySelector("#pp-preset-cite").onclick = () => {
+        state.citeThreshold = 100;
+        syncCheckboxesAndSlidersFromState();
+        applyFilters();
+        savePersistedState();
+      };
+
+      panel.querySelector("#pp-preset-year").onclick = () => {
+        const targetYear = new Date().getFullYear() - 3;
+        state.yearThreshold = Math.max(minYear, targetYear);
+        syncCheckboxesAndSlidersFromState();
+        applyFilters();
+        savePersistedState();
+      };
+
+      panel.querySelector("#pp-preset-ni").onclick = () => {
+        state.sourceFilterState.forEach((_, key) => {
+          const isNi = NATURE_INDEX_JOURNALS.includes(key.toLowerCase());
+          state.sourceFilterState.set(key, isNi);
+        });
+        syncCheckboxesAndSlidersFromState();
+        applyFilters();
+        savePersistedState();
+      };
+
+      panel.querySelector("#pp-preset-reset").onclick = () => {
+        state.citeThreshold = 0;
+        state.yearThreshold = minYear;
+        state.sourceFilterState.forEach((_, key) => {
+          state.sourceFilterState.set(key, true);
+        });
+        syncCheckboxesAndSlidersFromState();
+        applyFilters();
+        savePersistedState();
+      };
 
       // Event listener for toggle all / clear all
       panel.querySelector("#pp-toggle-all").onclick = (e) => {
@@ -777,9 +825,12 @@
         label.dataset.index = String(index);
         label.dataset.source = source;
 
+        const isNi = NATURE_INDEX_JOURNALS.includes(source.toLowerCase());
+
         label.innerHTML = `
-          <span>
+          <span class="source-item-name">
             <input type="checkbox" class="pp-source-cb" value="${source}" ${state.sourceFilterState.get(source) !== false ? 'checked' : ''}> 
+            ${isNi ? '<span class="pp-ni-dot" title="Nature Index 顶级期刊">●</span>' : ''}
             ${displayName}
           </span>
           <span class="pp-scholar-source-badge">${count}</span>
@@ -836,8 +887,12 @@
 
   function applyFilters() {
     const articles = getScholarArticles();
+    let visibleCount = 0;
+    let totalCount = 0;
+
     articles.forEach(card => {
       if (card.dataset.foldedAsDuplicate === "true") return;
+      totalCount += 1;
 
       const cite = parseInt(card._ppCite !== undefined ? card._ppCite : card.dataset.cite || "0", 10);
       const year = parseInt(card._ppYear !== undefined ? card._ppYear : card.dataset.year || "0", 10);
@@ -858,10 +913,22 @@
 
       if (matchCite && matchYear && matchVenue) {
         card.classList.remove("pp-scholar-hidden-by-filter");
+        visibleCount += 1;
       } else {
         card.classList.add("pp-scholar-hidden-by-filter");
       }
     });
+
+    const badge = document.getElementById("pp-filter-count-badge");
+    if (badge) {
+      if (visibleCount === totalCount) {
+        badge.textContent = `已展示全部 (${totalCount})`;
+        badge.classList.remove("pp-filtered");
+      } else {
+        badge.textContent = `保留 ${visibleCount} / ${totalCount} 篇`;
+        badge.classList.add("pp-filtered");
+      }
+    }
   }
 
   // =========================================================
@@ -1353,7 +1420,7 @@
           .substring(0, 100) + ".pdf";
 
         showToast("正在快速创建 PDF 下载任务...");
-        chrome.runtime.sendMessage({
+        safeSendMessage({
           action: "DOWNLOAD_PDF",
           url: paper.pdfUrl,
           urls: [
@@ -1364,7 +1431,7 @@
         }, (response) => {
           if (response && response.success) {
             showToast("PDF 下载任务已创建");
-            chrome.runtime.sendMessage({
+            safeSendMessage({
               action: "ADD_FOOTPRINT",
               footprint: {
                 title: paper.title,
@@ -1489,6 +1556,31 @@
       };
       actionBar.appendChild(mdBtn);
     }
+
+    // 4. Star / Favorite Button directly in Scholar search results
+    const starBtn = document.createElement("button");
+    starBtn.className = "pp-scholar-action-btn pp-scholar-star-btn";
+    starBtn.innerHTML = `⭐ 收藏`;
+    starBtn.title = "将此论文加入精选文献收藏";
+    starBtn.onclick = () => {
+      chrome.runtime.sendMessage({
+        action: "ADD_FOOTPRINT",
+        footprint: {
+          title: paper.title,
+          authors: paper.authors,
+          journal: paper.venue,
+          year: paper.year,
+          pdfUrl: paper.pdfUrl,
+          starred: true,
+          status: "visited"
+        }
+      }, () => {
+        showToast("已成功将该文献加入精选收藏！");
+        starBtn.innerHTML = `⭐ 已收藏`;
+        starBtn.style.color = "#f59e0b";
+      });
+    };
+    actionBar.appendChild(starBtn);
 
     if (actionBar.children.length > 0) {
       card.appendChild(actionBar);
@@ -1723,6 +1815,25 @@
       return success;
     } catch (e) {
       return false;
+    }
+  }
+
+  function safeSendMessage(message, callback) {
+    try {
+      if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.id) {
+        if (callback) callback({ success: false, error: "Extension context invalidated" });
+        return;
+      }
+      chrome.runtime.sendMessage(message, (response) => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+          if (callback) callback({ success: false, error: err.message });
+        } else {
+          if (callback) callback(response);
+        }
+      });
+    } catch (e) {
+      if (callback) callback({ success: false, error: e.message || "Message error" });
     }
   }
 

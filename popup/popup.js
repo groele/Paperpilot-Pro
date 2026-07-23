@@ -161,12 +161,27 @@ const initPopup = () => {
   function switchPanel(panelName) {
     const showSettings = panelName === "settings";
     closeRecordEditor();
-    tabSet.classList.toggle("active", showSettings);
-    tabFoot.classList.toggle("active", !showSettings);
-    panelSet.classList.toggle("active", showSettings);
-    panelFoot.classList.toggle("active", !showSettings);
+
+    const container = document.querySelector(".pp-popup-container");
+    if (container) {
+      container.classList.toggle("pp-settings-mode", showSettings);
+    }
+
+    if (tabSet) tabSet.classList.toggle("active", showSettings);
+    if (tabFoot) tabFoot.classList.toggle("active", !showSettings);
+    if (panelSet) panelSet.classList.toggle("active", showSettings);
+    if (panelFoot) panelFoot.classList.toggle("active", !showSettings);
+
+    const navPill = document.getElementById("nav-pill");
+    if (navPill) {
+      navPill.style.transform = showSettings ? "translateX(100%)" : "translateX(0%)";
+    }
+
     if (!showSettings) loadFootprints();
   }
+
+  if (tabFoot) tabFoot.onclick = () => switchPanel("footprints");
+  if (tabSet) tabSet.onclick = () => switchPanel("settings");
 
   function clampNumber(value, min, max) {
     return Math.min(Math.max(value, min), max);
@@ -435,10 +450,14 @@ const initPopup = () => {
         showToast("设置保存失败，已恢复原状态");
         return;
       }
-      chrome.runtime.sendMessage({
-        action: "UPDATE_PDF_DOWNLOAD_SETTINGS",
-        saveAs: nextValue
-      }, () => void chrome.runtime.lastError);
+      try {
+        if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id) {
+          chrome.runtime.sendMessage({
+            action: "UPDATE_PDF_DOWNLOAD_SETTINGS",
+            saveAs: nextValue
+          }, () => void chrome.runtime.lastError);
+        }
+      } catch (_) {}
       showToast(nextValue ? "已开启下载路径选择窗口" : "已恢复静默下载");
     });
   }
@@ -737,9 +756,46 @@ const initPopup = () => {
   configAiPrompt.oninput = () => saveSettingDebounced("ai_prompt", configAiPrompt.value, "自定义提示词已更新", 700);
   configAiPrompt.onchange = () => flushSettingSave("ai_prompt", configAiPrompt.value, "自定义提示词已更新");
   if (testAiBtn) testAiBtn.onclick = testAiConnection;
+  const THEME_CYCLE = ["system", "dark", "light", "violet", "cyan", "amber"];
+  const THEME_ICONS = {
+    system: "🌓",
+    dark: "🌙",
+    light: "☀️",
+    violet: "💜",
+    cyan: "🌊",
+    amber: "🌅"
+  };
+  const THEME_LABELS = {
+    system: "跟随系统 Auto",
+    dark: "Obsidian 极客黑曜 (夜间)",
+    light: "Porcelain 极简瓷白 (白天)",
+    violet: "Cyber Violet 赛博紫罗兰",
+    cyan: "Oceanic Cyan 深海蔚蓝",
+    amber: "Sunset Amber 琥珀金辉"
+  };
+
+  const btnQuickThemeToggle = document.getElementById("btn-quick-theme-toggle");
+  if (btnQuickThemeToggle) {
+    btnQuickThemeToggle.onclick = () => {
+      const currentTheme = document.documentElement.getAttribute("data-pp-theme") || "system";
+      const currentIndex = THEME_CYCLE.indexOf(currentTheme);
+      const nextIndex = (currentIndex + 1) % THEME_CYCLE.length;
+      const nextTheme = THEME_CYCLE[nextIndex];
+
+      configAppearanceMode.value = nextTheme;
+      saveSetting("appearance_mode", nextTheme, `已切换为 ${THEME_LABELS[nextTheme] || nextTheme} 主题`);
+      updateTheme(nextTheme);
+      btnQuickThemeToggle.textContent = THEME_ICONS[nextTheme] || "🌓";
+    };
+  }
+
   configAppearanceMode.onchange = () => {
-    saveSetting("appearance_mode", configAppearanceMode.value, "外观展示模式已切换");
-    updateTheme(configAppearanceMode.value);
+    const selectedTheme = configAppearanceMode.value || "system";
+    saveSetting("appearance_mode", selectedTheme, `外观展示模式已切换为 ${THEME_LABELS[selectedTheme] || selectedTheme}`);
+    updateTheme(selectedTheme);
+    if (btnQuickThemeToggle) {
+      btnQuickThemeToggle.textContent = THEME_ICONS[selectedTheme] || "🌓";
+    }
   };
 
   const easyScholarKeyInput = document.getElementById("setting-easyscholar-key");
@@ -785,117 +841,254 @@ const initPopup = () => {
   configSortingFilter.onchange = () => saveSetting("enable_sorting_filter", configSortingFilter.checked, "高级重排侧边过滤开关已同步");
   configBadges.onchange = () => saveSetting("enable_badges", configBadges.checked, "学术状态徽章开关已同步");
   configMetacard.onchange = () => saveSetting("enable_metacard", configMetacard.checked, "悬浮元卡面板开关已同步");
-  configMarkdownNote.onchange = () => saveSetting("enable_markdown_note", configMarkdownNote.checked, "Markdown 笔记复制开关已同步");
-  configMetricsDisplay.onchange = () => saveSetting("enable_metrics_display", configMetricsDisplay.checked, "期刊分区与影响因子显示已同步");
-  configMetricsAutoDetect.onchange = () => saveSetting("enable_metrics_auto_detect", configMetricsAutoDetect.checked, "SecretKey 自动检测展示已同步");
-  configBibtexBtn.onchange = () => saveSetting("enable_bibtex_btn", configBibtexBtn.checked, "BibTeX复制按钮显示已同步");
-  configScholarCopyDoiBtn.onchange = () => saveSetting("enable_scholar_copy_doi_btn", configScholarCopyDoiBtn.checked, "学术检索页复制 DOI 开关已同步");
-  configJournalCopyDoiBtn.onchange = () => saveSetting("enable_journal_copy_doi_btn", configJournalCopyDoiBtn.checked, "悬浮详情卡复制 DOI 开关已同步");
-  configPdfDownloadBtn.onchange = () => saveSetting("enable_pdf_download_btn", configPdfDownloadBtn.checked, "下载PDF按钮显示已同步");
-  configAiSummaryBtn.onchange = () => saveSetting("enable_ai_summary_btn", configAiSummaryBtn.checked, "AI总结按钮显示已同步");
+    configMarkdownNote.onchange = () => saveSetting("enable_markdown_note", configMarkdownNote.checked, "Markdown 笔记复制开关已同步");
+    configMetricsDisplay.onchange = () => saveSetting("enable_metrics_display", configMetricsDisplay.checked, "期刊分区与影响因子显示已同步");
+    configMetricsAutoDetect.onchange = () => saveSetting("enable_metrics_auto_detect", configMetricsAutoDetect.checked, "SecretKey 自动检测展示已同步");
+    configBibtexBtn.onchange = () => saveSetting("enable_bibtex_btn", configBibtexBtn.checked, "BibTeX复制按钮显示已同步");
+    configScholarCopyDoiBtn.onchange = () => saveSetting("enable_scholar_copy_doi_btn", configScholarCopyDoiBtn.checked, "学术检索页复制 DOI 开关已同步");
+    configJournalCopyDoiBtn.onchange = () => saveSetting("enable_journal_copy_doi_btn", configJournalCopyDoiBtn.checked, "悬浮详情卡复制 DOI 开关已同步");
+    configPdfDownloadBtn.onchange = () => saveSetting("enable_pdf_download_btn", configPdfDownloadBtn.checked, "下载PDF按钮显示已同步");
+    configAiSummaryBtn.onchange = () => saveSetting("enable_ai_summary_btn", configAiSummaryBtn.checked, "AI总结按钮显示已同步");
 
-  // easyScholar & Academic badges toggles saves
-  configCcfBadge.onchange = () => saveSetting("enable_ccf_badge", configCcfBadge.checked, "CCF 等级徽章显示已同步");
-  configCoreBadge.onchange = () => saveSetting("enable_core_badge", configCoreBadge.checked, "国内核心徽章显示已同步");
-  configWarnBadge.onchange = () => saveSetting("enable_warn_badge", configWarnBadge.checked, "中科院预警徽章显示已同步");
-  configIfBadge.onchange = () => saveSetting("enable_if_badge", configIfBadge.checked, "影响因子徽章显示已同步");
-  configCasBadge.onchange = () => saveSetting("enable_cas_badge", configCasBadge.checked, "中科院分区徽章显示已同步");
-  configJcrBadge.onchange = () => saveSetting("enable_jcr_badge", configJcrBadge.checked, "JCR 分区指标显示已同步");
-  configCiteBadge.onchange = () => saveSetting("enable_cite_badge", configCiteBadge.checked, "被引量徽章显示已同步");
+    // easyScholar & Academic badges toggles saves
+    configCcfBadge.onchange = () => saveSetting("enable_ccf_badge", configCcfBadge.checked, "CCF 等级徽章显示已同步");
+    configCoreBadge.onchange = () => saveSetting("enable_core_badge", configCoreBadge.checked, "国内核心徽章显示已同步");
+    configWarnBadge.onchange = () => saveSetting("enable_warn_badge", configWarnBadge.checked, "中科院预警徽章显示已同步");
+    configIfBadge.onchange = () => saveSetting("enable_if_badge", configIfBadge.checked, "影响因子徽章显示已同步");
+    configCasBadge.onchange = () => saveSetting("enable_cas_badge", configCasBadge.checked, "中科院分区徽章显示已同步");
+    configJcrBadge.onchange = () => saveSetting("enable_jcr_badge", configJcrBadge.checked, "JCR 分区指标显示已同步");
+    configCiteBadge.onchange = () => saveSetting("enable_cite_badge", configCiteBadge.checked, "被引量徽章显示已同步");
 
-  function loadFootprints() {
-    getStorage("history", (res) => {
-      historyData = res.history || [];
-      renderCurrentFootprints();
-    });
-  }
+    let currentChipFilter = "all";
 
-  function renderFootprints(items, query = "") {
-    // Clear list
-    // Preserve empty placeholder
-    historyList.innerHTML = "";
-    
-    if (items.length === 0) {
-      emptyMsg.textContent = query
-        ? "没有匹配的学术足迹，请尝试标题、期刊或 DOI 的其他关键词。"
-        : "暂无学术足迹，快去浏览期刊摘要页或检索谷歌学术吧！";
-      historyList.appendChild(emptyMsg);
-      emptyMsg.style.display = "block";
-      exportAllBtn.disabled = historyData.length === 0 || !!query;
-      return;
-    }
+    function getFilteredHistoryItems() {
+      const q = currentHistoryQuery.toLowerCase().trim();
+      let result = historyData;
 
-    emptyMsg.style.display = "none";
-    exportAllBtn.disabled = false;
-
-    items.forEach((item) => {
-      const recordIndex = historyData.indexOf(item);
-      const card = document.createElement("div");
-      card.className = "pp-popup-foot-item";
-      
-      let statusText = "已访问";
-      let statusClass = "visited";
-      if (item.status === "downloaded") {
-        statusText = "已下载";
-        statusClass = "downloaded";
-      } else if (item.status === "copied_bibtex") {
-        statusText = "复制 BibTeX";
-        statusClass = "copied_bibtex";
-      } else if (item.status === "copied_doi") {
-        statusText = "复制 DOI";
-        statusClass = "copied_bibtex";
-      } else if (item.status === "copied_citation") {
-        statusText = "复制引用";
-        statusClass = "copied_bibtex";
+      if (currentChipFilter === "starred") {
+        result = result.filter(item => item.starred === true);
+      } else if (currentChipFilter === "downloaded") {
+        result = result.filter(item => item.status === "downloaded");
+      } else if (currentChipFilter === "copied") {
+        result = result.filter(item => (item.status || "").startsWith("copied"));
       }
 
-      const main = document.createElement("div");
-      main.className = "pp-popup-foot-main";
-      main.setAttribute("role", "button");
-      main.setAttribute("tabindex", "0");
-      main.setAttribute("title", "打开该文献链接");
+      if (!q) return result;
+      return result.filter(item => {
+        const title = (item.title || "").toLowerCase();
+        const journal = (item.journal || "").toLowerCase();
+        const doi = (item.doi || "").toLowerCase();
+        return title.includes(q) || journal.includes(q) || doi.includes(q);
+      });
+    }
 
-      const title = document.createElement("div");
-      title.className = "pp-popup-foot-title";
-      title.textContent = item.title || "Untitled paper";
+    function renderCurrentFootprints() {
+      renderFootprints(getFilteredHistoryItems(), currentHistoryQuery);
+    }
 
-      const meta = document.createElement("div");
-      meta.className = "pp-popup-foot-meta";
+    function parseAuthorsInput(value) {
+      return String(value || "")
+        .split(/[;\n]+/)
+        .map(author => author.trim())
+        .filter(Boolean);
+    }
 
-      const journal = document.createElement("span");
-      journal.className = "pp-popup-foot-journal";
-      journal.textContent = `${item.journal || "Other"} (${item.year || "N/A"})`;
-
-      const status = document.createElement("span");
-      status.className = `pp-popup-foot-status ${statusClass}`;
-      status.textContent = statusText;
-
-      meta.appendChild(journal);
-      meta.appendChild(status);
-      main.appendChild(title);
-      main.appendChild(meta);
-
-      const openRecordTarget = () => {
-        // Open PDF Url or DOI url
-        const targetUrl = item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "");
-        if (targetUrl) {
-          window.open(targetUrl, "_blank");
-        } else {
-          showToast("该文献无直链，将为您在谷歌中搜索");
-          window.open(`https://www.google.com/search?q=${encodeURIComponent(item.title)}`, "_blank");
+    function persistHistory(successMsg) {
+      setStorage({ history: historyData }, (error) => {
+        if (error) {
+          showToast("Research Record 保存失败");
+          return;
         }
-      };
+        renderCurrentFootprints();
+        if (successMsg) showToast(successMsg);
+      });
+    }
 
-      main.onclick = openRecordTarget;
-      main.onkeydown = (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          openRecordTarget();
+    function loadFootprints() {
+      getStorage("history", (res) => {
+        historyData = res.history || [];
+        renderCurrentFootprints();
+      });
+    }
+
+    function updateFootprintStats() {
+      const totalEl = document.getElementById("stat-total-count");
+      const dlEl = document.getElementById("stat-downloaded-count");
+      const cpEl = document.getElementById("stat-copied-count");
+      if (totalEl) totalEl.textContent = String(historyData.length);
+      if (dlEl) dlEl.textContent = String(historyData.filter(i => i.status === "downloaded").length);
+      if (cpEl) cpEl.textContent = String(historyData.filter(i => (i.status || "").startsWith("copied")).length);
+
+      // Update chips labels
+      const chipContainer = document.getElementById("footprint-chips");
+      if (chipContainer) {
+        const allChip = chipContainer.querySelector('[data-filter="all"]');
+        const starChip = chipContainer.querySelector('[data-filter="starred"]');
+        const dlChip = chipContainer.querySelector('[data-filter="downloaded"]');
+        const cpChip = chipContainer.querySelector('[data-filter="copied"]');
+        
+        const starCount = historyData.filter(i => i.starred === true).length;
+        const dlCount = historyData.filter(i => i.status === "downloaded").length;
+        const cpCount = historyData.filter(i => (i.status || "").startsWith("copied")).length;
+
+        if (allChip) allChip.textContent = `全部 (${historyData.length})`;
+        if (starChip) starChip.textContent = `⭐ 收藏 (${starCount})`;
+        if (dlChip) dlChip.textContent = `📥 已下载 (${dlCount})`;
+        if (cpChip) cpChip.textContent = `📝 已复引用 (${cpCount})`;
+      }
+    }
+
+    // Bind Footprint Filter Chips
+    const chipContainer = document.getElementById("footprint-chips");
+    if (chipContainer) {
+      chipContainer.querySelectorAll(".pp-chip").forEach(chip => {
+        chip.onclick = () => {
+          chipContainer.querySelectorAll(".pp-chip").forEach(c => c.classList.remove("active"));
+          chip.classList.add("active");
+          currentChipFilter = chip.dataset.filter || "all";
+          renderCurrentFootprints();
+        };
+      });
+    }
+
+    function renderFootprints(items, query = "") {
+      updateFootprintStats();
+      historyList.innerHTML = "";
+      
+      if (items.length === 0) {
+        emptyMsg.textContent = query || currentChipFilter !== "all"
+          ? "没有匹配的学术足迹记录。"
+          : "暂无学术足迹，快去浏览期刊摘要页或检索谷歌学术吧！";
+        historyList.appendChild(emptyMsg);
+        emptyMsg.style.display = "block";
+        exportAllBtn.disabled = historyData.length === 0 || !!query;
+        return;
+      }
+
+      emptyMsg.style.display = "none";
+      exportAllBtn.disabled = false;
+
+      items.forEach((item) => {
+        const recordIndex = historyData.indexOf(item);
+        const card = document.createElement("div");
+        card.className = `pp-popup-foot-item ${item.starred ? 'pp-starred' : ''}`;
+        
+        let statusText = "已访问";
+        let statusClass = "visited";
+        if (item.status === "downloaded") {
+          statusText = "已下载";
+          statusClass = "downloaded";
+        } else if (item.status === "copied_bibtex") {
+          statusText = "复制 BibTeX";
+          statusClass = "copied_bibtex";
+        } else if (item.status === "copied_doi") {
+          statusText = "复制 DOI";
+          statusClass = "copied_bibtex";
+        } else if (item.status === "copied_citation") {
+          statusText = "复制引用";
+          statusClass = "copied_bibtex";
         }
-      };
+
+        const main = document.createElement("div");
+        main.className = "pp-popup-foot-main";
+        main.setAttribute("role", "button");
+        main.setAttribute("tabindex", "0");
+        main.setAttribute("title", "打开该文献链接");
+
+        const title = document.createElement("div");
+        title.className = "pp-popup-foot-title";
+        title.textContent = item.title || "Untitled paper";
+
+        const meta = document.createElement("div");
+        meta.className = "pp-popup-foot-meta";
+
+        const journal = document.createElement("span");
+        journal.className = "pp-popup-foot-journal";
+        journal.textContent = `${item.journal || "Other"} (${item.year || "N/A"})`;
+
+        const status = document.createElement("span");
+        status.className = `pp-popup-foot-status ${statusClass}`;
+        status.textContent = statusText;
+
+        meta.appendChild(journal);
+        meta.appendChild(status);
+        main.appendChild(title);
+        main.appendChild(meta);
+
+        const openRecordTarget = () => {
+          const targetUrl = item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "");
+          if (targetUrl) {
+            window.open(targetUrl, "_blank");
+          } else {
+            showToast("该文献无直链，将为您在谷歌中搜索");
+            window.open(`https://www.google.com/search?q=${encodeURIComponent(item.title)}`, "_blank");
+          }
+        };
+
+        main.onclick = openRecordTarget;
+        main.onkeydown = (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openRecordTarget();
+          }
+        };
 
       const actions = document.createElement("div");
       actions.className = "pp-popup-foot-actions";
+
+      // Star / Favorite toggle button
+      const starBtn = document.createElement("button");
+      starBtn.type = "button";
+      starBtn.className = `pp-popup-foot-action-btn pp-star-btn ${item.starred ? 'active' : ''}`;
+      starBtn.textContent = item.starred ? "⭐" : "☆";
+      starBtn.title = item.starred ? "取消精选收藏" : "精选收藏此文献";
+      starBtn.onclick = (event) => {
+        event.stopPropagation();
+        item.starred = !item.starred;
+        persistHistory(item.starred ? "已加入精选文献收藏" : "已取消精选收藏");
+      };
+      actions.appendChild(starBtn);
+
+      // Quick BibTeX button
+      const bibtexBtn = document.createElement("button");
+      bibtexBtn.type = "button";
+      bibtexBtn.className = "pp-popup-foot-action-btn";
+      bibtexBtn.textContent = "BibTeX";
+      bibtexBtn.title = "一键复制该文献的 BibTeX 引用";
+      bibtexBtn.onclick = (event) => {
+        event.stopPropagation();
+        const citation = window.PaperPilotCore?.citation;
+        const entry = citation ? citation.buildBibtexEntries([{
+          ...item,
+          url: item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "")
+        }]) : `@article{paper,\n  title={${item.title}},\n  journal={${item.journal}},\n  year={${item.year}}\n}`;
+        navigator.clipboard.writeText(entry).then(() => {
+          item.status = "copied_bibtex";
+          persistHistory("BibTeX 引用已写入剪贴板！");
+        });
+      };
+      actions.appendChild(bibtexBtn);
+
+      // Quick Markdown button
+      const mdBtn = document.createElement("button");
+      mdBtn.type = "button";
+      mdBtn.className = "pp-popup-foot-action-btn";
+      mdBtn.textContent = "MD";
+      mdBtn.title = "一键复制 Markdown 笔记模板";
+      mdBtn.onclick = (event) => {
+        event.stopPropagation();
+        const mdContent = `### 文献笔记：${item.title}\n` +
+          `- **发表期刊**：*${item.journal || "N/A"}* (${item.year || "N/A"})\n` +
+          `- **DOI**：${item.doi ? `[${item.doi}](https://doi.org/${item.doi})` : "暂无"}\n` +
+          `- **直链 PDF**：${item.pdfUrl || "无免费 PDF"}\n\n` +
+          `> **研究要点与创新点**:\n- \n`;
+        navigator.clipboard.writeText(mdContent).then(() => {
+          item.status = "copied_citation";
+          persistHistory("Markdown 笔记模板已写入剪贴板！");
+        });
+      };
+      actions.appendChild(mdBtn);
+
       const editBtn = document.createElement("button");
       editBtn.type = "button";
       editBtn.className = "pp-popup-foot-action-btn";

@@ -298,23 +298,16 @@ function invalidateTrackedPdfCache(descriptor) {
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
   const custom = findActiveDownloadDescriptor(item);
   if (custom) {
-    const mime = (item.mime || "").toLowerCase();
-    const finalUrl = item.finalUrl || item.url || "";
-    const finalUrlLooksPdf = isTrustedBrowserPdfUrl(finalUrl);
-    if (custom.requirePdf && ((mime && !mime.includes("pdf")) || (!mime && item.finalUrl && !finalUrlLooksPdf))) {
-      chrome.downloads.cancel(item.id, () => {});
-      invalidateTrackedPdfCache(custom);
-      activeDownloads.delete(item.id);
-      removeActiveDownloadDescriptor(custom);
-      suggest({ filename: custom.finalFilename, conflictAction: "uniquify" });
-      return;
-    }
+    // Chrome often reports an empty MIME type or application/octet-stream
+    // while a valid publisher PDF is still resolving. The candidate has
+    // already passed either the trusted fast-path gate or pre-download
+    // verification, so filename determination must never cancel the task.
     suggest({
       filename: custom.finalFilename,
       conflictAction: "uniquify"
     });
-    // Clean up
-    activeDownloads.delete(item.id);
+    // Keep the id-based tracker until Chrome reports complete/interrupted so
+    // failures can invalidate stale verified-URL cache entries correctly.
     removeActiveDownloadDescriptor(custom);
     return;
   }
@@ -685,7 +678,7 @@ function buildPdfDownloadDiagnostics(candidateSummary, attempted, options = {}) 
 
 function startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source, requestKey = "", fallbackUsed = false) {
   return new Promise((resolve) => {
-    const downloadItem = { finalFilename, saveAs, requirePdf: true, downloadUrl, originalUrl, requestKey };
+    const downloadItem = { finalFilename, saveAs, downloadUrl, originalUrl, requestKey };
     queueActiveDownloadUrl(downloadUrl, downloadItem);
     if (downloadUrl !== originalUrl) queueActiveDownloadUrl(originalUrl, downloadItem);
 
@@ -845,9 +838,9 @@ function shouldDispatchNativeImmediately(candidate) {
     : isTrustedBrowserPdfUrl(candidate.url);
 }
 
-function verifyNativeDownloadInBackground(candidate, requestKey, downloadCache, downloadId) {
+function verifyNativeDownloadInBackground(candidate, requestKey, downloadCache) {
   void verifyPdfCandidates([candidate], requestKey)
-    .then(({ verified, verificationResults }) => {
+    .then(({ verified }) => {
       if (verified) {
         const cachedAt = Date.now();
         const cacheRecord = {
@@ -865,16 +858,12 @@ function verifyNativeDownloadInBackground(candidate, requestKey, downloadCache, 
         return persistPdfDownloadCache(downloadCache);
       }
 
-      const decisiveFailure = verificationResults.find(item => item.result?.decisive);
-      if (!decisiveFailure) return null;
-      downloadCache[normalizeDownloadUrlKey(candidate.url)] = {
-        ok: false,
-        cachedAt: Date.now(),
-        url: candidate.url,
-        errorCode: decisiveFailure.result.errorCode || "PDF_NOT_CONFIRMED"
-      };
-      chrome.downloads.cancel(downloadId, () => void chrome.runtime.lastError);
-      return persistPdfDownloadCache(downloadCache);
+      // A service-worker probe can receive an authentication page or a
+      // different response from Chrome's native download request because the
+      // latter carries page navigation context. Once Chrome accepts a trusted
+      // download task, a background probe is advisory only: never cancel the
+      // task or poison the candidate cache from this result.
+      return null;
     })
     .catch(() => {});
 }
@@ -966,7 +955,7 @@ async function performPdfDownload(preparedCandidates, filename, requestKey, cont
       requestKey
     );
     if (result.ok) {
-      verifyNativeDownloadInBackground(nativeFastCandidate, requestKey, downloadCache, result.downloadId);
+      verifyNativeDownloadInBackground(nativeFastCandidate, requestKey, downloadCache);
       return {
         ...result,
         candidates: candidateSummary,

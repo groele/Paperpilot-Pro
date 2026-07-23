@@ -20,6 +20,59 @@
   const PDF_EMPTY_CANDIDATE_CACHE_MS = 1200;
   const MAX_PDF_URL_CANDIDATES = 32;
 
+  function getIcon(name, fallback = "") {
+    return window.PP_ICONS?.[name] || fallback;
+  }
+
+  function robustCopyToClipboard(text) {
+    if (!text) return Promise.reject(new Error("Empty copy text"));
+    if (navigator.clipboard && (window.isSecureContext || location.protocol === 'https:')) {
+      return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+    }
+    return fallbackCopy(text);
+  }
+
+  function fallbackCopy(text) {
+    return new Promise((resolve, reject) => {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "-9999px";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const successful = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (successful) resolve();
+        else reject(new Error("execCommand copy failed"));
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  function safeSendMessage(message, callback) {
+    try {
+      if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.id) {
+        if (callback) callback({ success: false, error: "Extension context invalidated" });
+        return;
+      }
+      chrome.runtime.sendMessage(message, (response) => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+          if (callback) callback({ success: false, error: err.message });
+        } else {
+          if (callback) callback(response);
+        }
+      });
+    } catch (e) {
+      if (callback) callback({ success: false, error: e.message || "Message error" });
+    }
+  }
+
   const PDF_PRIORITY_SELECTORS = [
     "a.c-pdf-download__link",
     "a[data-track-action='download pdf']",
@@ -954,7 +1007,7 @@
     }
 
     // 2. Query Background for cache/Unpaywall/OpenAlex resolution
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       action: "FETCH_METADATA",
       doi: paperMeta.doi,
       title: paperMeta.title,
@@ -1433,17 +1486,17 @@
         <div class="pp-jc-card-header" id="pp-jc-card-hdr">
           <div class="pp-jc-card-header-main">
             <div class="pp-jc-card-logo">PP</div>
-            <div>
-              <div class="pp-jc-card-title">PaperPilot Pro</div>
+            <div class="pp-jc-card-brand-info">
+              <div class="pp-jc-card-title">PaperPilot <span class="pp-jc-accent-text">Pro</span></div>
               <div class="pp-jc-card-subtitle">${display.journal}</div>
             </div>
           </div>
           <div class="pp-jc-card-header-actions">
-            <button class="pp-jc-hdr-btn ${config.metacard_pinned === true ? 'pp-jc-active' : ''}" id="pp-jc-btn-pin" title="${config.metacard_pinned === true ? '取消固定侧边栏' : '固定侧边栏'}">
+            <button type="button" class="pp-jc-hdr-btn ${config.metacard_pinned === true ? 'pp-jc-active' : ''}" id="pp-jc-btn-pin" title="${config.metacard_pinned === true ? '取消固定侧边栏' : '固定侧边栏'}">
               ${config.metacard_pinned === true ? getIcon("pin_off", "⊘") : getIcon("pin", "⌖")}
             </button>
-            <button class="pp-jc-hdr-btn" id="pp-jc-btn-min" title="最小化面板">${getIcon("minimize", "−")}</button>
-            <button class="pp-jc-hdr-btn" id="pp-jc-btn-help" title="帮助/配置">?</button>
+            <button type="button" class="pp-jc-hdr-btn" id="pp-jc-btn-min" title="最小化面板">${getIcon("minimize", "−")}</button>
+            <button type="button" class="pp-jc-hdr-btn" id="pp-jc-btn-help" title="帮助与快捷键">?</button>
           </div>
         </div>
 
@@ -1459,42 +1512,35 @@
           <!-- Hero section -->
           <div class="pp-jc-hero-area">
             <div class="pp-jc-hero-journal-row">
-              <span class="pp-jc-journal-badge" style="${isNi ? '' : 'background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.08);'}">
-                ${isNi ? "Nature Index (自然指数)" : "学术文献"}
+              <span class="pp-jc-journal-badge ${isNi ? 'pp-ni-badge' : ''}">
+                ${isNi ? "Nature Index 顶刊" : display.journal}
               </span>
-              <span style="font-size: 10px; font-weight: 700; color: var(--pp-text-muted);">${display.year} 年</span>
+              <span class="pp-jc-year-tag">${display.year} 年</span>
             </div>
-            <textarea class="pp-jc-hero-title-box" rows="3" readonly>${display.title}</textarea>
+            <div class="pp-jc-hero-title-box" id="pp-jc-title-box" title="点击复制完整文献标题">
+              <h2 class="pp-jc-paper-title">${display.title}</h2>
+            </div>
           </div>
 
-          <!-- Sniff / Redirect direct-download banner -->
-          ${(config.enable_pdf_badge !== false) ? (paperMeta.pdfUrl ? `
-            <div class="pp-jc-status-banner">
-              ${window.PP_ICONS.check}
-              <span>直链 PDF 已通过 Background 字节校验！</span>
-            </div>
-          ` : `
-            <div class="pp-jc-status-banner" style="background:rgba(245,158,11,0.06);border-color:rgba(245,158,11,0.15);color:#f59e0b;">
-              ${window.PP_ICONS.info}
-              <span>未探得免费 OA 直链，可一键复制 DOI 检索</span>
-            </div>
-          `) : ''}
-
-          <div class="pp-jc-status-banner" id="pp-jc-pdf-diag" style="background:rgba(59,130,246,0.06);border-color:rgba(59,130,246,0.15);color:#60a5fa;" title="${display.pdfFirstUrlAttr}">
-            ${window.PP_ICONS.info}
-            <span>站点 ${display.pdfProfileId} · 候选 ${pdfDiagnostics.count} · 首选 ${display.pdfFirstSource} · ${pdfDiagnostics.fast ? "快速下载" : "需校验"}</span>
+          <!-- Status Banner -->
+          <div class="pp-jc-status-banner ${paperMeta.pdfUrl ? 'pp-status-ok' : 'pp-status-warn'}">
+            <span class="pp-status-dot"></span>
+            <span>${paperMeta.pdfUrl ? '已搜寻到正文 PDF 直链 · 支持一键校验下载' : '当前无免费 OA 直链 · 可一键复制 DOI 或网页版'}</span>
           </div>
 
-          <!-- Metadata DOI field -->
+          <!-- Metadata DOI Field -->
           <div class="pp-jc-meta-field">
-            <span class="pp-jc-meta-lbl">DOI (点击复制)</span>
-            <div class="pp-jc-meta-row">
+            <div class="pp-jc-meta-hdr">
+              <span class="pp-jc-meta-lbl">DOI 数字对象标识符</span>
+              <span class="pp-jc-in-place-badge" id="pp-jc-doi-badge">✓ 已成功复制到剪贴板</span>
+            </div>
+            <div class="pp-jc-meta-val-box" id="pp-jc-doi-val-box">
               <span class="pp-jc-meta-val">${display.doi}</span>
               ${paperMeta.doi ? `
-                <button class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-doi" title="复制 DOI">
-                  ${window.PP_ICONS.copy}
+                <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-doi" title="一键复制 DOI 标识符">
+                  ${window.PP_ICONS.copy} 复制
                 </button>
-              ` : ""}
+              ` : ''}
             </div>
           </div>
 
@@ -1510,21 +1556,21 @@
           )) ? `
           <div class="pp-jc-drawer">
             <div class="pp-jc-drawer-title" id="pp-jc-drawer-hdr">
-              <span>期刊分区与度量指标</span>
+              <span>📊 期刊分区与学术指标</span>
               <span id="pp-jc-drawer-arrow">▲</span>
             </div>
             <div class="pp-jc-drawer-body" id="pp-jc-drawer-body">
               ${(config.enable_if_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">最新影响因子 (IF)</span>
-                <span class="pp-jc-metric-val" style="color:#f59e0b;">${display.impactFactor}</span>
+                <span class="pp-jc-metric-val pp-val-if">${display.impactFactor}</span>
               </div>
               ` : ''}
               
               ${(config.enable_cas_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">中科院分区</span>
-                <span class="pp-jc-metric-val" style="color:var(--pp-ni-color);">${display.casPartition}</span>
+                <span class="pp-jc-metric-val pp-val-cas">${display.casPartition}</span>
               </div>
               ` : ''}
               
@@ -1573,28 +1619,27 @@
           </div>
           ` : ''}
 
-          <!-- Actions grids -->
+          <!-- Primary Actions -->
           <div class="pp-jc-actions-grid">
             ${showLandingBtn ? `
-              <button class="pp-jc-action-btn pp-jc-action-btn-main" id="pp-jc-btn-open-landing" style="background:linear-gradient(135deg, rgba(45,212,191,0.2) 0%, rgba(45,212,191,0.06) 100%);border-color:rgba(45,212,191,0.3);color:#2dd4bf;">
+              <button type="button" class="pp-jc-action-btn pp-jc-btn-web" id="pp-jc-btn-open-landing">
                 ${window.PP_ICONS.webpage} 打开论文网页端
               </button>
             ` : ''}
 
             ${(paperMeta.pdfUrl && enable_pdf_download_btn) ? `
-              <button class="pp-jc-action-btn pp-jc-action-btn-main" id="pp-jc-btn-download">
-                ${window.PP_ICONS.download} 一键下载 PDF (自动重命名)
+              <button type="button" class="pp-jc-action-btn pp-jc-btn-download" id="pp-jc-btn-download">
+                ${window.PP_ICONS.download} 一键下载 PDF 全文
               </button>
             ` : (!paperMeta.pdfUrl && enable_journal_copy_doi_btn) ? `
-              <button class="pp-jc-action-btn pp-jc-action-btn-main" id="pp-jc-btn-scihub-jump" style="background:linear-gradient(180deg, rgba(59,130,246,0.2) 0%, rgba(59,130,246,0.06) 100%);border-color:rgba(59,130,246,0.3);color:#60a5fa;">
+              <button type="button" class="pp-jc-action-btn pp-jc-btn-doi" id="pp-jc-btn-scihub-jump">
                 ${window.PP_ICONS.copy} 一键复制 DOI
               </button>
             ` : ''}
             
             ${enable_ai_summary_btn ? `
-            <!-- AI Summarize -->
-            <button class="pp-jc-action-btn pp-jc-action-btn-ai" id="pp-jc-btn-ai-sum">
-              ${window.PP_ICONS.ai_sparkles} ✨ 本地 AI 一键精简总结 (TL;DR)
+            <button type="button" class="pp-jc-action-btn pp-jc-btn-ai" id="pp-jc-btn-ai-sum">
+              ${window.PP_ICONS.ai_sparkles} AI 智能速读总结 (TL;DR)
             </button>
             <div class="pp-jc-ai-summary-box" id="pp-jc-ai-box"></div>
             ` : ''}
@@ -1625,6 +1670,15 @@
     const aiBtn = cardEl.querySelector("#pp-jc-btn-ai-sum");
     const helpBtn = cardEl.querySelector("#pp-jc-btn-help");
     const openLandingBtn = cardEl.querySelector("#pp-jc-btn-open-landing");
+    const titleBox = cardEl.querySelector("#pp-jc-title-box");
+
+    if (titleBox && paperMeta.title) {
+      titleBox.onclick = () => {
+        robustCopyToClipboard(paperMeta.title).then(() => {
+          showToast("已将完整论文标题复制到剪贴板！");
+        });
+      };
+    }
 
     const setPinnedState = (pinned) => {
       cardEl.classList.toggle("pp-jc-pinned", pinned);
@@ -1656,7 +1710,7 @@
     // Help box
     if (helpBtn) {
       helpBtn.onclick = () => {
-        showToast("PaperPilot Pro 融合了原 PaperPilot 与 Better Scholar，支持无感直链、BibTeX清洗以及AI总结。");
+        showToast("快捷键: Alt+P (展开/折叠面板), Alt+D (下载PDF), Alt+C (复制DOI)");
       };
     }
 
@@ -1668,6 +1722,31 @@
       };
     }
 
+    // Keyboard Shortcuts Handler (Alt+P, Alt+D, Alt+C)
+    const onGlobalKeydown = (e) => {
+      if (e.altKey || e.metaKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'p') {
+          e.preventDefault();
+          cardEl.classList.toggle("pp-jc-minimized");
+          showToast(cardEl.classList.contains("pp-jc-minimized") ? "已折叠面板 (Alt+P)" : "已展开面板 (Alt+P)");
+        } else if (key === 'd') {
+          e.preventDefault();
+          if (downloadBtn) downloadBtn.click();
+          else showToast("当前页面未检测到可直接下载的 PDF");
+        } else if (key === 'c') {
+          e.preventDefault();
+          if (copyDoiBtn) copyDoiBtn.click();
+          else if (paperMeta.doi) {
+            robustCopyToClipboard(paperMeta.doi).then(() => showToast("DOI 已复制到剪贴板 (Alt+C)"));
+          }
+        }
+      }
+    };
+    window.removeEventListener("keydown", globalThis.__PAPERPILOT_METACARD_KEYBOARD__);
+    globalThis.__PAPERPILOT_METACARD_KEYBOARD__ = onGlobalKeydown;
+    window.addEventListener("keydown", onGlobalKeydown);
+
     if (pill) {
       pill.onclick = () => {
         cardEl.classList.remove("pp-jc-minimized");
@@ -1677,8 +1756,23 @@
     // DOI copy
     if (copyDoiBtn) {
       copyDoiBtn.onclick = () => {
-        navigator.clipboard.writeText(paperMeta.doi).then(() => {
-          showToast("DOI 已成功写入剪贴板！");
+        robustCopyToClipboard(paperMeta.doi).then(() => {
+          showToast("✓ DOI 已成功写入剪贴板！");
+          const valBox = cardEl.querySelector("#pp-jc-doi-val-box");
+          const badge = cardEl.querySelector("#pp-jc-doi-badge");
+          const origHTML = copyDoiBtn.innerHTML;
+
+          if (valBox) valBox.classList.add("pp-copied-active");
+          if (badge) badge.classList.add("pp-show");
+          copyDoiBtn.innerHTML = `${getIcon("check", "✓")} 已复制`;
+          copyDoiBtn.classList.add("pp-copied-success");
+
+          setTimeout(() => {
+            if (valBox) valBox.classList.remove("pp-copied-active");
+            if (badge) badge.classList.remove("pp-show");
+            copyDoiBtn.innerHTML = origHTML;
+            copyDoiBtn.classList.remove("pp-copied-success");
+          }, 2200);
         });
       };
     }
@@ -1717,7 +1811,7 @@
           const cleanName = name.replace(/[\/\\:*?"<>|]/g, "_").substring(0, 100) + ".pdf";
           
           showToast("正在请求下载并自动批量规范重命名...");
-          chrome.runtime.sendMessage({
+          safeSendMessage({
             action: "DOWNLOAD_PDF",
             url: paperMeta.pdfUrl,
             urls: buildDownloadUrlCandidates(),
@@ -1795,7 +1889,7 @@
         aiBtn.innerText = "AI 正在深度研读文献中...";
         aiBtn.disabled = true;
 
-        chrome.runtime.sendMessage({
+        safeSendMessage({
           action: "AI_SUMMARIZE",
           abstract: paperMeta.abstract,
           title: paperMeta.title
@@ -1868,7 +1962,7 @@
 
   // Logs Footprint history event to background database
   function logFootprint(status) {
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       action: "ADD_FOOTPRINT",
       footprint: {
         title: paperMeta.title,

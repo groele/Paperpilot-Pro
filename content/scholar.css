@@ -1,65 +1,65 @@
 /**
- * PaperPilot Pro - Google Scholar Stylesheet
- * Refactored to support Day Mode, Night Mode, and auto System Mode.
- * Strictly isolated using .pp-scholar-* prefixes to prevent leaking.
+ * PaperPilot Pro - Google Scholar Stylesheet (v2.0 Overhaul)
+ * Modern HSL System, Glassmorphic Badges, Custom Slider UI, Floating Toolbar.
+ * Strictly isolated using .pp-scholar-* prefixes.
  */
 
 /* Theme Variables Setup */
 [data-pp-theme="light"] {
-  --pp-primary: #0f6d5f;
-  --pp-primary-hover: #134e4a;
+  --pp-primary: #10b981;
+  --pp-primary-hover: #059669;
   --pp-bg: rgba(255, 255, 255, 0.94);
-  --pp-border: rgba(15, 109, 95, 0.08);
-  --pp-text-main: #1e293b;
+  --pp-border: rgba(15, 23, 42, 0.08);
+  --pp-text-main: #0f172a;
   --pp-text-muted: #64748b;
-  --pp-item-bg: rgba(15, 109, 95, 0.04);
-  --pp-item-hover: rgba(15, 109, 95, 0.08);
+  --pp-item-bg: rgba(16, 185, 129, 0.05);
+  --pp-item-hover: rgba(16, 185, 129, 0.1);
   --pp-slider-track: #e2e8f0;
-  --pp-shadow: 0 4px 12px rgba(15, 109, 95, 0.05);
+  --pp-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.08);
 }
 
 [data-pp-theme="dark"] {
-  --pp-primary: #2dd4bf;
-  --pp-primary-hover: #14b8a6;
+  --pp-primary: #34d399;
+  --pp-primary-hover: #10b981;
   --pp-bg: rgba(15, 23, 42, 0.92);
-  --pp-border: rgba(255, 255, 255, 0.06);
+  --pp-border: rgba(255, 255, 255, 0.08);
   --pp-text-main: #f8fafc;
   --pp-text-muted: #94a3b8;
   --pp-item-bg: rgba(255, 255, 255, 0.04);
   --pp-item-hover: rgba(255, 255, 255, 0.08);
   --pp-slider-track: #334155;
-  --pp-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
+  --pp-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.45);
 }
 
 [data-pp-theme="system"] {
-  --pp-primary: #0f6d5f;
-  --pp-primary-hover: #134e4a;
+  --pp-primary: #10b981;
+  --pp-primary-hover: #059669;
   --pp-bg: rgba(255, 255, 255, 0.94);
-  --pp-border: rgba(15, 109, 95, 0.08);
-  --pp-text-main: #1e293b;
+  --pp-border: rgba(15, 23, 42, 0.08);
+  --pp-text-main: #0f172a;
   --pp-text-muted: #64748b;
-  --pp-item-bg: rgba(15, 109, 95, 0.04);
-  --pp-item-hover: rgba(15, 109, 95, 0.08);
+  --pp-item-bg: rgba(16, 185, 129, 0.05);
+  --pp-item-hover: rgba(16, 185, 129, 0.1);
   --pp-slider-track: #e2e8f0;
-  --pp-shadow: 0 4px 12px rgba(15, 109, 95, 0.05);
+  --pp-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.08);
 }
 
 @media (prefers-color-scheme: dark) {
   [data-pp-theme="system"] {
-    --pp-primary: #2dd4bf;
-    --pp-primary-hover: #14b8a6;
+    --pp-primary: #34d399;
+    --pp-primary-hover: #10b981;
     --pp-bg: rgba(15, 23, 42, 0.92);
-    --pp-border: rgba(255, 255, 255, 0.06);
+    --pp-border: rgba(255, 255, 255, 0.08);
     --pp-text-main: #f8fafc;
     --pp-text-muted: #94a3b8;
     --pp-item-bg: rgba(255, 255, 255, 0.04);
     --pp-item-hover: rgba(255, 255, 255, 0.08);
     --pp-slider-track: #334155;
-    --pp-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
+    --pp-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.45);
   }
 }
 
-/* CSS Order-based sorting mode - non-destructive flexbox reorder */
+/* CSS Order-based sorting mode */
 #gs_res_ccl_mid.pp-order-mode,
 #gs_res_ccl.pp-order-mode {
   display: flex !important;
@@ -72,17 +72,18 @@
   width: 100% !important;
 }
 
-/* Nature Index Left Vertical Border Highlight - Softer, elegant HSL emerald green */
+/* Nature Index Left Vertical Border Highlight */
 .gs_r.pp-scholar-ni-card {
   border-left: 3px solid #10b981 !important;
   padding-left: 14px !important;
-  background: linear-gradient(90deg, rgba(16, 185, 129, 0.03) 0%, rgba(255, 255, 255, 0) 100%) !important;
-  border-radius: 4px !important;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.05) 0%, rgba(255, 255, 255, 0) 100%) !important;
+  border-radius: 6px !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow: -4px 0 15px -4px rgba(16, 185, 129, 0.2) !important;
 }
 
 .gs_r.pp-scholar-ni-card:hover {
-  background: linear-gradient(90deg, rgba(16, 185, 129, 0.06) 0%, rgba(255, 255, 255, 0) 100%) !important;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.09) 0%, rgba(255, 255, 255, 0) 100%) !important;
 }
 
 /* Badges Container */
@@ -92,159 +93,120 @@
   align-items: center;
   margin-left: 10px;
   vertical-align: middle;
+  flex-wrap: wrap;
 }
 
-/* Apple/Stripe Style Minimal Badges - Soft backgrounds, thin borders, colored text */
+/* Badges Styling */
 .pp-scholar-badge {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   font-size: 10px !important;
-  font-weight: 600 !important;
-  padding: 1px 7px !important;
-  border-radius: 4px !important;
-  display: inline-block !important;
+  font-weight: 700 !important;
+  padding: 2px 8px !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
   line-height: 1.4 !important;
+  letter-spacing: 0.2px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  transition: all 0.2s ease !important;
+}
+
+.pp-scholar-badge:hover {
+  transform: translateY(-1px) !important;
 }
 
 .pp-scholar-badge-ni {
-  background-color: rgba(16, 185, 129, 0.08) !important;
+  background-color: rgba(16, 185, 129, 0.1) !important;
   color: #10b981 !important;
-  border: 1px solid rgba(16, 185, 129, 0.2) !important;
+  border: 1px solid rgba(16, 185, 129, 0.25) !important;
 }
 
 .pp-scholar-badge-cite {
-  background-color: rgba(217, 119, 6, 0.08) !important;
+  background-color: rgba(245, 158, 11, 0.1) !important;
   color: #d97706 !important;
-  border: 1px solid rgba(217, 119, 6, 0.2) !important;
+  border: 1px solid rgba(245, 158, 11, 0.25) !important;
 }
 
-/* Premium Gold/Amber for Impact Factor */
 .pp-scholar-badge-if {
-  background-color: rgba(245, 158, 11, 0.08) !important;
+  background-color: rgba(245, 158, 11, 0.1) !important;
   color: #d97706 !important;
-  border: 1px solid rgba(245, 158, 11, 0.2) !important;
+  border: 1px solid rgba(245, 158, 11, 0.25) !important;
 }
 [data-pp-theme="dark"] .pp-scholar-badge-if {
-  background-color: rgba(245, 158, 11, 0.12) !important;
+  background-color: rgba(245, 158, 11, 0.15) !important;
   color: #fbbf24 !important;
-  border-color: rgba(245, 158, 11, 0.3) !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
 }
 
-/* Forest Emerald Green for CAS 1区 */
+/* CAS 1区 */
 .pp-scholar-badge-cas-1 {
-  background-color: rgba(16, 185, 129, 0.08) !important;
+  background-color: rgba(16, 185, 129, 0.1) !important;
   color: #10b981 !important;
-  border: 1px solid rgba(16, 185, 129, 0.2) !important;
+  border: 1px solid rgba(16, 185, 129, 0.25) !important;
 }
 [data-pp-theme="dark"] .pp-scholar-badge-cas-1 {
-  background-color: rgba(16, 185, 129, 0.12) !important;
+  background-color: rgba(16, 185, 129, 0.15) !important;
   color: #34d399 !important;
-  border-color: rgba(16, 185, 129, 0.3) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
 }
 
-/* Slate Sapphire Blue for CAS 2区 */
+/* CAS 2区 */
 .pp-scholar-badge-cas-2 {
-  background-color: rgba(59, 130, 246, 0.08) !important;
-  color: #3b82f6 !important;
-  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  background-color: rgba(99, 102, 241, 0.1) !important;
+  color: #6366f1 !important;
+  border: 1px solid rgba(99, 102, 241, 0.25) !important;
 }
 [data-pp-theme="dark"] .pp-scholar-badge-cas-2 {
-  background-color: rgba(59, 130, 246, 0.12) !important;
-  color: #60a5fa !important;
-  border-color: rgba(59, 130, 246, 0.3) !important;
+  background-color: rgba(99, 102, 241, 0.15) !important;
+  color: #818cf8 !important;
+  border-color: rgba(99, 102, 241, 0.35) !important;
 }
 
-/* Tangerine Orange for CAS 3区 */
+/* CAS 3区 */
 .pp-scholar-badge-cas-3 {
-  background-color: rgba(249, 115, 22, 0.08) !important;
-  color: #ea580c !important;
-  border: 1px solid rgba(249, 115, 22, 0.2) !important;
+  background-color: rgba(6, 182, 212, 0.1) !important;
+  color: #0891b2 !important;
+  border: 1px solid rgba(6, 182, 212, 0.25) !important;
 }
 [data-pp-theme="dark"] .pp-scholar-badge-cas-3 {
-  background-color: rgba(249, 115, 22, 0.12) !important;
-  color: #fb923c !important;
-  border-color: rgba(249, 115, 22, 0.3) !important;
+  background-color: rgba(6, 182, 212, 0.15) !important;
+  color: #22d3ee !important;
+  border-color: rgba(6, 182, 212, 0.35) !important;
 }
 
-/* Muted Steel Grey for CAS 4区 */
+/* CAS 4区 */
 .pp-scholar-badge-cas-4 {
-  background-color: rgba(100, 116, 139, 0.08) !important;
+  background-color: rgba(100, 116, 139, 0.1) !important;
   color: #475569 !important;
-  border: 1px solid rgba(100, 116, 139, 0.2) !important;
+  border: 1px solid rgba(100, 116, 139, 0.25) !important;
 }
 [data-pp-theme="dark"] .pp-scholar-badge-cas-4 {
-  background-color: rgba(100, 116, 139, 0.12) !important;
+  background-color: rgba(100, 116, 139, 0.15) !important;
   color: #94a3b8 !important;
-  border-color: rgba(100, 116, 139, 0.3) !important;
+  border-color: rgba(100, 116, 139, 0.35) !important;
 }
 
-/* Cosmic Neon Purple for preprint */
+/* Preprint */
 .pp-scholar-badge-preprint {
-  background-color: rgba(139, 92, 246, 0.08) !important;
+  background-color: rgba(139, 92, 246, 0.1) !important;
   color: #7c3aed !important;
-  border: 1px solid rgba(139, 92, 246, 0.2) !important;
+  border: 1px solid rgba(139, 92, 246, 0.25) !important;
 }
 [data-pp-theme="dark"] .pp-scholar-badge-preprint {
-  background-color: rgba(139, 92, 246, 0.12) !important;
+  background-color: rgba(139, 92, 246, 0.15) !important;
   color: #a78bfa !important;
-  border-color: rgba(139, 92, 246, 0.3) !important;
+  border-color: rgba(139, 92, 246, 0.35) !important;
 }
 
-/* Premium Indigo for JCR Q1 */
-.pp-scholar-badge-jcr-1 {
-  background-color: rgba(99, 102, 241, 0.08) !important;
-  color: #4f46e5 !important;
-  border: 1px solid rgba(99, 102, 241, 0.2) !important;
-}
-[data-pp-theme="dark"] .pp-scholar-badge-jcr-1 {
-  background-color: rgba(99, 102, 241, 0.12) !important;
-  color: #818cf8 !important;
-  border-color: rgba(99, 102, 241, 0.3) !important;
-}
-
-/* Premium Cyan for JCR Q2 */
-.pp-scholar-badge-jcr-2 {
-  background-color: rgba(6, 182, 212, 0.08) !important;
-  color: #0891b2 !important;
-  border: 1px solid rgba(6, 182, 212, 0.2) !important;
-}
-[data-pp-theme="dark"] .pp-scholar-badge-jcr-2 {
-  background-color: rgba(6, 182, 212, 0.12) !important;
-  color: #22d3ee !important;
-  border-color: rgba(6, 182, 212, 0.3) !important;
-}
-
-/* Premium Amber for JCR Q3 */
-.pp-scholar-badge-jcr-3 {
-  background-color: rgba(245, 158, 11, 0.08) !important;
-  color: #d97706 !important;
-  border: 1px solid rgba(245, 158, 11, 0.2) !important;
-}
-[data-pp-theme="dark"] .pp-scholar-badge-jcr-3 {
-  background-color: rgba(245, 158, 11, 0.12) !important;
-  color: #fbbf24 !important;
-  border-color: rgba(245, 158, 11, 0.3) !important;
-}
-
-/* Premium Slate for JCR Q4 */
-.pp-scholar-badge-jcr-4 {
-  background-color: rgba(100, 116, 139, 0.08) !important;
-  color: #475569 !important;
-  border: 1px solid rgba(100, 116, 139, 0.2) !important;
-}
-[data-pp-theme="dark"] .pp-scholar-badge-jcr-4 {
-  background-color: rgba(100, 116, 139, 0.12) !important;
-  color: #94a3b8 !important;
-  border-color: rgba(100, 116, 139, 0.3) !important;
-}
-
-/* Action Bar below each result - Subtle and quiet */
+/* Action Bar below each result */
 .pp-scholar-action-bar {
   display: flex !important;
-  gap: 12px !important;
+  gap: 8px !important;
   align-items: center !important;
   margin-top: 8px !important;
-  border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
+  border-top: 1px solid rgba(0, 0, 0, 0.05) !important;
   padding-top: 6px !important;
+  flex-wrap: wrap !important;
 }
 
 [data-pp-theme="dark"] .pp-scholar-action-bar {
@@ -252,28 +214,33 @@
 }
 
 .pp-scholar-action-btn {
-  background: transparent !important;
-  border: none !important;
-  color: #94a3b8 !important; /* Soft grey by default */
+  background: rgba(0, 0, 0, 0.03) !important;
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+  color: var(--pp-text-muted) !important;
   font-size: 11px !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
   cursor: pointer !important;
   display: inline-flex !important;
   align-items: center !important;
-  gap: 4px !important;
-  padding: 3px 6px !important;
-  border-radius: 4px !important;
-  transition: all 0.15s ease !important;
+  gap: 5px !important;
+  padding: 4px 10px !important;
+  border-radius: 6px !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
   letter-spacing: 0.2px !important;
 }
 
-.pp-scholar-action-btn:hover {
-  background-color: rgba(0, 0, 0, 0.03) !important;
-  color: var(--pp-primary) !important;
+[data-pp-theme="dark"] .pp-scholar-action-btn {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #94a3b8 !important;
 }
 
-[data-pp-theme="dark"] .pp-scholar-action-btn:hover {
-  background-color: rgba(255, 255, 255, 0.04) !important;
+.pp-scholar-action-btn:hover {
+  background: rgba(16, 185, 129, 0.1) !important;
+  color: var(--pp-primary) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.15) !important;
 }
 
 .pp-scholar-action-btn svg {
@@ -282,23 +249,24 @@
   stroke: currentColor !important;
 }
 
-/* Duplicates Collapsed Box - Sleek card container */
+/* Duplicates Collapsed Container */
 .pp-scholar-dup-container {
   margin-top: 8px !important;
   border: 1px solid var(--pp-border) !important;
-  border-radius: 6px !important;
+  border-radius: 8px !important;
   overflow: hidden !important;
   background: var(--pp-bg) !important;
-  transition: border 0.3s ease !important;
+  box-shadow: var(--pp-shadow) !important;
 }
 
 .pp-scholar-dup-header {
   background-color: var(--pp-item-bg) !important;
-  padding: 6px 12px !important;
-  font-size: 11px !important;
+  padding: 8px 14px !important;
+  font-size: 11.5px !important;
   color: var(--pp-text-muted) !important;
   display: flex !important;
   justify-content: space-between !important;
+  align-items: center !important;
   cursor: pointer !important;
   user-select: none !important;
   font-weight: 600 !important;
@@ -313,71 +281,139 @@
 .pp-scholar-dup-body {
   max-height: 0 !important;
   overflow: hidden !important;
-  padding: 0 12px !important;
+  padding: 0 14px !important;
   background-color: var(--pp-bg) !important;
   font-size: 11px !important;
   color: var(--pp-text-main) !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 6px !important;
-  border-top: 1px solid transparent !important;
-  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease, border-color 0.3s ease !important;
+  gap: 8px !important;
+  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease !important;
 }
 
 .pp-scholar-dup-body.pp-expanded {
-  max-height: 500px !important;
-  padding: 10px 12px !important;
-  border-top-color: var(--pp-border) !important;
+  max-height: 600px !important;
+  padding: 12px 14px !important;
 }
 
-/* Injected Left Sidebar Panel - Clean Card integration */
+/* Injected Left Sidebar Panel - Ultra-Premium Glassmorphic Design */
 .pp-scholar-sidebar-panel {
   background: var(--pp-bg) !important;
   border: 1px solid var(--pp-border) !important;
-  border-radius: 8px !important;
-  padding: 14px !important;
-  margin-bottom: 18px !important;
-  box-shadow: var(--pp-shadow) !important;
+  border-radius: 16px !important;
+  padding: 16px !important;
+  margin-bottom: 20px !important;
+  box-shadow: var(--pp-shadow), 0 0 20px rgba(16, 185, 129, 0.06) !important;
   display: flex !important;
   flex-direction: column !important;
   gap: 14px !important;
-  backdrop-filter: blur(20px) !important;
+  backdrop-filter: blur(25px) !important;
+  -webkit-backdrop-filter: blur(25px) !important;
   color: var(--pp-text-main) !important;
+  font-family: 'Outfit', 'Inter', -apple-system, sans-serif !important;
   transition: all 0.3s ease !important;
 }
 
+.pp-scholar-panel-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+}
+
 .pp-scholar-panel-title {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
   font-size: 13px !important;
-  font-weight: 700 !important;
+  font-weight: 800 !important;
   color: var(--pp-primary) !important;
   display: flex !important;
   align-items: center !important;
   gap: 6px !important;
-  letter-spacing: 0.3px !important;
+  letter-spacing: -0.2px !important;
 }
 
-.pp-scholar-panel-title svg {
-  stroke: currentColor !important;
+.pp-scholar-panel-badge {
+  font-size: 9.5px !important;
+  font-weight: 700 !important;
+  padding: 2px 8px !important;
+  border-radius: 20px !important;
+  background: var(--pp-item-bg) !important;
+  color: var(--pp-primary) !important;
+  border: 1px solid var(--pp-border) !important;
+  transition: all 0.2s ease !important;
+}
+
+.pp-scholar-panel-badge.pp-filtered {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #d97706 !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
 }
 
 .pp-scholar-panel-subtitle {
   font-size: 10px !important;
   color: var(--pp-text-muted) !important;
-  margin-top: -12px !important;
-  line-height: 1.4 !important;
+  margin-top: -10px !important;
+  line-height: 1.35 !important;
+}
+
+/* Quick Filter Presets Bar */
+.pp-scholar-presets-bar {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr) !important;
+  gap: 6px !important;
+  padding: 4px 0 !important;
+}
+
+.pp-preset-btn {
+  background: var(--pp-item-bg) !important;
+  border: 1px solid var(--pp-border) !important;
+  color: var(--pp-text-main) !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  padding: 5px 8px !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  text-align: center !important;
+  outline: none !important;
+}
+
+.pp-preset-btn:hover {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  color: var(--pp-primary) !important;
+  transform: translateY(-1.5px) !important;
+  box-shadow: 0 3px 8px rgba(16, 185, 129, 0.15) !important;
+}
+
+.pp-preset-reset {
+  grid-column: span 2 !important;
+  background: rgba(0, 0, 0, 0.03) !important;
+  color: var(--pp-text-muted) !important;
+}
+
+[data-pp-theme="dark"] .pp-preset-reset {
+  background: rgba(255, 255, 255, 0.04) !important;
 }
 
 .pp-scholar-slider-group {
   display: flex !important;
   flex-direction: column !important;
   gap: 6px !important;
+  background: rgba(0, 0, 0, 0.02) !important;
+  padding: 8px 10px !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--pp-border) !important;
+}
+
+[data-pp-theme="dark"] .pp-scholar-slider-group {
+  background: rgba(255, 255, 255, 0.02) !important;
 }
 
 .pp-scholar-slider-label {
   display: flex !important;
   justify-content: space-between !important;
-  font-size: 12px !important;
+  align-items: center !important;
+  font-size: 11px !important;
   font-weight: 600 !important;
   color: var(--pp-text-main) !important;
 }
@@ -385,223 +421,110 @@
 .pp-scholar-slider-val {
   color: var(--pp-primary) !important;
   font-family: monospace !important;
-  font-weight: 700 !important;
+  font-weight: 800 !important;
+  font-size: 11.5px !important;
+  background: var(--pp-item-bg) !important;
+  padding: 1px 6px !important;
+  border-radius: 6px !important;
 }
 
 .pp-scholar-range-slider {
   -webkit-appearance: none !important;
   width: 100% !important;
-  height: 5px !important;
+  height: 6px !important;
   border-radius: 99px !important;
   background: var(--pp-slider-track) !important;
   outline: none !important;
-  transition: background 0.3s ease !important;
 }
 
 .pp-scholar-range-slider::-webkit-slider-thumb {
   -webkit-appearance: none !important;
-  width: 14px !important;
-  height: 14px !important;
+  width: 16px !important;
+  height: 16px !important;
   border-radius: 50% !important;
   background: var(--pp-primary) !important;
   cursor: pointer !important;
-  box-shadow: 0 2px 4px rgba(20, 184, 166, 0.2) !important;
-  transition: transform 0.1s ease !important;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4) !important;
+  transition: transform 0.15s ease !important;
 }
 
 .pp-scholar-range-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.2) !important;
+  transform: scale(1.3) !important;
 }
 
-/* Hidden elements by filter */
+.pp-scholar-mini-toggle-link {
+  background: none !important;
+  border: none !important;
+  color: var(--pp-primary) !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+}
+
+.pp-ni-dot {
+  color: #10b981 !important;
+  font-size: 9px !important;
+  margin-right: 2px !important;
+}
+
 .pp-scholar-hidden-by-filter {
   display: none !important;
 }
 
-/* Source/Venue List in Sidebar */
-.pp-scholar-source-list {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 8px !important;
-}
-
-.pp-scholar-source-item {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  font-size: 12px !important;
-  color: var(--pp-text-main) !important;
-  cursor: pointer !important;
-  transition: color 0.2s ease !important;
-}
-
-.pp-scholar-source-item:hover {
-  color: var(--pp-primary) !important;
-}
-
-.pp-scholar-source-item input[type="checkbox"] {
-  margin-right: 6px !important;
-  accent-color: var(--pp-primary) !important;
-}
-
-.pp-scholar-source-badge {
-  background-color: var(--pp-item-bg) !important;
-  color: var(--pp-text-muted) !important;
-  font-size: 10px !important;
-  font-weight: 700 !important;
-  padding: 1px 6px !important;
-  border-radius: 99px !important;
-  transition: all 0.2s ease !important;
-}
-
-/* Toast Injected Alert */
-.pp-scholar-toast {
-  position: fixed !important;
-  bottom: 24px !important;
-  right: 24px !important;
-  z-index: 99999 !important;
-  background: var(--pp-primary) !important;
-  color: white !important;
-  backdrop-filter: blur(20px) !important;
-  padding: 10px 20px !important;
-  border-radius: 10px !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  box-shadow: var(--pp-shadow) !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  transform: translateY(20px) !important;
-  opacity: 0 !important;
-  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-  pointer-events: none !important;
-}
-
-.pp-scholar-toast.pp-show {
-  transform: translateY(0) !important;
-  opacity: 1 !important;
-}
-
-.pp-scholar-toast svg {
-  width: 16px !important;
-  height: 16px !important;
-  fill: currentColor !important;
-}
-
-/* Premium Injected Sorting Toolbar Styling */
+/* Premium Injected Sorting Toolbar */
 .pp-scholar-sort-bar {
   display: inline-flex !important;
   align-items: center !important;
   background: var(--pp-bg) !important;
   border: 1px solid var(--pp-border) !important;
-  border-radius: 999px !important;
+  border-radius: 20px !important;
   overflow: hidden !important;
-  padding: 0 !important;
+  padding: 3px !important;
   margin-left: 14px !important;
-  margin-bottom: 0 !important;
   box-shadow: var(--pp-shadow) !important;
   backdrop-filter: blur(20px) !important;
-  color: var(--pp-text-main) !important;
-  transition: all 0.3s ease !important;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   vertical-align: middle !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  position: relative !important;
-  z-index: 10 !important;
 }
 
 .pp-scholar-sort-btn {
   background: transparent !important;
   border: none !important;
-  color: var(--pp-text-main) !important;
-  font-size: 12px !important;
+  color: var(--pp-text-muted) !important;
+  font-size: 11.5px !important;
   font-weight: 600 !important;
-  line-height: 1 !important;
-  padding: 6px 12px !important;
-  border-radius: 0 !important;
+  padding: 5px 12px !important;
+  border-radius: 16px !important;
   cursor: pointer !important;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   outline: none !important;
 }
 
 .pp-scholar-sort-btn:hover {
-  background: var(--pp-item-hover) !important;
-  color: var(--pp-primary) !important;
+  color: var(--pp-text-main) !important;
 }
 
 .pp-scholar-sort-btn.active {
   background: var(--pp-primary) !important;
   color: #ffffff !important;
-  box-shadow: 0 2px 6px rgba(20, 184, 166, 0.2) !important;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.3) !important;
 }
 
-[data-pp-theme="light"] .pp-scholar-sort-btn.active {
-  color: #ffffff !important;
-}
-
-[data-pp-theme="dark"] .pp-scholar-sort-btn.active {
-  color: #0f172a !important; /* Elegant dark text on bright teal in dark mode */
-}
-
-@media (prefers-color-scheme: dark) {
-  [data-pp-theme="system"] .pp-scholar-sort-btn.active {
-    color: #0f172a !important;
-  }
-}
-
-/* CCF Badge Style - Soft Teal Glassmorphism with deep border */
+/* Badges extended */
 .pp-scholar-badge-ccf {
-  background-color: rgba(6, 182, 212, 0.08) !important;
+  background-color: rgba(6, 182, 212, 0.1) !important;
   color: #0891b2 !important;
-  border: 1px solid rgba(6, 182, 212, 0.2) !important;
-}
-[data-pp-theme="dark"] .pp-scholar-badge-ccf {
-  background-color: rgba(6, 182, 212, 0.12) !important;
-  color: #22d3ee !important;
-  border-color: rgba(6, 182, 212, 0.3) !important;
+  border: 1px solid rgba(6, 182, 212, 0.25) !important;
 }
 
-/* CSSCI & PKU Core Badge Style - Noble Imperial Red */
 .pp-scholar-badge-core {
-  background-color: rgba(190, 24, 74, 0.08) !important;
-  color: #be184d !important;
-  border: 1px solid rgba(190, 24, 74, 0.2) !important;
-}
-[data-pp-theme="dark"] .pp-scholar-badge-core {
-  background-color: rgba(244, 63, 94, 0.12) !important;
-  color: #fb7185 !important;
-  border-color: rgba(244, 63, 94, 0.3) !important;
+  background-color: rgba(225, 29, 72, 0.1) !important;
+  color: #e11d48 !important;
+  border: 1px solid rgba(225, 29, 72, 0.25) !important;
 }
 
-/* SCI Warning Badge Style - Warning Orange-Red with subtle pulsing animation */
-@keyframes pp-warn-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
-  }
-  70% {
-    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
-  }
-}
 .pp-scholar-badge-warn {
-  background-color: rgba(239, 68, 68, 0.08) !important;
+  background-color: rgba(239, 68, 68, 0.1) !important;
   color: #ef4444 !important;
-  border: 1px solid rgba(239, 68, 68, 0.2) !important;
-  animation: pp-warn-pulse 2s infinite !important;
-}
-[data-pp-theme="dark"] .pp-scholar-badge-warn {
-  background-color: rgba(239, 68, 68, 0.12) !important;
-  color: #f87171 !important;
-  border-color: rgba(239, 68, 68, 0.3) !important;
-}
-
-/* Provenance marker tags */
-.pp-est {
-  font-size: 8px !important;
-  opacity: 0.75 !important;
-  font-weight: 500 !important;
+  border: 1px solid rgba(239, 68, 68, 0.25) !important;
 }

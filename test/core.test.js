@@ -28,7 +28,7 @@ function loadCore(...files) {
   return sandbox.PaperPilotCore;
 }
 
-function loadBackgroundHarness() {
+function loadBackgroundHarness(options = {}) {
   const calls = { downloads: [], fetches: [], cancellations: [] };
   const listeners = {};
   const storageData = {
@@ -54,7 +54,7 @@ function loadBackgroundHarness() {
         ok: true,
         status: 200,
         url,
-        headers: { get: name => String(name).toLowerCase() === "content-type" ? "application/pdf" : "" },
+        headers: { get: name => String(name).toLowerCase() === "content-type" ? (options.fetchMime || "application/pdf") : "" },
         body: null
       };
     },
@@ -627,6 +627,34 @@ test("high-confidence PDF dispatch creates the native Chrome task before blockin
   assert.equal(calls.downloads[0].url, candidate.url);
   assert.ok(result.diagnostics.durationMs < 50, `reported dispatch took ${result.diagnostics.durationMs} ms`);
   assert.ok(elapsedMs < 100, `native dispatch took ${elapsedMs.toFixed(1)} ms`);
+});
+
+test("accepted native PDF tasks survive ambiguous MIME and mismatched background probes", async () => {
+  const { sandbox, calls, listeners } = loadBackgroundHarness({ fetchMime: "text/html" });
+  const candidate = {
+    url: "https://publisher.example/article.pdf",
+    source: "explicit-pdf-control",
+    reason: "explicit PDF button",
+    score: 96
+  };
+  const result = await sandbox.downloadPdf(candidate.url, "article.pdf", [candidate]);
+  let filenameSuggestion = null;
+
+  listeners.filename({
+    id: result.downloadId,
+    url: candidate.url,
+    finalUrl: candidate.url,
+    mime: "application/octet-stream",
+    filename: "article.pdf"
+  }, suggestion => {
+    filenameSuggestion = suggestion;
+  });
+  await new Promise(resolve => setTimeout(resolve, 25));
+
+  assert.equal(result.ok, true);
+  assert.equal(calls.downloads.length, 1);
+  assert.equal(calls.cancellations.length, 0);
+  assert.equal(filenameSuggestion.filename, "PaperPilot Pro/article.pdf");
 });
 
 test("journal content caches site profile resolution per URL", () => {

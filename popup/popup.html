@@ -11,21 +11,32 @@
     <!-- Header -->
     <header class="pp-popup-header">
       <div class="pp-popup-brand">
-        <img src="../icons/icon48.png" class="pp-popup-logo" alt="PaperPilot Pro Logo">
+        <div class="pp-popup-logo-wrapper">
+          <img src="../icons/icon48.png" class="pp-popup-logo" alt="PaperPilot Pro Logo">
+          <span class="pp-popup-logo-glow"></span>
+        </div>
         <div>
-          <h1 class="pp-popup-title">PaperPilot Pro</h1>
+          <h1 class="pp-popup-title">PaperPilot <span class="pp-title-accent">Pro</span></h1>
           <span class="pp-popup-subtitle">科研闭环智能助手</span>
         </div>
       </div>
-      <span class="pp-popup-version">MV3 激活</span>
+      <div class="pp-header-badges">
+        <button class="pp-theme-toggle-btn" id="btn-quick-theme-toggle" type="button" title="一键切换深浅色主题">🌙</button>
+        <span class="pp-popup-version">v1.5.0</span>
+      </div>
     </header>
 
     <!-- Dashboard Overview -->
     <div class="pp-popup-info-card">
       <div class="pp-popup-info-header">
-        <span class="pp-popup-info-title">Dashboard Overview</span>
+        <div class="pp-info-title-group">
+          <span class="pp-popup-info-title">Dashboard Overview</span>
+          <span class="pp-info-subtitle">核心引擎动态状态</span>
+        </div>
         <span class="pp-popup-info-status-pill" id="overview-status-pill">系统就绪</span>
       </div>
+
+      <!-- Feature Power Grid -->
       <div class="pp-popup-features-grid">
         <div class="pp-popup-feature-status" id="status-ni" role="button" tabindex="0" data-setting-target="setting-enable-ni" data-module="discovery" title="切换自然指数高亮">
           <span class="status-dot"></span>
@@ -35,6 +46,7 @@
           </span>
           <span class="feature-state">ON</span>
         </div>
+
         <div class="pp-popup-feature-status" id="status-dedup" role="button" tabindex="0" data-setting-target="setting-enable-dedup" data-module="cleanup" title="切换预印本折叠去重">
           <span class="status-dot"></span>
           <span class="feature-copy">
@@ -43,6 +55,7 @@
           </span>
           <span class="feature-state">ON</span>
         </div>
+
         <div class="pp-popup-feature-status" id="status-sorting-filter" role="button" tabindex="0" data-setting-target="setting-enable-sorting-filter" data-module="ranking" title="切换高级重排与过滤">
           <span class="status-dot"></span>
           <span class="feature-copy">
@@ -51,6 +64,7 @@
           </span>
           <span class="feature-state">ON</span>
         </div>
+
         <div class="pp-popup-feature-status" id="status-badges" role="button" tabindex="0" data-setting-target="setting-enable-badges" data-module="metrics" title="切换学术状态徽章">
           <span class="status-dot"></span>
           <span class="feature-copy">
@@ -59,14 +73,16 @@
           </span>
           <span class="feature-state">ON</span>
         </div>
+
         <div class="pp-popup-feature-status" id="status-metacard" role="button" tabindex="0" data-setting-target="setting-enable-metacard" data-module="reader" title="切换期刊详情悬浮元卡">
           <span class="status-dot"></span>
           <span class="feature-copy">
-            <span class="feature-name">期刊详情悬浮元卡</span>
+            <span class="feature-name">期刊详情元卡</span>
             <span class="feature-domain">Reader</span>
           </span>
           <span class="feature-state">ON</span>
         </div>
+
         <div class="pp-popup-feature-status" id="status-markdown" role="button" tabindex="0" data-setting-target="setting-enable-markdown-note" data-module="notes" title="切换 Markdown 笔记复制">
           <span class="status-dot"></span>
           <span class="feature-copy">
@@ -77,8 +93,11 @@
         </div>
       </div>
 
+      <!-- PDF Download Confirmation Control -->
       <div class="pp-popup-overview-control" id="overview-save-as-control" data-active="false">
-        <span class="pp-popup-overview-control-icon" aria-hidden="true">↗</span>
+        <span class="pp-popup-overview-control-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        </span>
         <span class="pp-popup-overview-control-copy">
           <span class="pp-popup-overview-control-title">下载时弹出选择路径窗口</span>
           <span class="pp-popup-overview-control-state" id="overview-pdf-download-save-as-state">静默保存到配置目录</span>
@@ -89,42 +108,94 @@
         </label>
       </div>
 
+      <!-- Active Page Diagnostics Scanner -->
       <div class="pp-popup-page-diagnostics" id="page-diagnostics">
-        <span class="pp-popup-setting-lbl">当前页面诊断</span>
+        <div class="pp-diagnostics-hdr">
+          <span class="pp-diagnostics-radar-icon"></span>
+          <span class="pp-popup-setting-lbl">当前页面诊断 Scanner</span>
+        </div>
         <p class="pp-popup-setting-desc" id="page-diagnostics-text">正在读取当前标签页状态...</p>
         <div class="pp-popup-diagnostics-actions">
-          <button class="pp-popup-mini-btn" id="btn-refresh-page-diagnostics" type="button">刷新诊断</button>
-          <button class="pp-popup-mini-btn" id="btn-open-first-pdf" type="button" disabled>打开首选 PDF</button>
+          <button class="pp-popup-mini-btn" id="btn-refresh-page-diagnostics" type="button">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+            刷新诊断
+          </button>
+          <button class="pp-popup-mini-btn pp-popup-mini-btn-primary" id="btn-open-first-pdf" type="button" disabled>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+            打开首选 PDF
+          </button>
         </div>
       </div>
 
     </div>
 
-    <!-- Nav Tabs -->
+    <!-- Segmented Nav Tabs -->
     <nav class="pp-popup-nav">
-      <div class="pp-popup-nav-item active" id="tab-btn-foot">学人足迹</div>
-      <div class="pp-popup-nav-item" id="tab-btn-set">全局配置</div>
+      <div class="pp-popup-nav-pill" id="nav-pill"></div>
+      <div class="pp-popup-nav-item active" id="tab-btn-foot">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        <span>学人足迹</span>
+      </div>
+      <div class="pp-popup-nav-item" id="tab-btn-set">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <span>全局配置</span>
+      </div>
     </nav>
 
     <!-- Body Area -->
     <main class="pp-popup-body">
       <!-- Section 1: Footprints History -->
       <section id="panel-foot" class="pp-popup-section active">
+        <!-- Footprints Stats Mini Widget -->
+        <div class="pp-footprint-stats-bar" id="footprint-stats-bar">
+          <div class="pp-stats-item">
+            <span class="pp-stats-val" id="stat-total-count">0</span>
+            <span class="pp-stats-lbl">总文献足迹</span>
+          </div>
+          <div class="pp-stats-divider"></div>
+          <div class="pp-stats-item">
+            <span class="pp-stats-val" id="stat-downloaded-count">0</span>
+            <span class="pp-stats-lbl">下载 PDF</span>
+          </div>
+          <div class="pp-stats-divider"></div>
+          <div class="pp-stats-item">
+            <span class="pp-stats-val" id="stat-copied-count">0</span>
+            <span class="pp-stats-lbl">复制 BibTeX/MD</span>
+          </div>
+        </div>
+
         <div class="pp-popup-search-wrapper">
+          <svg class="pp-search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
           <input type="text" class="pp-popup-search-input" id="history-search" placeholder="输入标题、期刊或 DOI 过滤足迹...">
         </div>
+
+        <!-- Footprint Quick Filter Chips -->
+        <div class="pp-footprint-chips" id="footprint-chips">
+          <button type="button" class="pp-chip active" data-filter="all">全部 (0)</button>
+          <button type="button" class="pp-chip" data-filter="starred">⭐ 精选收藏</button>
+          <button type="button" class="pp-chip" data-filter="downloaded">📥 已下载</button>
+          <button type="button" class="pp-chip" data-filter="copied">📝 已复引用</button>
+        </div>
+
         <div class="pp-popup-footprint-list" id="history-list">
           <!-- Footprint items dynamically appended here -->
-          <div class="pp-popup-empty-msg" id="history-empty">暂无学术足迹，快去浏览期刊摘要页或检索谷歌学术吧！</div>
+          <div class="pp-popup-empty-msg" id="history-empty">
+            <div class="empty-icon-wrap">📚</div>
+            <span>暂无学术足迹，快去浏览期刊摘要页或检索谷歌学术吧！</span>
+          </div>
         </div>
         <footer class="pp-popup-footer">
           <select class="pp-popup-select" id="setting-export-format" title="选择导出格式">
-            <option value="bibtex">BibTeX</option>
-            <option value="ris">RIS</option>
-            <option value="csljson">CSL JSON</option>
+            <option value="bibtex">BibTeX (.bib)</option>
+            <option value="ris">RIS (.ris)</option>
+            <option value="csljson">CSL JSON (.json)</option>
           </select>
           <button class="pp-popup-btn pp-popup-btn-main" id="btn-export-all">
-            一键导出全部足迹
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            导出足迹
+          </button>
+          <button class="pp-popup-btn pp-popup-btn-danger" id="btn-clear-history" title="清空全部学术足迹">
+            清空
           </button>
         </footer>
       </section>
@@ -133,364 +204,394 @@
       <section id="panel-set" class="pp-popup-section">
         <div class="pp-popup-settings-list">
           
-          <div class="pp-popup-section-hdr" style="font-size: 11px; font-weight: 800; color: var(--primary); letter-spacing: 0.5px; border-bottom: 1px solid var(--divider-color); padding-bottom: 4px; margin-bottom: 4px; text-transform: uppercase;">核心模块运行开关</div>
-
-          <!-- Switch: Nature Index Highlight -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">自然指数期刊高亮</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-ni">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+          <!-- Card 1: 核心模块运行开关 -->
+          <div class="pp-popup-settings-card">
+            <div class="pp-popup-card-hdr">
+              <span class="card-hdr-icon">⚡</span>
+              <span class="card-hdr-title">核心模块运行开关</span>
             </div>
-            <p class="pp-popup-setting-desc">对 Nature Index 自然指数量级核心期刊论文条目进行左侧翠绿色边框高亮标注。</p>
-          </div>
 
-          <!-- Switch: Preprint folding deduplication -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">预印本折叠去重复</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-dedup">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Nature Index Highlight -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">自然指数期刊高亮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-ni">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">对 Nature Index 自然指数量级核心期刊论文条目进行左侧翠绿色边框高亮标注。</p>
             </div>
-            <p class="pp-popup-setting-desc">智能识别同篇论文的 Preprint 预印本/会议版本并折叠，使检索列表更清爽干净。</p>
-          </div>
 
-          <!-- Switch: Advanced reordering & filtering sidebar -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">检索高级重排与侧边过滤</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-sorting-filter">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Preprint folding deduplication -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">预印本折叠去重复</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-dedup">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">智能识别同篇论文的 Preprint 预印本/会议版本并折叠，使检索列表更清爽干净。</p>
             </div>
-            <p class="pp-popup-setting-desc">在检索结果顶部注入「默认 / 被引 / 年份」重排按钮，左侧生成被引与年份滑块过滤器。</p>
-          </div>
 
-          <!-- Switch: Badges -->
-          <div class="pp-popup-setting-item pp-popup-setting-item-prominent">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl pp-popup-setting-lbl-prominent">学术指标与状态徽章</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-badges">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Advanced reordering & filtering sidebar -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">检索高级重排与侧边过滤</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-sorting-filter">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在检索结果顶部注入「默认 / 被引 / 年份」重排按钮，左侧生成被引与年份滑块过滤器。</p>
             </div>
-            <p class="pp-popup-setting-desc">在文献标题旁追加 Nature Index、影响因子、分区、被引量与预警等学术状态徽章。</p>
-          </div>
 
-          <!-- Switch: Metacard -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">期刊详情悬浮元卡</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-metacard">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Badges -->
+            <div class="pp-popup-setting-item pp-popup-setting-item-prominent">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl pp-popup-setting-lbl-prominent">学术指标与状态徽章</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-badges">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在文献标题旁追加 Nature Index、影响因子、分区、被引量与预警等学术状态徽章。</p>
             </div>
-            <p class="pp-popup-setting-desc">在浏览各大英文期刊摘要页时，智能在右侧注入悬浮窗展示影响因子、分区及一键总结功能。</p>
-          </div>
 
-          <!-- Switch: Markdown note copier -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">Markdown 笔记卡片一键复制</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-markdown-note">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Metacard -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">期刊详情悬浮元卡</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-metacard">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在浏览各大英文期刊摘要页时，智能在右侧注入悬浮窗展示影响因子、分区及一键总结功能。</p>
             </div>
-            <p class="pp-popup-setting-desc">在学者工具栏中新增「复制笔记 [MD]」按钮，一键提取文献完整引用及元信息制成读书笔记大纲。</p>
-          </div>
 
-          <!-- Switch: Display Partition and IF -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">显示期刊分区与影响因子</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-metrics-display">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Markdown note copier -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">Markdown 笔记卡片一键复制</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-markdown-note">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在学者工具栏中新增「复制笔记 [MD]」按钮，一键提取文献完整引用及元信息制成读书笔记大纲。</p>
             </div>
-            <p class="pp-popup-setting-desc">在谷歌学术检索结果及期刊详情页展示最新的影响因子与中科院分区。</p>
-          </div>
 
-          <!-- Switch: Auto-detect easyScholar key before metrics display -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">自动检测 SecretKey 后展示指标</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-metrics-auto-detect">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Display Partition and IF -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">显示期刊分区与影响因子</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-metrics-display">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在谷歌学术检索结果及期刊详情页展示最新的影响因子与中科院分区。</p>
             </div>
-            <p class="pp-popup-setting-desc">开启后，未填写 easyScholar SecretKey 时自动隐藏期刊分区、影响因子和度量指标；填写密钥后自动展示真实数据。</p>
-          </div>
 
-          <div class="pp-popup-section-hdr" style="font-size: 11px; font-weight: 800; color: var(--primary); letter-spacing: 0.5px; border-bottom: 1px solid var(--divider-color); padding-bottom: 4px; margin-top: 6px; margin-bottom: 4px; text-transform: uppercase;">界面功能按钮显示开关</div>
-
-          <!-- Switch: Enable BibTeX Button -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">一键 BibTeX 复制按钮</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-bibtex-btn">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Auto-detect easyScholar key before metrics display -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">自动检测 SecretKey 后展示指标</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-metrics-auto-detect">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">开启后，未填写 easyScholar SecretKey 时自动隐藏期刊分区、影响因子和度量指标；填写密钥后自动展示真实数据。</p>
             </div>
-            <p class="pp-popup-setting-desc">在谷歌学术搜索结果条目旁渲染「一键 BibTeX」快捷复制按钮。</p>
           </div>
 
-          <!-- Switch: Enable Scholar Copy DOI Button -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">谷歌学术页复制 DOI 按钮</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-scholar-copy-doi-btn">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+          <!-- Card 2: 界面功能按钮显示开关 -->
+          <div class="pp-popup-settings-card">
+            <div class="pp-popup-card-hdr">
+              <span class="card-hdr-icon">🔘</span>
+              <span class="card-hdr-title">界面功能按钮显示开关</span>
             </div>
-            <p class="pp-popup-setting-desc">在谷歌学术搜索结果条目旁渲染「复制 DOI」快捷功能按钮。</p>
-          </div>
 
-          <!-- Switch: Enable Journal Copy DOI Button -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">详情悬浮卡复制 DOI 按钮</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-journal-copy-doi-btn">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Enable BibTeX Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">一键 BibTeX 复制按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-bibtex-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在谷歌学术搜索结果条目旁渲染「一键 BibTeX」快捷复制按钮。</p>
             </div>
-            <p class="pp-popup-setting-desc">在期刊详情页悬浮卡中保留 DOI 字段复制与无 PDF 时的一键 DOI 复制入口。</p>
-          </div>
 
-          <!-- Switch: Enable PDF Download Button -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">一键下载 PDF 全文按钮</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-pdf-download-btn">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Enable Scholar Copy DOI Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">谷歌学术页复制 DOI 按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-scholar-copy-doi-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在谷歌学术搜索结果条目旁渲染「复制 DOI」快捷功能按钮。</p>
             </div>
-            <p class="pp-popup-setting-desc">在检索结果与详情页渲染「下载 PDF」按钮，快速获取文献全文。</p>
-          </div>
 
-          <!-- Switch: Enable AI Summary Button -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">AI 一键精简总结按钮</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-ai-summary-btn">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Enable Journal Copy DOI Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">详情悬浮卡复制 DOI 按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-journal-copy-doi-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在期刊详情页悬浮卡中保留 DOI 字段复制与无 PDF 时的一键 DOI 复制入口。</p>
             </div>
-            <p class="pp-popup-setting-desc">在详情页元卡中渲染「AI 总结」按钮，提取高质量文献要点。</p>
-          </div>
 
-          <div class="pp-popup-section-hdr" style="font-size: 11px; font-weight: 800; color: var(--primary); letter-spacing: 0.5px; border-bottom: 1px solid var(--divider-color); padding-bottom: 4px; margin-top: 6px; margin-bottom: 4px; text-transform: uppercase;">学术数据集成 (easyScholar)</div>
-
-          <!-- easyScholar API secret key -->
-          <div class="pp-popup-setting-item">
-            <span class="pp-popup-setting-lbl">easyScholar SecretKey</span>
-            <div class="pp-popup-input-wrapper" style="position: relative; display: flex; align-items: center;">
-              <input type="password" class="pp-popup-input" id="setting-easyscholar-key" placeholder="粘贴您的 SecretKey..." style="padding-right: 32px; width: 100%;">
-              <button class="pp-popup-input-toggle-btn" id="btn-toggle-easyscholar-visible" style="position: absolute; right: 8px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 12px; display: flex; align-items: center; justify-content: center; padding: 0;">👁️</button>
+            <!-- Switch: Enable PDF Download Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">一键下载 PDF 全文按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-pdf-download-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在检索结果与详情页渲染「下载 PDF」按钮，快速获取文献全文。</p>
             </div>
-            <p class="pp-popup-setting-desc">获取地址：<a href="https://www.easyscholar.cc/console/user/open" target="_blank" style="color: var(--primary); text-decoration: underline;">easyScholar 开放平台</a>。配置后即可获取真实官方的影响因子、中科院/JCR分区及 CCF 等级。</p>
-          </div>
 
-          <!-- Switch: CCF Rank Badge -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">显示 CCF 等级徽章</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-ccf-badge">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Enable AI Summary Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">AI 一键精简总结按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-ai-summary-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在详情页元卡中渲染「AI 总结」按钮，提取高质量文献要点。</p>
             </div>
-            <p class="pp-popup-setting-desc">在检索结果与悬浮元卡中展示中国计算机学会（CCF）推荐等级（A/B/C类）。</p>
           </div>
 
-          <!-- Switch: Chinese Core Badge -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">显示国内核心徽章</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-core-badge">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+          <!-- Card 3: 学术数据集成 (easyScholar) -->
+          <div class="pp-popup-settings-card">
+            <div class="pp-popup-card-hdr">
+              <span class="card-hdr-icon">🎓</span>
+              <span class="card-hdr-title">学术数据集成 (easyScholar)</span>
             </div>
-            <p class="pp-popup-setting-desc">在检索结果与悬浮元卡中展示国内核心收录信息（南大核心/北大核心）。</p>
-          </div>
 
-          <!-- Switch: CAS Warning Badge -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">显示中科院预警徽章</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-warn-badge">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- easyScholar API secret key -->
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">easyScholar SecretKey</span>
+              <div class="pp-popup-input-wrapper" style="position: relative; display: flex; align-items: center;">
+                <input type="password" class="pp-popup-input" id="setting-easyscholar-key" placeholder="粘贴您的 SecretKey..." style="padding-right: 32px; width: 100%;">
+                <button class="pp-popup-input-toggle-btn" id="btn-toggle-easyscholar-visible" style="position: absolute; right: 8px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 12px; display: flex; align-items: center; justify-content: center; padding: 0;" type="button" title="切换显示/隐藏">👁️</button>
+              </div>
+              <p class="pp-popup-setting-desc">获取地址：<a href="https://www.easyscholar.cc/console/user/open" target="_blank" style="color: var(--primary); text-decoration: underline;">easyScholar 开放平台</a>。配置后即可获取真实官方的影响因子、中科院/JCR分区及 CCF 等级。</p>
             </div>
-            <p class="pp-popup-setting-desc">在检索结果与悬浮元卡中展示中科院预警期刊级别，警示投稿风险。</p>
-          </div>
 
-          <!-- Switch: IF Badge -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">显示影响因子徽章</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-if-badge">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: CCF Rank Badge -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">显示 CCF 等级徽章</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-ccf-badge">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在检索结果与悬浮元卡中展示中国计算机学会（CCF）推荐等级（A/B/C类）。</p>
             </div>
-            <p class="pp-popup-setting-desc">在检索结果与悬浮元卡中展示最新期刊影响因子 (IF)。</p>
-          </div>
 
-          <!-- Switch: CAS Partition Badge -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">显示中科院分区徽章</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-cas-badge">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: Chinese Core Badge -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">显示国内核心徽章</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-core-badge">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在检索结果与悬浮元卡中展示国内核心收录信息（南大核心/北大核心）。</p>
             </div>
-            <p class="pp-popup-setting-desc">在检索结果与悬浮元卡中展示中科院大类分区等级。</p>
-          </div>
 
-          <!-- Switch: JCR Partition Badge -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">显示 JCR 分区指标</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-jcr-badge">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: CAS Warning Badge -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">显示中科院预警徽章</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-warn-badge">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在检索结果与悬浮元卡中展示中科院预警期刊级别，警示投稿风险。</p>
             </div>
-            <p class="pp-popup-setting-desc">在悬浮详情元卡中展示 JCR 分区指标。</p>
-          </div>
 
-          <!-- Switch: Citations Badge -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">显示被引量徽章</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-enable-cite-badge">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: IF Badge -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">显示影响因子徽章</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-if-badge">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在检索结果与悬浮元卡中展示最新期刊影响因子 (IF)。</p>
             </div>
-            <p class="pp-popup-setting-desc">在学术检索结果标题旁高亮标注文献被引用量。</p>
-          </div>
 
-          <div class="pp-popup-section-hdr" style="font-size: 11px; font-weight: 800; color: var(--primary); letter-spacing: 0.5px; border-bottom: 1px solid var(--divider-color); padding-bottom: 4px; margin-top: 6px; margin-bottom: 4px; text-transform: uppercase;">直链与文件规范配置</div>
-
-          <!-- Switch 1 -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">论文摘要页自动跳转 PDF</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-auto-redirect">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: CAS Partition Badge -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">显示中科院分区徽章</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-cas-badge">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在检索结果与悬浮元卡中展示中科院大类分区等级。</p>
             </div>
-            <p class="pp-popup-setting-desc">开启后，若后台嗅探直链成功，将不显示浮动卡片，立即全屏加载 PDF 全文。</p>
-          </div>
 
-          <!-- Switch 1.5 -->
-          <div class="pp-popup-setting-item">
-            <div class="pp-popup-setting-row">
-              <span class="pp-popup-setting-lbl">下载时弹出选择路径窗口</span>
-              <label class="pp-popup-switch">
-                <input type="checkbox" id="setting-pdf-download-save-as" aria-label="下载时弹出选择路径窗口">
-                <span class="pp-popup-switch-slider"></span>
-              </label>
+            <!-- Switch: JCR Partition Badge -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">显示 JCR 分区指标</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-jcr-badge">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在悬浮详情元卡中展示 JCR 分区指标。</p>
             </div>
-            <p class="pp-popup-setting-desc">开启后，一键下载 PDF 会弹出路径选择与另存为窗口；关闭则在默认下载目录中静默直接下载。</p>
+
+            <!-- Switch: Citations Badge -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">显示被引量徽章</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-cite-badge">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在学术检索结果标题旁高亮标注文献被引用量。</p>
+            </div>
           </div>
 
+          <!-- Card 4: 直链与文件规范配置 -->
+          <div class="pp-popup-settings-card">
+            <div class="pp-popup-card-hdr">
+              <span class="card-hdr-icon">📁</span>
+              <span class="card-hdr-title">直链与文件规范配置</span>
+            </div>
 
-          <!-- Select 2 -->
-          <div class="pp-popup-setting-item">
-            <span class="pp-popup-setting-lbl">PDF 全文重命名模板</span>
-            <select class="pp-popup-select" id="setting-pdf-naming">
-              <option value="1">[{Journal}] {Author} - {Title}</option>
-              <option value="2">[{Year}] {Title}</option>
-              <option value="3">{DOI}</option>
-              <option value="4">{Title} ({Year})</option>
-            </select>
-            <p class="pp-popup-setting-desc">支持多字段批量规范命名，一键下载时自动提取元数据替换并保存。</p>
+            <!-- Switch 1 -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">论文摘要页自动跳转 PDF</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-auto-redirect">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">开启后，若后台嗅探直链成功，将不显示浮动卡片，立即全屏加载 PDF 全文。</p>
+            </div>
+
+            <!-- Switch 1.5 -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">下载时弹出选择路径窗口</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-pdf-download-save-as" aria-label="下载时弹出选择路径窗口">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">开启后，一键下载 PDF 会弹出路径选择与另存为窗口；关闭则在默认下载目录中静默直接下载。</p>
+            </div>
+
+            <!-- Select 2 -->
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">PDF 全文重命名模板</span>
+              <select class="pp-popup-select" id="setting-pdf-naming">
+                <option value="1">[{Journal}] {Author} - {Title}</option>
+                <option value="2">[{Year}] {Title}</option>
+                <option value="3">{DOI}</option>
+                <option value="4">{Title} ({Year})</option>
+              </select>
+              <p class="pp-popup-setting-desc">支持多字段批量规范命名，一键下载时自动提取元数据替换并保存。</p>
+            </div>
+
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">PDF 下载子目录</span>
+              <input type="text" class="pp-popup-input" id="setting-pdf-download-dir" placeholder="PaperPilot Pro">
+              <p class="pp-popup-setting-desc">保存到 Chrome 默认下载目录下的指定子目录，例如 PaperPilot Pro 或 Papers/Exciton。</p>
+            </div>
+
+            <!-- Select 3: 外观模式 -->
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">界面外观主题模式</span>
+              <select class="pp-popup-select" id="setting-appearance-mode">
+                <option value="system">🌓 跟随系统 (Auto)</option>
+                <option value="dark">🌙 Obsidian 极客黑曜 (夜间)</option>
+                <option value="light">☀️ Porcelain 极简瓷白 (白天)</option>
+                <option value="violet">💜 Cyber Violet 赛博紫罗兰</option>
+                <option value="cyan">🌊 Oceanic Cyan 深海蔚蓝</option>
+                <option value="amber">🌅 Sunset Amber 琥珀金辉</option>
+              </select>
+              <p class="pp-popup-setting-desc">提供 6 套极客级个性主题：黑曜夜间、瓷白白天、赛博紫罗兰、深海蔚蓝与琥珀金辉。</p>
+            </div>
           </div>
 
-          <div class="pp-popup-setting-item">
-            <span class="pp-popup-setting-lbl">PDF 下载子目录</span>
-            <input type="text" class="pp-popup-input" id="setting-pdf-download-dir" placeholder="PaperPilot Pro">
-            <p class="pp-popup-setting-desc">保存到 Chrome 默认下载目录下的指定子目录，例如 PaperPilot Pro 或 Papers/Exciton。</p>
-          </div>
+          <!-- Card 5: 本地学者AI极速引擎配置 -->
+          <div class="pp-popup-settings-card">
+            <div class="pp-popup-card-hdr">
+              <span class="card-hdr-icon">🤖</span>
+              <span class="card-hdr-title">本地学者 AI 极速引擎配置</span>
+            </div>
 
-          <!-- Select 3: 外观模式 -->
-          <div class="pp-popup-setting-item">
-            <span class="pp-popup-setting-lbl">界面外观模式</span>
-            <select class="pp-popup-select" id="setting-appearance-mode">
-              <option value="system">跟随系统 (推荐)</option>
-              <option value="light">白天模式 (轻量浅色)</option>
-              <option value="dark">夜间模式 (护眼深色)</option>
-            </select>
-            <p class="pp-popup-setting-desc">根据系统自动切换，或强行指定白天低饱和浅色/夜间护眼深夜色配色方案。</p>
-          </div>
+            <!-- AI Model provider select -->
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">AI 总结大模型提供商</span>
+              <select class="pp-popup-select" id="setting-ai-provider">
+                <option value="openai">OpenAI compatible</option>
+                <option value="gemini">Google Gemini</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="anthropic">Anthropic Claude</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="ollama">Ollama local</option>
+                <option value="custom">Custom compatible API</option>
+              </select>
+            </div>
 
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">AI Model</span>
+              <input type="text" class="pp-popup-input" id="setting-ai-model" placeholder="e.g. gpt-4o-mini, deepseek-chat, llama3.1">
+            </div>
 
-          <!-- Divider -->
-          <hr class="pp-popup-divider">
-          <div class="pp-popup-section-hdr" style="font-size: 11px; font-weight: 800; color: var(--primary); letter-spacing: 0.5px; border-bottom: 1px solid var(--divider-color); padding-bottom: 4px; margin-bottom: 4px; text-transform: uppercase;">本地学者AI极速引擎配置</div>
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">Base URL</span>
+              <input type="url" class="pp-popup-input" id="setting-ai-base-url" placeholder="Provider default if empty">
+              <p class="pp-popup-setting-desc">仅在点击 AI 总结时发送文献摘要与标题。Key 仅保存在本地 Chrome storage 中。</p>
+            </div>
 
-          <!-- AI Model provider select -->
-          <div class="pp-popup-setting-item">
-            <span class="pp-popup-setting-lbl">AI 总结大模型提供商</span>
-            <select class="pp-popup-select" id="setting-ai-provider">
-              <option value="openai">OpenAI compatible</option>
-              <option value="gemini">Google Gemini</option>
-              <option value="deepseek">DeepSeek</option>
-              <option value="anthropic">Anthropic Claude</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="ollama">Ollama local</option>
-              <option value="custom">Custom compatible API</option>
-            </select>
-          </div>
+            <!-- AI API key -->
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">AI API 密钥 (Key)</span>
+              <input type="password" class="pp-popup-input" id="setting-ai-key" placeholder="输入您的 API Key...">
+              <p class="pp-popup-setting-desc">密钥保存在您的本地 storage 中，绝对安全，不会泄漏。</p>
+            </div>
 
-          <div class="pp-popup-setting-item">
-            <span class="pp-popup-setting-lbl">AI Model</span>
-            <input type="text" class="pp-popup-input" id="setting-ai-model" placeholder="e.g. gpt-4o-mini, deepseek-chat, llama3.1">
-          </div>
+            <!-- AI Custom prompt -->
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">AI 总结自定义提示词 (Prompt)</span>
+              <textarea class="pp-popup-textarea" id="setting-ai-prompt" rows="2"></textarea>
+            </div>
 
-          <div class="pp-popup-setting-item">
-            <span class="pp-popup-setting-lbl">Base URL</span>
-            <input type="url" class="pp-popup-input" id="setting-ai-base-url" placeholder="Provider default if empty">
-            <p class="pp-popup-setting-desc">Only abstract/title text is sent when AI summary is clicked. Keys stay in local Chrome storage.</p>
-          </div>
+            <div class="pp-popup-setting-item">
+              <button class="pp-popup-btn pp-popup-btn-secondary" id="btn-test-ai-connection" type="button">测试 AI 连接</button>
+              <p class="pp-popup-setting-desc" id="ai-test-status">配置提供商、模型与 Key 后测试，测试通过即可在详情页使用。</p>
+            </div>
 
-          <!-- AI API key -->
-          <div class="pp-popup-setting-item">
-            <span class="pp-popup-setting-lbl">AI API 密钥 (Key)</span>
-            <input type="password" class="pp-popup-input" id="setting-ai-key" placeholder="输入您的 API Key...">
-            <p class="pp-popup-setting-desc">密钥保存在您的本地 storage 中，绝对安全，不会泄漏。</p>
-          </div>
-
-          <!-- AI Custom prompt -->
-          <div class="pp-popup-setting-item">
-            <span class="pp-popup-setting-lbl">AI 总结自定义提示词 (Prompt)</span>
-            <textarea class="pp-popup-textarea" id="setting-ai-prompt" rows="2"></textarea>
-          </div>
-
-          <div class="pp-popup-setting-item">
-            <button class="pp-popup-btn pp-popup-btn-secondary" id="btn-test-ai-connection" type="button">Test AI connection</button>
-            <p class="pp-popup-setting-desc" id="ai-test-status">Configure provider, model and key, then test before using it in the metacard.</p>
           </div>
 
         </div>

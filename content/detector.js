@@ -48,19 +48,27 @@
   function activate(reason) {
     if (activated || activationInFlight || !reason) return;
     activationInFlight = true;
-    chrome.runtime.sendMessage({
-      action: "ACTIVATE_JOURNAL_PAGE",
-      url: window.location.href,
-      reason
-    }, response => {
-      activationInFlight = false;
-      if (!chrome.runtime.lastError && response?.ok) {
-        activated = true;
-        stop();
+    try {
+      if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.id) {
+        activationInFlight = false;
         return;
       }
-      scheduleCheck(600);
-    });
+      chrome.runtime.sendMessage({
+        action: "ACTIVATE_JOURNAL_PAGE",
+        url: window.location.href,
+        reason
+      }, response => {
+        activationInFlight = false;
+        if (!chrome.runtime.lastError && response?.ok) {
+          activated = true;
+          stop();
+          return;
+        }
+        scheduleCheck(600);
+      });
+    } catch (e) {
+      activationInFlight = false;
+    }
   }
 
   function check() {

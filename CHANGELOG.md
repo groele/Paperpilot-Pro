@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.5.0 - 2026-07-23
+
+### Added
+- Complete UI/UX Glassmorphic Redesign across Popup, Google Scholar Sidebar, and Journal Floating Metacard.
+- 6 Geek-Tier Preset Theme Engine: System Auto, Obsidian Night, Porcelain Day, Cyber Violet, Oceanic Cyan, and Sunset Amber.
+- Global Keyboard Shortcuts: `Alt+P` (toggle metacard), `Alt+D` (download PDF), `Alt+C` (copy DOI).
+- Footprint Quick Filter Chips (`全部`, `⭐ 精选收藏`, `📥 已下载`, `📝 已复引用`) and 1-Click `[BibTeX]` / `[MD]` copy pills.
+- Crystal-clear in-place copy status badge (`✓ 已成功复制到剪贴板`) and SVG icon path optimizations.
+
+### Fixed
+- Fixed ReferenceError for pin/minimize SVG buttons on metacard header by defining `getIcon` helper.
+- Fixed tab switching binding in Popup so clicking "全局配置" (`#tab-btn-set`) activates settings panel smoothly.
+
+## v1.4.2 - 2026-07-20
+
+### Fixed
+- Prevented accepted Chrome PDF downloads from being cancelled when publishers temporarily report an empty or generic MIME type.
+- Made post-dispatch verification advisory so Cookie-, Referer-, or challenge-dependent downloads can continue natively.
+
 ## v1.4.1 - 2026-07-20
 
 ### Fixed
