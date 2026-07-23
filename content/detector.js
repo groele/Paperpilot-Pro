@@ -59,7 +59,8 @@
         reason
       }, response => {
         activationInFlight = false;
-        if (!chrome.runtime.lastError && response?.ok) {
+        const err = chrome.runtime.lastError;
+        if (!err && response?.ok) {
           activated = true;
           stop();
           return;

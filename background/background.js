@@ -148,7 +148,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (action === "ACTIVATE_JOURNAL_PAGE" || action === "page.activateJournal") {
     withMessageDuration("page-activation-service", () => PP_BACKGROUND.pageActivation.activate(sender, message.url))
-      .then(result => sendResponse(result));
+      .then(result => sendResponse(result))
+      .catch(err => {
+        console.error("Page activation failed:", err);
+        sendResponse({ ok: false, error: err?.message || "Activation failed" });
+      });
     return true;
   }
 
@@ -235,6 +239,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true;
   }
+
+  sendResponse({ success: false, error: `Unhandled action: ${action}` });
+  return false;
 });
 
 function sanitizeDownloadSegment(segment) {

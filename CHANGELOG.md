@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.6.0 - 2026-07-23
+
+### Added
+- Brand-new modern icon set redesign (16x16, 32x32, 48x48, 128x128) featuring emerald gradient canvas, crisp origami wing motif, and Lanczos anti-aliased rendering.
+
+### Fixed
+- Replaced direct `chrome.runtime.sendMessage` invocations in Scholar search and Popup scripts with safe wrappers to prevent `Unchecked runtime.lastError` and `Extension context invalidated` console errors.
+- Added missing Promise `.catch()` error handling for `ACTIVATE_JOURNAL_PAGE` and unhandled message action fallbacks in Service Worker background script.
+
 ## v1.5.0 - 2026-07-23
 
 ### Added

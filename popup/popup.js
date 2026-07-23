@@ -261,19 +261,25 @@ const initPopup = () => {
         setAiTestStatus(`Settings save failed: ${error.message}`, "error");
         return;
       }
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({ action: "TEST_AI_CONNECTION" }, (response) => {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id && chrome.runtime.sendMessage) {
+        try {
+          chrome.runtime.sendMessage({ action: "TEST_AI_CONNECTION" }, (response) => {
+            testAiBtn.disabled = false;
+            const err = chrome.runtime.lastError;
+            if (err) {
+              setAiTestStatus(err.message, "error");
+              return;
+            }
+            if (response && response.success) {
+              setAiTestStatus(`Connected: ${response.provider} / ${response.model}`, "ok");
+            } else {
+              setAiTestStatus(response?.error || "Connection test failed", "error");
+            }
+          });
+        } catch (e) {
           testAiBtn.disabled = false;
-          if (chrome.runtime.lastError) {
-            setAiTestStatus(chrome.runtime.lastError.message, "error");
-            return;
-          }
-          if (response && response.success) {
-            setAiTestStatus(`Connected: ${response.provider} / ${response.model}`, "ok");
-          } else {
-            setAiTestStatus(response?.error || "Connection test failed", "error");
-          }
-        });
+          setAiTestStatus(e?.message || "Connection test failed", "error");
+        }
       } else {
         setTimeout(() => {
           testAiBtn.disabled = false;

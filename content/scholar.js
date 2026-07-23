@@ -1267,7 +1267,7 @@
 
             // Async easyScholar integration (Robust & Defensively Guarded)
             if (settings.easyscholar_key && venue && venue !== "Other") {
-              chrome.runtime.sendMessage({
+              safeSendMessage({
                 action: "FETCH_EASYSCHOLAR",
                 journal: venue
               }, (response) => {
@@ -1468,7 +1468,7 @@
         
         robustCopyToClipboard(bibText).then(() => {
           showToast("BibTeX 已复制并完成本地格式化清洗！");
-          chrome.runtime.sendMessage({
+          safeSendMessage({
             action: "ADD_FOOTPRINT",
             footprint: {
               title: paper.title,
@@ -1491,7 +1491,7 @@
       doiBtn.innerHTML = `${window.PP_ICONS.copy} 复制 DOI`;
       doiBtn.onclick = () => {
         showToast("正在后台库检索并解析 DOI...");
-        chrome.runtime.sendMessage({
+        safeSendMessage({
           action: "FETCH_METADATA",
           title: paper.title
         }, (response) => {
@@ -1501,7 +1501,7 @@
           if (response && response.success && response.data && response.data.doi) {
             textToCopy = response.data.doi;
             toastMsg = `DOI 已复制: ${textToCopy}`;
-            chrome.runtime.sendMessage({
+            safeSendMessage({
               action: "ADD_FOOTPRINT",
               footprint: {
                 title: paper.title,
@@ -1563,7 +1563,7 @@
     starBtn.innerHTML = `⭐ 收藏`;
     starBtn.title = "将此论文加入精选文献收藏";
     starBtn.onclick = () => {
-      chrome.runtime.sendMessage({
+      safeSendMessage({
         action: "ADD_FOOTPRINT",
         footprint: {
           title: paper.title,
@@ -1574,7 +1574,7 @@
           starred: true,
           status: "visited"
         }
-      }, () => {
+      }, (response) => {
         showToast("已成功将该文献加入精选收藏！");
         starBtn.innerHTML = `⭐ 已收藏`;
         starBtn.style.color = "#f59e0b";
