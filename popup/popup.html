@@ -164,17 +164,77 @@
           </div>
         </div>
 
-        <div class="pp-popup-search-wrapper">
-          <svg class="pp-search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <input type="text" class="pp-popup-search-input" id="history-search" placeholder="输入标题、期刊或 DOI 过滤足迹...">
+        <!-- GitHub Style Academic Activity Calendar Board -->
+        <div class="pp-heatmap-card" id="footprint-heatmap-card">
+          <div class="pp-heatmap-hdr">
+            <div class="pp-heatmap-title-group">
+              <span class="pp-heatmap-title">📅 学术研读打卡日历</span>
+              <span class="pp-heatmap-subtitle" id="heatmap-summary-copy">近 4 周研读轨迹</span>
+            </div>
+            <div class="pp-heatmap-streak" id="heatmap-streak-badge">
+              🔥 连续打卡 0 天
+            </div>
+          </div>
+
+          <!-- Weekday Labels Header -->
+          <div class="pp-calendar-weekdays">
+            <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+          </div>
+
+          <!-- 28-day Calendar Grid -->
+          <div class="pp-calendar-grid" id="heatmap-grid">
+            <!-- 28 cells dynamically rendered -->
+          </div>
+
+          <!-- Active Filter Banner -->
+          <div class="pp-heatmap-active-bar" id="heatmap-active-bar" style="display: none;">
+            <span class="pp-heatmap-active-copy" id="heatmap-active-text">正在显示选中日期的足迹</span>
+            <button type="button" class="pp-heatmap-reset-btn" id="btn-reset-heatmap-filter">重置显示全部</button>
+          </div>
         </div>
 
-        <!-- Footprint Quick Filter Chips -->
-        <div class="pp-footprint-chips" id="footprint-chips">
-          <button type="button" class="pp-chip active" data-filter="all">全部 (0)</button>
-          <button type="button" class="pp-chip" data-filter="starred">⭐ 精选收藏</button>
-          <button type="button" class="pp-chip" data-filter="downloaded">📥 已下载</button>
-          <button type="button" class="pp-chip" data-filter="copied">📝 已复引用</button>
+        <!-- Expandable Search & Date Filter Panel Card -->
+        <div class="pp-search-expand-panel expanded" id="pp-search-expand-panel">
+          <div class="pp-search-expand-hdr" id="search-expand-toggle">
+            <div class="pp-search-hdr-left">
+              <svg class="pp-search-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <span class="pp-search-hdr-title">文献搜索与日期筛选面板</span>
+              <span class="pp-search-active-tag" id="search-active-date-tag" style="display: none;">📅 2026-07-23</span>
+            </div>
+            <div class="pp-search-hdr-right">
+              <span class="pp-search-count-badge" id="search-result-count-badge">共 0 篇</span>
+              <button type="button" class="pp-search-toggle-btn" id="btn-toggle-search-panel" title="展开/折叠搜索面板">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="pp-search-expand-body">
+            <!-- Search Input Wrapper -->
+            <div class="pp-popup-search-wrapper">
+              <svg class="pp-search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" class="pp-popup-search-input" id="history-search" placeholder="输入标题、作者、期刊或 DOI 实时过滤足迹...">
+              <button type="button" class="pp-search-clear-btn" id="history-search-clear" title="清空搜索" style="display: none;">×</button>
+            </div>
+
+            <!-- Date Shortcuts & Quick Chips -->
+            <div class="pp-search-quick-bar">
+              <div class="pp-search-quick-dates">
+                <button type="button" class="pp-date-shortcut-btn" id="btn-date-today">今天</button>
+                <button type="button" class="pp-date-shortcut-btn" id="btn-date-3days">近 3 天</button>
+                <button type="button" class="pp-date-shortcut-btn" id="btn-date-week">本周</button>
+                <button type="button" class="pp-date-shortcut-btn danger" id="btn-date-reset" style="display: none;">✕ 清除日期</button>
+              </div>
+
+              <!-- Filter Chips -->
+              <div class="pp-footprint-chips" id="footprint-chips">
+                <button type="button" class="pp-chip active" data-filter="all">全部 (0)</button>
+                <button type="button" class="pp-chip" data-filter="starred">⭐ 精选</button>
+                <button type="button" class="pp-chip" data-filter="downloaded">📥 已下载</button>
+                <button type="button" class="pp-chip" data-filter="copied">📝 已复引用</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="pp-popup-footprint-list" id="history-list">
@@ -187,6 +247,7 @@
         <footer class="pp-popup-footer">
           <select class="pp-popup-select" id="setting-export-format" title="选择导出格式">
             <option value="bibtex">BibTeX (.bib)</option>
+            <option value="markdown">Markdown (.md)</option>
             <option value="ris">RIS (.ris)</option>
             <option value="csljson">CSL JSON (.json)</option>
           </select>

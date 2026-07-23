@@ -1417,9 +1417,9 @@ async function addFootprint(footprint) {
   // Put at the top
   history.unshift(newItem);
 
-  // Cap at 100 entries
-  if (history.length > 100) {
-    history = history.slice(0, 100);
+  // Cap at 3000 entries
+  if (history.length > 3000) {
+    history = history.slice(0, 3000);
   }
 
   await chrome.storage.local.set({ history });

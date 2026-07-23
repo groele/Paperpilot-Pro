@@ -399,6 +399,15 @@ const initPopup = () => {
     persistHistory("Research Record 已删除");
   }
 
+  function deleteRecordAt(index) {
+    if (index < 0 || !historyData[index]) return;
+    historyData.splice(index, 1);
+    if (activeEditIndex === index) {
+      closeRecordEditor();
+    }
+    persistHistory("已从学术足迹中移除此记录");
+  }
+
   // Update Dashboard Overview status grid
   function updateFeatureStatusGrid() {
     const setStatus = (element, isActive) => {
@@ -866,10 +875,57 @@ const initPopup = () => {
     configCiteBadge.onchange = () => saveSetting("enable_cite_badge", configCiteBadge.checked, "被引量徽章显示已同步");
 
     let currentChipFilter = "all";
+    let currentDateFilter = null;
+
+    function safeParseDate(val) {
+      if (!val) return null;
+      if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+      if (typeof val === "number") return isNaN(val) ? null : new Date(val);
+      if (typeof val === "string") {
+        const trimmed = val.trim();
+        if (/^\d+$/.test(trimmed)) {
+          const num = Number(trimmed);
+          return isNaN(num) ? null : new Date(num);
+        }
+        const d = new Date(trimmed);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      return null;
+    }
+
+    function formatDateKey(dateInput) {
+      const dateObj = safeParseDate(dateInput) || new Date();
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+      const d = String(dateObj.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
 
     function getFilteredHistoryItems() {
       const q = currentHistoryQuery.toLowerCase().trim();
       let result = historyData;
+
+      if (currentDateFilter) {
+        const today = new Date();
+        const todayKey = formatDateKey(today);
+
+        result = result.filter(item => {
+          const rawTime = item.time || item.updatedAt || item.timestamp;
+          const parsed = safeParseDate(rawTime);
+          if (!parsed) {
+            return currentDateFilter === todayKey || currentDateFilter === "3days" || currentDateFilter === "week";
+          }
+          if (currentDateFilter === "3days") {
+            const diffDays = (today.getTime() - parsed.getTime()) / (1000 * 3600 * 24);
+            return diffDays >= 0 && diffDays <= 3;
+          }
+          if (currentDateFilter === "week") {
+            const diffDays = (today.getTime() - parsed.getTime()) / (1000 * 3600 * 24);
+            return diffDays >= 0 && diffDays <= 7;
+          }
+          return formatDateKey(parsed) === currentDateFilter;
+        });
+      }
 
       if (currentChipFilter === "starred") {
         result = result.filter(item => item.starred === true);
@@ -912,9 +968,159 @@ const initPopup = () => {
 
     function loadFootprints() {
       getStorage("history", (res) => {
-        historyData = res.history || [];
+        const raw = res.history || [];
+        const now = Date.now();
+        historyData = raw.map((item, idx) => {
+          const rawTime = item.time || item.updatedAt || item.timestamp;
+          if (!rawTime || !safeParseDate(rawTime)) {
+            return {
+              ...item,
+              time: now - (idx * 1800000)
+            };
+          }
+          return item;
+        });
         renderCurrentFootprints();
       });
+    }
+
+    function getCalendarGridDays() {
+      const today = new Date();
+      const currentDayOfWeek = today.getDay();
+      const dayIndex = currentDayOfWeek === 0 ? 7 : currentDayOfWeek;
+      const endOfWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() + (7 - dayIndex));
+      
+      const todayStr = formatDateKey(today);
+      const days = [];
+      for (let i = 27; i >= 0; i--) {
+        const d = new Date(endOfWeek.getFullYear(), endOfWeek.getMonth(), endOfWeek.getDate() - i);
+        const dateStr = formatDateKey(d);
+        days.push({
+          dateStr,
+          dayNum: d.getDate(),
+          monthNum: d.getMonth() + 1,
+          isToday: todayStr === dateStr,
+          isFuture: d.getTime() > today.getTime() && todayStr !== dateStr
+        });
+      }
+      return days;
+    }
+
+    function calculateStreak(countsByDate) {
+      const today = new Date();
+      let streak = 0;
+      let checkDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
+      if (!countsByDate.has(formatDateKey(checkDate))) {
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+      
+      while (countsByDate.has(formatDateKey(checkDate)) && countsByDate.get(formatDateKey(checkDate)) > 0) {
+        streak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+      return streak;
+    }
+
+    function renderHeatmapBoard() {
+      const grid = document.getElementById("heatmap-grid");
+      const activeBar = document.getElementById("heatmap-active-bar");
+      const activeText = document.getElementById("heatmap-active-text");
+      const resetBtn = document.getElementById("btn-reset-heatmap-filter");
+      const summaryCopy = document.getElementById("heatmap-summary-copy");
+      const streakBadge = document.getElementById("heatmap-streak-badge");
+      if (!grid) return;
+
+      grid.innerHTML = "";
+
+      // Count history entries by YYYY-MM-DD
+      const countsByDate = new Map();
+      historyData.forEach(item => {
+        const rawTime = item.time || item.updatedAt || item.timestamp;
+        const parsed = safeParseDate(rawTime) || new Date();
+        const dateKey = formatDateKey(parsed);
+        countsByDate.set(dateKey, (countsByDate.get(dateKey) || 0) + 1);
+      });
+
+      const days = getCalendarGridDays();
+      let activeDaysCount = 0;
+      const weekdayNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+      days.forEach(({ dateStr, dayNum, isToday, isFuture }) => {
+        const count = countsByDate.get(dateStr) || 0;
+        if (count > 0 && !isFuture) activeDaysCount++;
+
+        let lvl = "lvl-0";
+        if (isFuture) lvl = "is-future";
+        else if (count >= 6) lvl = "lvl-4";
+        else if (count >= 4) lvl = "lvl-3";
+        else if (count >= 2) lvl = "lvl-2";
+        else if (count >= 1) lvl = "lvl-1";
+
+        const cell = document.createElement("div");
+        cell.className = `pp-calendar-cell ${lvl} ${isToday ? 'is-today' : ''} ${currentDateFilter === dateStr ? 'active' : ''}`;
+
+        const dObj = new Date(dateStr);
+        const weekdayStr = weekdayNames[dObj.getDay()] || "";
+        cell.title = `${dateStr} (${weekdayStr}): ${count} 篇文献 ${isFuture ? '(尚未到达)' : '(点击展开本日足迹)'}`;
+
+        const dateEl = document.createElement("span");
+        dateEl.className = "pp-calendar-date";
+        dateEl.textContent = String(dayNum);
+        cell.appendChild(dateEl);
+
+        if (count > 0 && !isFuture) {
+          const countEl = document.createElement("span");
+          countEl.className = "pp-calendar-count";
+          countEl.textContent = `${count}篇`;
+          cell.appendChild(countEl);
+        }
+
+        if (!isFuture) {
+          cell.onclick = (e) => {
+            e.stopPropagation();
+            if (currentDateFilter === dateStr) {
+              currentDateFilter = null;
+            } else {
+              currentDateFilter = dateStr;
+            }
+            renderCurrentFootprints();
+
+            setTimeout(() => {
+              const searchPanelEl = document.getElementById("pp-search-expand-panel");
+              if (searchPanelEl) {
+                searchPanelEl.scrollIntoView({ behavior: "smooth", block: "start" });
+              }
+            }, 50);
+          };
+        }
+
+        grid.appendChild(cell);
+      });
+
+      const streak = calculateStreak(countsByDate);
+      if (streakBadge) {
+        streakBadge.textContent = `🔥 连续打卡 ${streak} 天`;
+      }
+
+      if (summaryCopy) {
+        summaryCopy.textContent = `近 4 周研读 ${activeDaysCount} 天`;
+      }
+
+      if (currentDateFilter && activeBar && activeText) {
+        const currentCount = countsByDate.get(currentDateFilter) || 0;
+        activeText.textContent = `正在显示 ${currentDateFilter} 的研读足迹 (${currentCount} 篇)`;
+        activeBar.style.display = "flex";
+      } else if (activeBar) {
+        activeBar.style.display = "none";
+      }
+
+      if (resetBtn) {
+        resetBtn.onclick = () => {
+          currentDateFilter = null;
+          renderCurrentFootprints();
+        };
+      }
     }
 
     function updateFootprintStats() {
@@ -942,6 +1148,8 @@ const initPopup = () => {
         if (dlChip) dlChip.textContent = `📥 已下载 (${dlCount})`;
         if (cpChip) cpChip.textContent = `📝 已复引用 (${cpCount})`;
       }
+
+      renderHeatmapBoard();
     }
 
     // Bind Footprint Filter Chips
@@ -960,14 +1168,47 @@ const initPopup = () => {
     function renderFootprints(items, query = "") {
       updateFootprintStats();
       historyList.innerHTML = "";
+
+      const activeDateTag = document.getElementById("search-active-date-tag");
+      const resultCountBadge = document.getElementById("search-result-count-badge");
+      const btnDateReset = document.getElementById("btn-date-reset");
+      const searchExpandPanel = document.getElementById("pp-search-expand-panel");
+
+      if (activeDateTag) {
+        if (currentDateFilter) {
+          let dateLabel = currentDateFilter;
+          if (currentDateFilter === "3days") dateLabel = "近 3 天";
+          else if (currentDateFilter === "week") dateLabel = "本周";
+          activeDateTag.textContent = `📅 ${dateLabel}`;
+          activeDateTag.style.display = "inline-block";
+        } else {
+          activeDateTag.style.display = "none";
+        }
+      }
+
+      if (resultCountBadge) {
+        resultCountBadge.textContent = `共 ${items.length} 篇`;
+      }
+
+      if (btnDateReset) {
+        btnDateReset.style.display = currentDateFilter ? "inline-block" : "none";
+      }
+
+      if (currentDateFilter && searchExpandPanel) {
+        searchExpandPanel.classList.add("expanded");
+      }
       
       if (items.length === 0) {
-        emptyMsg.textContent = query || currentChipFilter !== "all"
-          ? "没有匹配的学术足迹记录。"
-          : "暂无学术足迹，快去浏览期刊摘要页或检索谷歌学术吧！";
+        if (currentDateFilter) {
+          emptyMsg.textContent = `日期 [${currentDateFilter}] 下没有检索到学术足迹记录。`;
+        } else if (query || currentChipFilter !== "all") {
+          emptyMsg.textContent = "当前筛选条件下没有匹配的学术足迹记录。";
+        } else {
+          emptyMsg.textContent = "暂无学术足迹，快去浏览期刊摘要页或检索谷歌学术吧！";
+        }
         historyList.appendChild(emptyMsg);
         emptyMsg.style.display = "block";
-        exportAllBtn.disabled = historyData.length === 0 || !!query;
+        exportAllBtn.disabled = true;
         return;
       }
 
@@ -978,27 +1219,40 @@ const initPopup = () => {
         const recordIndex = historyData.indexOf(item);
         const card = document.createElement("div");
         card.className = `pp-foot-card ${item.starred ? 'pp-foot-card--starred' : ''}`;
+        card.title = "点击在新标签页中打开文献页面或 PDF";
+
+        // Click card to open link
+        card.onclick = () => {
+          const targetUrl = item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "");
+          if (targetUrl) {
+            if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
+              chrome.tabs.create({ url: targetUrl });
+            } else {
+              window.open(targetUrl, "_blank");
+            }
+          } else {
+            showToast("该文献无直链，将为您在谷歌中搜索");
+            const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(item.title)}`;
+            if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
+              chrome.tabs.create({ url: searchUrl });
+            } else {
+              window.open(searchUrl, "_blank");
+            }
+          }
+        };
 
         // --- Status mapping ---
         let statusText = "已访问";
         let statusClass = "visited";
-        let statusIcon = "👁";
         if (item.status === "downloaded") {
           statusText = "已下载";
           statusClass = "downloaded";
-          statusIcon = "📥";
-        } else if (item.status === "copied_bibtex") {
-          statusText = "BibTeX";
+        } else if (item.status === "copied_bibtex" || item.status === "copied_doi") {
+          statusText = "已复引用";
           statusClass = "bibtex";
-          statusIcon = "📋";
-        } else if (item.status === "copied_doi") {
-          statusText = "DOI";
-          statusClass = "bibtex";
-          statusIcon = "📋";
         } else if (item.status === "copied_citation") {
-          statusText = "笔记";
+          statusText = "已做笔记";
           statusClass = "bibtex";
-          statusIcon = "📝";
         }
 
         // --- Left accent bar ---
@@ -1009,15 +1263,18 @@ const initPopup = () => {
         const body = document.createElement("div");
         body.className = "pp-foot-body";
 
-        // --- Top row: title + star ---
+        // --- Top row: title + tool buttons ---
         const topRow = document.createElement("div");
         topRow.className = "pp-foot-top-row";
 
         const titleEl = document.createElement("div");
         titleEl.className = "pp-foot-title";
         titleEl.textContent = item.title || "Untitled paper";
-        titleEl.title = item.title || "";
 
+        const tools = document.createElement("div");
+        tools.className = "pp-foot-tools";
+
+        // Star button
         const starBtn = document.createElement("button");
         starBtn.type = "button";
         starBtn.className = `pp-foot-star ${item.starred ? 'active' : ''}`;
@@ -1031,146 +1288,138 @@ const initPopup = () => {
           persistHistory(item.starred ? "已加入精选文献收藏" : "已取消精选收藏");
         };
 
-        topRow.appendChild(titleEl);
-        topRow.appendChild(starBtn);
+        // Quick Delete button
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "pp-foot-del-btn";
+        delBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+        delBtn.title = "移除此足迹记录";
+        delBtn.onclick = (event) => {
+          event.stopPropagation();
+          deleteRecordAt(recordIndex);
+        };
 
-        // --- Meta row: journal + year + status badge ---
+        // External link icon
+        const linkIcon = document.createElement("span");
+        linkIcon.className = "pp-foot-link-icon";
+        linkIcon.title = "在新标签页中打开链接";
+        linkIcon.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>`;
+
+        tools.appendChild(starBtn);
+        tools.appendChild(delBtn);
+        tools.appendChild(linkIcon);
+
+        topRow.appendChild(titleEl);
+        topRow.appendChild(tools);
+
+        // --- Meta row: journal + year + authors + status badge ---
         const metaRow = document.createElement("div");
         metaRow.className = "pp-foot-meta-row";
 
         const journalEl = document.createElement("span");
         journalEl.className = "pp-foot-journal";
-        const journalName = item.journal || "Other";
+        const journalName = item.journal || "Academic Source";
         const yearStr = item.year ? ` · ${item.year}` : "";
         journalEl.textContent = `${journalName}${yearStr}`;
 
-        const statusBadge = document.createElement("span");
-        statusBadge.className = `pp-foot-status-badge ${statusClass}`;
-        statusBadge.innerHTML = `${statusIcon} ${statusText}`;
-
         metaRow.appendChild(journalEl);
-        metaRow.appendChild(statusBadge);
 
-        // --- DOI / Authors row ---
-        const infoRow = document.createElement("div");
-        infoRow.className = "pp-foot-info-row";
         const hasAuthors = item.authors && item.authors.length > 0;
-        const hasDoi = !!item.doi;
         if (hasAuthors) {
           const authorsEl = document.createElement("span");
           authorsEl.className = "pp-foot-authors";
           const authorList = Array.isArray(item.authors) ? item.authors : [item.authors];
           const displayed = authorList.slice(0, 2).join(", ") + (authorList.length > 2 ? " 等" : "");
           authorsEl.textContent = displayed;
-          infoRow.appendChild(authorsEl);
+          metaRow.appendChild(authorsEl);
         }
-        if (hasDoi) {
-          const doiEl = document.createElement("span");
-          doiEl.className = "pp-foot-doi-pill";
-          doiEl.textContent = `DOI`;
-          doiEl.title = item.doi;
-          infoRow.appendChild(doiEl);
-        }
+
+        const statusBadge = document.createElement("span");
+        statusBadge.className = `pp-foot-status-badge ${statusClass}`;
+        statusBadge.textContent = statusText;
+        metaRow.appendChild(statusBadge);
 
         body.appendChild(topRow);
         body.appendChild(metaRow);
-        if (hasAuthors || hasDoi) body.appendChild(infoRow);
-
-        // --- Action bar ---
-        const actions = document.createElement("div");
-        actions.className = "pp-foot-actions";
-
-        // Open link
-        const openBtn = document.createElement("button");
-        openBtn.type = "button";
-        openBtn.className = "pp-foot-action-btn pp-foot-open-btn";
-        openBtn.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> 打开`;
-        openBtn.title = "打开文献链接或 PDF";
-        openBtn.onclick = (event) => {
-          event.stopPropagation();
-          const targetUrl = item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "");
-          if (targetUrl) {
-            window.open(targetUrl, "_blank");
-          } else {
-            showToast("该文献无直链，将为您在谷歌中搜索");
-            window.open(`https://www.google.com/search?q=${encodeURIComponent(item.title)}`, "_blank");
-          }
-        };
-        actions.appendChild(openBtn);
-
-        // BibTeX
-        const bibtexBtn = document.createElement("button");
-        bibtexBtn.type = "button";
-        bibtexBtn.className = "pp-foot-action-btn";
-        bibtexBtn.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> BibTeX`;
-        bibtexBtn.title = "一键复制该文献的 BibTeX 引用";
-        bibtexBtn.onclick = (event) => {
-          event.stopPropagation();
-          const citation = window.PaperPilotCore?.citation;
-          const entry = citation ? citation.buildBibtexEntries([{
-            ...item,
-            url: item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "")
-          }]) : `@article{paper,\n  title={${item.title}},\n  journal={${item.journal}},\n  year={${item.year}}\n}`;
-          navigator.clipboard.writeText(entry).then(() => {
-            item.status = "copied_bibtex";
-            persistHistory("BibTeX 引用已写入剪贴板！");
-          });
-        };
-        actions.appendChild(bibtexBtn);
-
-        // Markdown
-        const mdBtn = document.createElement("button");
-        mdBtn.type = "button";
-        mdBtn.className = "pp-foot-action-btn";
-        mdBtn.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> MD`;
-        mdBtn.title = "一键复制 Markdown 笔记模板";
-        mdBtn.onclick = (event) => {
-          event.stopPropagation();
-          const mdContent = `### 文献笔记：${item.title}\n` +
-            `- **发表期刊**：*${item.journal || "N/A"}* (${item.year || "N/A"})\n` +
-            `- **DOI**：${item.doi ? `[${item.doi}](https://doi.org/${item.doi})` : "暂无"}\n` +
-            `- **直链 PDF**：${item.pdfUrl || "无免费 PDF"}\n\n` +
-            `> **研究要点与创新点**:\n- \n`;
-          navigator.clipboard.writeText(mdContent).then(() => {
-            item.status = "copied_citation";
-            persistHistory("Markdown 笔记模板已写入剪贴板！");
-          });
-        };
-        actions.appendChild(mdBtn);
-
-        // Edit
-        const editBtn = document.createElement("button");
-        editBtn.type = "button";
-        editBtn.className = "pp-foot-action-btn pp-foot-edit-btn";
-        editBtn.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
-        editBtn.title = `编辑 ${item.title || "Research Record"}`;
-        editBtn.setAttribute("aria-label", `编辑 ${item.title || "Research Record"}`);
-        editBtn.onclick = (event) => {
-          event.stopPropagation();
-          openRecordEditor(recordIndex, editBtn);
-        };
-        actions.appendChild(editBtn);
 
         card.appendChild(accentBar);
         card.appendChild(body);
-        card.appendChild(actions);
         historyList.appendChild(card);
       });
   }
 
-  // 5. Fuzzy filtering
+  // 5. Expandable Search Panel & Quick Date Shortcuts
+  const searchExpandPanel = document.getElementById("pp-search-expand-panel");
+  const searchExpandToggle = document.getElementById("search-expand-toggle");
+  const btnDateToday = document.getElementById("btn-date-today");
+  const btnDate3days = document.getElementById("btn-date-3days");
+  const btnDateWeek = document.getElementById("btn-date-week");
+  const btnDateReset = document.getElementById("btn-date-reset");
+  const searchClearBtn = document.getElementById("history-search-clear");
+
+  if (searchExpandToggle && searchExpandPanel) {
+    searchExpandToggle.onclick = () => {
+      searchExpandPanel.classList.toggle("expanded");
+    };
+  }
+
+  if (btnDateToday) {
+    btnDateToday.onclick = () => {
+      currentDateFilter = formatDateKey(new Date());
+      renderCurrentFootprints();
+      if (searchInput) searchInput.focus();
+    };
+  }
+
+  if (btnDate3days) {
+    btnDate3days.onclick = () => {
+      currentDateFilter = formatDateKey(new Date());
+      renderCurrentFootprints();
+      if (searchInput) searchInput.focus();
+    };
+  }
+
+  if (btnDateWeek) {
+    btnDateWeek.onclick = () => {
+      currentDateFilter = formatDateKey(new Date());
+      renderCurrentFootprints();
+      if (searchInput) searchInput.focus();
+    };
+  }
+
+  if (btnDateReset) {
+    btnDateReset.onclick = () => {
+      currentDateFilter = null;
+      renderCurrentFootprints();
+    };
+  }
+
   searchInput.oninput = () => {
     currentHistoryQuery = searchInput.value.trim();
+    if (searchClearBtn) {
+      searchClearBtn.style.display = searchInput.value ? "block" : "none";
+    }
     renderCurrentFootprints();
   };
 
-  // 6. Bulk Export clean BibTeX files
+  if (searchClearBtn) {
+    searchClearBtn.onclick = () => {
+      searchInput.value = "";
+      currentHistoryQuery = "";
+      searchClearBtn.style.display = "none";
+      searchInput.focus();
+      renderCurrentFootprints();
+    };
+  }
+
+  // 6. Bulk Export clean BibTeX / Markdown / RIS files
   exportAllBtn.onclick = () => {
-    if (historyData.length === 0) return;
+    const activeItems = getFilteredHistoryItems();
+    if (activeItems.length === 0) return;
 
     const format = exportFormatSelect?.value || "bibtex";
     const citation = window.PaperPilotCore?.citation;
-    const normalized = historyData.map(item => ({
+    const normalized = activeItems.map(item => ({
       ...item,
       url: item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : ""),
       source: item.source || item.metricsSource || "PaperPilot history"
@@ -1178,7 +1427,20 @@ const initPopup = () => {
 
     let exported = "";
     let label = "BibTeX";
-    if (citation && format === "ris") {
+
+    if (format === "markdown") {
+      label = "Markdown 清单";
+      const filterLabel = currentDateFilter ? ` (${currentDateFilter})` : "";
+      exported = `# 学术研读文献清单${filterLabel} (${normalized.length} 篇)\n\n` + normalized.map((paper, idx) => {
+        const title = paper.title || "Untitled paper";
+        const journal = paper.journal ? `*${paper.journal}*` : "";
+        const year = paper.year ? `(${paper.year})` : "";
+        const doi = paper.doi ? `[${paper.doi}](https://doi.org/${paper.doi})` : "N/A";
+        const url = paper.pdfUrl ? `[PDF 全文](${paper.pdfUrl})` : "";
+        const authors = Array.isArray(paper.authors) ? paper.authors.join(", ") : (paper.authors || "");
+        return `${idx + 1}. **${title}**\n   - 期刊年份: ${journal} ${year}\n   - 作者: ${authors || "N/A"}\n   - DOI/直链: ${doi} ${url}`.trim();
+      }).join("\n\n");
+    } else if (citation && format === "ris") {
       exported = citation.buildRisEntries(normalized);
       label = "RIS";
     } else if (citation && format === "csljson") {
@@ -1191,7 +1453,7 @@ const initPopup = () => {
     }
 
     navigator.clipboard.writeText(exported.trim()).then(() => {
-      showToast(`已将 ${historyData.length} 篇文献足迹以 ${label} 复制`);
+      showToast(`已将 ${normalized.length} 篇文献足迹以 ${label} 写入剪贴板`);
     }).catch(err => {
       console.error("Export copy failed:", err);
       showToast("复制失败，请检查浏览器剪贴板权限！");

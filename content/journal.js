@@ -1939,8 +1939,14 @@
       pos2 = pos4 - e.clientY;
       pos3 = e.clientX;
       pos4 = e.clientY;
-      card.style.top = (card.offsetTop - pos2) + "px";
-      card.style.left = (card.offsetLeft - pos1) + "px";
+
+      const maxTop = Math.max(10, window.innerHeight - 60);
+      const maxLeft = Math.max(10, window.innerWidth - (card.offsetWidth || 100));
+      const targetTop = Math.max(10, Math.min(maxTop, card.offsetTop - pos2));
+      const targetLeft = Math.max(10, Math.min(maxLeft, card.offsetLeft - pos1));
+
+      card.style.top = targetTop + "px";
+      card.style.left = targetLeft + "px";
       card.style.right = "auto"; // Unlock right anchoring
     }
 
