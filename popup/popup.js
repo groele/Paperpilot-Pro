@@ -1267,9 +1267,31 @@ const initPopup = () => {
         const topRow = document.createElement("div");
         topRow.className = "pp-foot-top-row";
 
+        // Safe text node highlighter
+        const highlightTextNode = (element, text, q) => {
+          element.innerHTML = "";
+          if (!q || !text) {
+            element.textContent = text || "";
+            return;
+          }
+          const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const regex = new RegExp(`(${escapedQ})`, "gi");
+          const parts = text.split(regex);
+          parts.forEach(part => {
+            if (part.toLowerCase() === q.toLowerCase()) {
+              const mark = document.createElement("mark");
+              mark.className = "pp-highlight";
+              mark.textContent = part;
+              element.appendChild(mark);
+            } else {
+              element.appendChild(document.createTextNode(part));
+            }
+          });
+        };
+
         const titleEl = document.createElement("div");
         titleEl.className = "pp-foot-title";
-        titleEl.textContent = item.title || "Untitled paper";
+        highlightTextNode(titleEl, item.title || "Untitled paper", query);
 
         const tools = document.createElement("div");
         tools.className = "pp-foot-tools";
@@ -1327,6 +1349,24 @@ const initPopup = () => {
 
         tools.appendChild(starBtn);
         tools.appendChild(bibBtn);
+
+        // 1-Click Copy DOI button
+        if (item.doi) {
+          const doiBtn = document.createElement("button");
+          doiBtn.type = "button";
+          doiBtn.className = "pp-foot-copy-btn";
+          doiBtn.textContent = "DOI";
+          doiBtn.title = "一键复制文献 DOI 链接";
+          doiBtn.onclick = (event) => {
+            event.stopPropagation();
+            const doiUrl = item.doi.startsWith("http") ? item.doi : `https://doi.org/${item.doi}`;
+            navigator.clipboard.writeText(doiUrl).then(() => {
+              showToast("已复制 DOI 链接到剪贴板");
+            });
+          };
+          tools.appendChild(doiBtn);
+        }
+
         tools.appendChild(delBtn);
         tools.appendChild(linkIcon);
 
