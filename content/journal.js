@@ -21,7 +21,18 @@
   const MAX_PDF_URL_CANDIDATES = 32;
 
   function getIcon(name, fallback = "") {
-    return window.PP_ICONS?.[name] || fallback;
+    const icon = window.PP_ICONS?.[name];
+    if (icon) return icon;
+    if (name === "pin") {
+      return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pp-feather pp-feather-pin"><path d="M12 17v5"></path><path d="M5 17h14"></path><path d="M7 9l2-7h6l2 7"></path><path d="M8 9h8l2 8H6l2-8z"></path></svg>`;
+    }
+    if (name === "pin_off") {
+      return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pp-feather pp-feather-pin-off"><path d="M12 17v5"></path><path d="M5 17h14"></path><path d="M7 9l2-7h6l2 7"></path><path d="M8 9h8l2 8H6l2-8z"></path><line x1="4" y1="4" x2="20" y2="20"></line></svg>`;
+    }
+    if (name === "minimize") {
+      return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pp-feather pp-feather-minus"><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
+    }
+    return fallback;
   }
 
   function robustCopyToClipboard(text) {
@@ -135,7 +146,18 @@
   ];
 
   function getIcon(name, fallback = "") {
-    return (window.PP_ICONS && window.PP_ICONS[name]) || fallback;
+    const icon = window.PP_ICONS?.[name];
+    if (icon) return icon;
+    if (name === "pin") {
+      return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pp-feather pp-feather-pin"><path d="M12 17v5"></path><path d="M5 17h14"></path><path d="M7 9l2-7h6l2 7"></path><path d="M8 9h8l2 8H6l2-8z"></path></svg>`;
+    }
+    if (name === "pin_off") {
+      return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pp-feather pp-feather-pin-off"><path d="M12 17v5"></path><path d="M5 17h14"></path><path d="M7 9l2-7h6l2 7"></path><path d="M8 9h8l2 8H6l2-8z"></path><line x1="4" y1="4" x2="20" y2="20"></line></svg>`;
+    }
+    if (name === "minimize") {
+      return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pp-feather pp-feather-minus"><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
+    }
+    return fallback;
   }
 
   function getCurrentSiteProfile() {

@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PaperPilot Pro Workplace 控制台</title>
   <link rel="stylesheet" href="popup.css">
 </head>
+
 <body>
   <div class="pp-popup-container">
     <!-- Header -->
@@ -22,7 +24,7 @@
       </div>
       <div class="pp-header-badges">
         <button class="pp-theme-toggle-btn" id="btn-quick-theme-toggle" type="button" title="一键切换深浅色主题">🌙</button>
-        <span class="pp-popup-version">v1.7.0</span>
+        <span class="pp-popup-version">v2.0.0</span>
       </div>
     </header>
 
@@ -38,7 +40,8 @@
 
       <!-- Feature Power Grid -->
       <div class="pp-popup-features-grid">
-        <div class="pp-popup-feature-status" id="status-ni" role="button" tabindex="0" data-setting-target="setting-enable-ni" data-module="discovery" title="切换自然指数高亮">
+        <div class="pp-popup-feature-status" id="status-ni" role="button" tabindex="0"
+          data-setting-target="setting-enable-ni" data-module="discovery" title="切换自然指数高亮">
           <span class="status-dot"></span>
           <span class="feature-copy">
             <span class="feature-name">自然指数高亮</span>
@@ -47,7 +50,8 @@
           <span class="feature-state">ON</span>
         </div>
 
-        <div class="pp-popup-feature-status" id="status-dedup" role="button" tabindex="0" data-setting-target="setting-enable-dedup" data-module="cleanup" title="切换预印本折叠去重">
+        <div class="pp-popup-feature-status" id="status-dedup" role="button" tabindex="0"
+          data-setting-target="setting-enable-dedup" data-module="cleanup" title="切换预印本折叠去重">
           <span class="status-dot"></span>
           <span class="feature-copy">
             <span class="feature-name">预印本折叠去重</span>
@@ -56,7 +60,8 @@
           <span class="feature-state">ON</span>
         </div>
 
-        <div class="pp-popup-feature-status" id="status-sorting-filter" role="button" tabindex="0" data-setting-target="setting-enable-sorting-filter" data-module="ranking" title="切换高级重排与过滤">
+        <div class="pp-popup-feature-status" id="status-sorting-filter" role="button" tabindex="0"
+          data-setting-target="setting-enable-sorting-filter" data-module="ranking" title="切换高级重排与过滤">
           <span class="status-dot"></span>
           <span class="feature-copy">
             <span class="feature-name">高级重排与过滤</span>
@@ -65,7 +70,8 @@
           <span class="feature-state">ON</span>
         </div>
 
-        <div class="pp-popup-feature-status" id="status-badges" role="button" tabindex="0" data-setting-target="setting-enable-badges" data-module="metrics" title="切换学术状态徽章">
+        <div class="pp-popup-feature-status" id="status-badges" role="button" tabindex="0"
+          data-setting-target="setting-enable-badges" data-module="metrics" title="切换学术状态徽章">
           <span class="status-dot"></span>
           <span class="feature-copy">
             <span class="feature-name">学术状态徽章</span>
@@ -74,7 +80,8 @@
           <span class="feature-state">ON</span>
         </div>
 
-        <div class="pp-popup-feature-status" id="status-metacard" role="button" tabindex="0" data-setting-target="setting-enable-metacard" data-module="reader" title="切换期刊详情悬浮元卡">
+        <div class="pp-popup-feature-status" id="status-metacard" role="button" tabindex="0"
+          data-setting-target="setting-enable-metacard" data-module="reader" title="切换期刊详情悬浮元卡">
           <span class="status-dot"></span>
           <span class="feature-copy">
             <span class="feature-name">期刊详情元卡</span>
@@ -83,7 +90,8 @@
           <span class="feature-state">ON</span>
         </div>
 
-        <div class="pp-popup-feature-status" id="status-markdown" role="button" tabindex="0" data-setting-target="setting-enable-markdown-note" data-module="notes" title="切换 Markdown 笔记复制">
+        <div class="pp-popup-feature-status" id="status-markdown" role="button" tabindex="0"
+          data-setting-target="setting-enable-markdown-note" data-module="notes" title="切换 Markdown 笔记复制">
           <span class="status-dot"></span>
           <span class="feature-copy">
             <span class="feature-name">MD 笔记复制</span>
@@ -96,7 +104,11 @@
       <!-- PDF Download Confirmation Control -->
       <div class="pp-popup-overview-control" id="overview-save-as-control" data-active="false">
         <span class="pp-popup-overview-control-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
         </span>
         <span class="pp-popup-overview-control-copy">
           <span class="pp-popup-overview-control-title">下载时弹出选择路径窗口</span>
@@ -117,11 +129,17 @@
         <p class="pp-popup-setting-desc" id="page-diagnostics-text">正在读取当前标签页状态...</p>
         <div class="pp-popup-diagnostics-actions">
           <button class="pp-popup-mini-btn" id="btn-refresh-page-diagnostics" type="button">
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
             刷新诊断
           </button>
           <button class="pp-popup-mini-btn pp-popup-mini-btn-primary" id="btn-open-first-pdf" type="button" disabled>
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
             打开首选 PDF
           </button>
         </div>
@@ -133,11 +151,19 @@
     <nav class="pp-popup-nav">
       <div class="pp-popup-nav-pill" id="nav-pill"></div>
       <div class="pp-popup-nav-item active" id="tab-btn-foot">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-        <span>学人足迹</span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <span>文过留痕</span>
       </div>
       <div class="pp-popup-nav-item" id="tab-btn-set">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+          </path>
+        </svg>
         <span>全局配置</span>
       </div>
     </nav>
@@ -150,7 +176,7 @@
         <div class="pp-footprint-stats-bar" id="footprint-stats-bar">
           <div class="pp-stats-item">
             <span class="pp-stats-val" id="stat-total-count">0</span>
-            <span class="pp-stats-lbl">总文献足迹</span>
+            <span class="pp-stats-lbl">总阅读留痕</span>
           </div>
           <div class="pp-stats-divider"></div>
           <div class="pp-stats-item">
@@ -188,7 +214,7 @@
 
           <!-- Active Filter Banner -->
           <div class="pp-heatmap-active-bar" id="heatmap-active-bar" style="display: none;">
-            <span class="pp-heatmap-active-copy" id="heatmap-active-text">正在显示选中日期的足迹</span>
+            <span class="pp-heatmap-active-copy" id="heatmap-active-text">正在显示选中日期的留痕</span>
             <button type="button" class="pp-heatmap-reset-btn" id="btn-reset-heatmap-filter">重置显示全部</button>
           </div>
         </div>
@@ -197,14 +223,20 @@
         <div class="pp-search-expand-panel expanded" id="pp-search-expand-panel">
           <div class="pp-search-expand-hdr" id="search-expand-toggle">
             <div class="pp-search-hdr-left">
-              <svg class="pp-search-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <svg class="pp-search-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
               <span class="pp-search-hdr-title">文献搜索与日期筛选面板</span>
               <span class="pp-search-active-tag" id="search-active-date-tag" style="display: none;">📅 2026-07-23</span>
             </div>
             <div class="pp-search-hdr-right">
               <span class="pp-search-count-badge" id="search-result-count-badge">共 0 篇</span>
               <button type="button" class="pp-search-toggle-btn" id="btn-toggle-search-panel" title="展开/折叠搜索面板">
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
               </button>
             </div>
           </div>
@@ -212,9 +244,15 @@
           <div class="pp-search-expand-body">
             <!-- Search Input Wrapper -->
             <div class="pp-popup-search-wrapper">
-              <svg class="pp-search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-              <input type="text" class="pp-popup-search-input" id="history-search" placeholder="输入标题、作者、期刊或 DOI 实时过滤足迹...">
-              <button type="button" class="pp-search-clear-btn" id="history-search-clear" title="清空搜索" style="display: none;">×</button>
+              <svg class="pp-search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" class="pp-popup-search-input" id="history-search"
+                placeholder="输入标题、作者、期刊或 DOI 实时过滤留痕...">
+              <button type="button" class="pp-search-clear-btn" id="history-search-clear" title="清空搜索"
+                style="display: none;">×</button>
             </div>
 
             <!-- Date Shortcuts & Quick Chips -->
@@ -223,7 +261,8 @@
                 <button type="button" class="pp-date-shortcut-btn" id="btn-date-today">今天</button>
                 <button type="button" class="pp-date-shortcut-btn" id="btn-date-3days">近 3 天</button>
                 <button type="button" class="pp-date-shortcut-btn" id="btn-date-week">本周</button>
-                <button type="button" class="pp-date-shortcut-btn danger" id="btn-date-reset" style="display: none;">✕ 清除日期</button>
+                <button type="button" class="pp-date-shortcut-btn danger" id="btn-date-reset" style="display: none;">✕
+                  清除日期</button>
               </div>
 
               <!-- Filter Chips -->
@@ -241,7 +280,7 @@
           <!-- Footprint items dynamically appended here -->
           <div class="pp-popup-empty-msg" id="history-empty">
             <div class="empty-icon-wrap">📚</div>
-            <span>暂无学术足迹，快去浏览期刊摘要页或检索谷歌学术吧！</span>
+            <span>暂无文过留痕记录，快去浏览期刊摘要页或检索谷歌学术吧！</span>
           </div>
         </div>
         <footer class="pp-popup-footer">
@@ -250,12 +289,26 @@
             <option value="markdown">Markdown (.md)</option>
             <option value="ris">RIS (.ris)</option>
             <option value="csljson">CSL JSON (.json)</option>
+            <option value="json">完整 JSON 备份 (.json)</option>
           </select>
           <button class="pp-popup-btn pp-popup-btn-main" id="btn-export-all">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            导出足迹
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            导出留痕
           </button>
-          <button class="pp-popup-btn pp-popup-btn-danger" id="btn-clear-history" title="清空全部学术足迹">
+          <button class="pp-popup-btn pp-popup-btn-secondary" id="btn-import-history" title="从 JSON 备份文件恢复文献留痕">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            导入
+          </button>
+          <input type="file" id="file-import-history" accept=".json" style="display: none;">
+          <button class="pp-popup-btn pp-popup-btn-danger" id="btn-clear-history" title="清空全部文过留痕">
             清空
           </button>
         </footer>
@@ -264,7 +317,7 @@
       <!-- Section 2: Global Configuration settings -->
       <section id="panel-set" class="pp-popup-section">
         <div class="pp-popup-settings-list">
-          
+
           <!-- Card 1: 核心模块运行开关 -->
           <div class="pp-popup-settings-card">
             <div class="pp-popup-card-hdr">
@@ -448,10 +501,15 @@
             <div class="pp-popup-setting-item">
               <span class="pp-popup-setting-lbl">easyScholar SecretKey</span>
               <div class="pp-popup-input-wrapper" style="position: relative; display: flex; align-items: center;">
-                <input type="password" class="pp-popup-input" id="setting-easyscholar-key" placeholder="粘贴您的 SecretKey..." style="padding-right: 32px; width: 100%;">
-                <button class="pp-popup-input-toggle-btn" id="btn-toggle-easyscholar-visible" style="position: absolute; right: 8px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 12px; display: flex; align-items: center; justify-content: center; padding: 0;" type="button" title="切换显示/隐藏">👁️</button>
+                <input type="password" class="pp-popup-input" id="setting-easyscholar-key"
+                  placeholder="粘贴您的 SecretKey..." style="padding-right: 32px; width: 100%;">
+                <button class="pp-popup-input-toggle-btn" id="btn-toggle-easyscholar-visible"
+                  style="position: absolute; right: 8px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 12px; display: flex; align-items: center; justify-content: center; padding: 0;"
+                  type="button" title="切换显示/隐藏">👁️</button>
               </div>
-              <p class="pp-popup-setting-desc">获取地址：<a href="https://www.easyscholar.cc/console/user/open" target="_blank" style="color: var(--primary); text-decoration: underline;">easyScholar 开放平台</a>。配置后即可获取真实官方的影响因子、中科院/JCR分区及 CCF 等级。</p>
+              <p class="pp-popup-setting-desc">获取地址：<a href="https://www.easyscholar.cc/console/user/open"
+                  target="_blank" style="color: var(--primary); text-decoration: underline;">easyScholar
+                  开放平台</a>。配置后即可获取真实官方的影响因子、中科院/JCR分区及 CCF 等级。</p>
             </div>
 
             <!-- Switch: CCF Rank Badge -->
@@ -626,7 +684,8 @@
 
             <div class="pp-popup-setting-item">
               <span class="pp-popup-setting-lbl">AI Model</span>
-              <input type="text" class="pp-popup-input" id="setting-ai-model" placeholder="e.g. gpt-4o-mini, deepseek-chat, llama3.1">
+              <input type="text" class="pp-popup-input" id="setting-ai-model"
+                placeholder="e.g. gpt-4o-mini, deepseek-chat, llama3.1">
             </div>
 
             <div class="pp-popup-setting-item">
@@ -649,7 +708,8 @@
             </div>
 
             <div class="pp-popup-setting-item">
-              <button class="pp-popup-btn pp-popup-btn-secondary" id="btn-test-ai-connection" type="button">测试 AI 连接</button>
+              <button class="pp-popup-btn pp-popup-btn-secondary" id="btn-test-ai-connection" type="button">测试 AI
+                连接</button>
               <p class="pp-popup-setting-desc" id="ai-test-status">配置提供商、模型与 Key 后测试，测试通过即可在详情页使用。</p>
             </div>
 
@@ -661,11 +721,12 @@
 
     <!-- Research record editor drawer -->
     <div class="pp-popup-edit-overlay" id="record-edit-overlay" aria-hidden="true">
-      <aside class="pp-popup-edit-drawer" id="record-edit-drawer" role="dialog" aria-modal="true" aria-labelledby="record-edit-title">
+      <aside class="pp-popup-edit-drawer" id="record-edit-drawer" role="dialog" aria-modal="true"
+        aria-labelledby="record-edit-title">
         <div class="pp-popup-edit-header">
           <div>
             <h2 id="record-edit-title">编辑 Research Record</h2>
-            <p>修正文献元数据并同步到本地足迹记录。</p>
+            <p>修正文献元数据并同步到本地留痕记录。</p>
           </div>
           <button type="button" class="pp-popup-icon-btn" id="record-edit-close" aria-label="关闭编辑窗口">×</button>
         </div>
@@ -726,4 +787,5 @@
   <script src="../lib/svg-icons.js"></script>
   <script src="popup.js"></script>
 </body>
+
 </html>

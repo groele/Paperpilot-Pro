@@ -52,7 +52,7 @@ Academic literature discovery is still highly fragmented. Researchers often jump
 | BibTeX Export | Generates or copies BibTeX-style citation information | 生成或复制 BibTeX 引用 |
 | Markdown Notes | Generates structured literature note templates | 生成结构化 Markdown 读书笔记 |
 | AI Summary | Uses optional local/user-configured AI providers for literature summaries | 使用用户配置的 AI 模型进行文献总结 |
-| Reading Footprints | Records browsed literature history for later search and export | 记录浏览过的论文足迹，便于后续检索与导出 |
+| Reading Footprints | Records browsed literature history for later search and export | 记录浏览过的论文留痕（文过留痕），便于后续检索与导出 |
 | Theme Controls | Supports light, dark, and system-aware appearance | 支持白天、夜间和跟随系统主题 |
 
 ---
