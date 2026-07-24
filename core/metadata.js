@@ -157,7 +157,10 @@
     return metadata;
   }
 
+  const UNPAYWALL_EMAIL = "paperpilot@gmail.com";
+
   root.metadata = {
+    UNPAYWALL_EMAIL,
     normalizeDoi,
     extractDoi,
     isWeakTitle,

@@ -869,4 +869,7 @@ test("background script includes native download interceptor and pageUrl trackin
   assert.match(source, /chrome\.downloads\.onDeterminingFilename\.addListener/);
   assert.match(source, /pdf_cache/);
   assert.match(source, /item\.referrer/);
+  assert.match(source, /syncActiveDownloadsToSession/);
+  assert.match(source, /history\.length > 500/);
 });
+

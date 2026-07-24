@@ -29,6 +29,7 @@
     "earth and planetary science letters", "earth planet. sci. lett.", "geochimica et cosmochimica acta", "geochim. cosmochim. acta",
     "journal of petrology", "j. petrol.", "geology", "paleoceanography", "water resources research", "water resour. res."
   ]);
+  const NATURE_INDEX_JOURNALS_LIST = Array.from(NATURE_INDEX_JOURNALS).sort((a, b) => b.length - a.length);
 
   const STORAGE_PREFIX = 'paperpilot-pro:scholar:v1';
   const SETTINGS_KEYS = [
@@ -288,7 +289,7 @@
       
       const normVenue = venue.toLowerCase();
       let matchedNormName = "Other";
-      for (let niName of NATURE_INDEX_JOURNALS) {
+      for (let niName of NATURE_INDEX_JOURNALS_LIST) {
         if (normVenue.includes(niName)) {
           matchedNormName = niName;
           break;
@@ -444,7 +445,7 @@
 
         const normVenue = venue.toLowerCase();
         let matchedNormName = "Other";
-        for (let niName of NATURE_INDEX_JOURNALS) {
+        for (let niName of NATURE_INDEX_JOURNALS_LIST) {
           if (normVenue.includes(niName)) {
             matchedNormName = niName;
             break;
@@ -1180,7 +1181,7 @@
       // 6. Highlight Nature Index Papers
       let isNatureIndex = false;
       const cleanNormVenue = venue.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ");
-      for (const niJournal of NATURE_INDEX_JOURNALS) {
+      for (const niJournal of NATURE_INDEX_JOURNALS_LIST) {
         const cleanNiJournal = niJournal.replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ");
         if (cleanNormVenue.includes(cleanNiJournal) || cleanNiJournal.includes(cleanNormVenue)) {
           isNatureIndex = true;

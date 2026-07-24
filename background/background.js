@@ -260,12 +260,54 @@ function buildDownloadFilename(downloadDir, filename) {
 const activeDownloads = new Map(); // downloadId -> { finalFilename, saveAs }
 const activeDownloadsByUrl = new Map(); // url -> queued download descriptors
 
+const sessionStore = (typeof chrome !== "undefined" && chrome.storage?.session)
+  ? chrome.storage.session
+  : ((typeof chrome !== "undefined" && chrome.storage?.local) ? chrome.storage.local : null);
+
+function syncActiveDownloadsToSession() {
+  if (!sessionStore) return;
+  try {
+    const listById = Array.from(activeDownloads.entries());
+    const listByUrl = Array.from(activeDownloadsByUrl.entries());
+    sessionStore.set({
+      __active_downloads_by_id: listById,
+      __active_downloads_by_url: listByUrl
+    });
+  } catch (_) {}
+}
+
+function restoreActiveDownloadsFromSession() {
+  if (!sessionStore) return Promise.resolve();
+  return new Promise(resolve => {
+    sessionStore.get(["__active_downloads_by_id", "__active_downloads_by_url"], result => {
+      try {
+        if (Array.isArray(result?.__active_downloads_by_id)) {
+          activeDownloads.clear();
+          for (const [id, desc] of result.__active_downloads_by_id) {
+            activeDownloads.set(Number(id) || id, desc);
+          }
+        }
+        if (Array.isArray(result?.__active_downloads_by_url)) {
+          activeDownloadsByUrl.clear();
+          for (const [url, queue] of result.__active_downloads_by_url) {
+            activeDownloadsByUrl.set(url, queue);
+          }
+        }
+      } catch (_) {}
+      resolve();
+    });
+  });
+}
+
+void restoreActiveDownloadsFromSession();
+
 function queueActiveDownloadUrl(url, descriptor) {
   if (!url) return;
   const key = normalizeDownloadUrlKey(url);
   const queue = activeDownloadsByUrl.get(key) || [];
   queue.push(descriptor);
   activeDownloadsByUrl.set(key, queue);
+  syncActiveDownloadsToSession();
 }
 
 function removeActiveDownloadDescriptor(descriptor) {
@@ -275,6 +317,7 @@ function removeActiveDownloadDescriptor(descriptor) {
     if (remaining.length) activeDownloadsByUrl.set(url, remaining);
     else activeDownloadsByUrl.delete(url);
   }
+  syncActiveDownloadsToSession();
 }
 
 function findActiveDownloadDescriptor(item) {
@@ -1384,7 +1427,7 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
 
 /**
  * Adds a paper to the footprint history.
- * Enforces a strict maximum of 100 footprints, shifting out old items.
+ * Enforces a strict maximum of 500 footprints, shifting out old items.
  * Deduplicates by DOI or title (moving matching item to top of history).
  */
 async function addFootprint(footprint) {
@@ -1417,9 +1460,9 @@ async function addFootprint(footprint) {
   // Put at the top
   history.unshift(newItem);
 
-  // Cap at 3000 entries
-  if (history.length > 3000) {
-    history = history.slice(0, 3000);
+  // Cap at 500 entries
+  if (history.length > 500) {
+    history = history.slice(0, 500);
   }
 
   await chrome.storage.local.set({ history });

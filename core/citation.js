@@ -15,14 +15,16 @@
   function authorSurname(authors) {
     const first = Array.isArray(authors) && authors.length > 0 ? authors[0] : "Unknown";
     const parts = String(first).trim().split(/\s+/).filter(Boolean);
-    return (parts[parts.length - 1] || "Unknown").replace(/[^A-Za-z0-9]/g, "") || "Unknown";
+    const raw = parts[parts.length - 1] || "Unknown";
+    const cleaned = raw.replace(/[^\p{L}\p{N}]/gu, "");
+    return cleaned || "Unknown";
   }
 
   function firstTitleToken(title) {
     const stopWords = new Set(["a", "an", "the"]);
     const tokens = stripTags(title)
       .split(/\s+/)
-      .map(token => token.replace(/[^A-Za-z0-9]/g, ""))
+      .map(token => token.replace(/[^\p{L}\p{N}]/gu, ""))
       .filter(Boolean)
       .filter(token => !stopWords.has(token.toLowerCase()));
     return tokens.slice(0, 2).join("") || "Paper";
