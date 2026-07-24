@@ -3,6 +3,7 @@
 ## v2.0.1 - 2026-07-24
 
 ### Fixed & Optimized
+- **「文过留痕」与「全局配置」切换平滑无缝过渡**：重构 Popup 选项卡切换视觉引擎，新增 `nav-pill` 流体弹簧滑动指示器与视口 `transform` 3D 左右推移 + 模糊淡入淡出（Cross-fade）动画；移除旧版切换时顶部卡片的突兀高度坍塌，彻底消除卡顿与割裂感。
 - **MV3 Service Worker 状态持久化**：使用 `chrome.storage.session` 对下载与重命名跟踪器进行会话存储，确保后台 SW 休眠重启后在途 PDF 重命名与缓存处理不丢失。
 - **足迹历史容量限制优化**：优化 `addFootprint()` 存储上限为 500 条，大幅提升 `chrome.storage.local` 反序列化与读取性能。
 - **谷歌学术 Nature Index 刊名精准匹配**：改用按刊名长度降序排列的匹配规则 `NATURE_INDEX_JOURNALS_LIST`，避免 Nature 子刊（如 *Nature Communications*）被误匹配归类为 *Nature* 父刊。
