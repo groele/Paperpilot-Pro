@@ -351,6 +351,46 @@ body {
   background: var(--divider-color);
 }
 
+.pp-footprint-quick-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: var(--glass-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.pp-footprint-quick-label {
+  margin-right: auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.pp-quick-filter {
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.pp-quick-filter:hover,
+.pp-quick-filter.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
 /* Dashboard Overview Card */
 .pp-popup-info-card {
   margin: 8px 14px;

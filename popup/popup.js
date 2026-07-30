@@ -50,6 +50,17 @@ const initPopup = () => {
     }
   };
 
+  const sendBackgroundMessage = (message, callback) => {
+    if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage(message, response => {
+        const error = chrome.runtime.lastError;
+        callback(error ? { success: false, ok: false, error: error.message } : response);
+      });
+      return;
+    }
+    callback({ success: false, ok: false, error: "Extension context unavailable" });
+  };
+
   const tabFoot = document.getElementById("tab-btn-foot");
   const tabSet = document.getElementById("tab-btn-set");
   const panelFoot = document.getElementById("panel-foot");
@@ -128,6 +139,7 @@ const initPopup = () => {
   const statusMarkdown = document.getElementById("status-markdown");
 
   let historyData = [];
+  let historyRevision = 0;
   let activeEditIndex = -1;
   let currentHistoryQuery = "";
   let currentDiagnostics = null;
@@ -311,39 +323,6 @@ const initPopup = () => {
       module.control.checked,
       `${module.name}${module.control.checked ? "已开启" : "已关闭"}`
     );
-  }
-
-  function getFilteredHistoryItems() {
-    const q = currentHistoryQuery.toLowerCase().trim();
-    if (!q) return historyData;
-    return historyData.filter(item => {
-      const title = (item.title || "").toLowerCase();
-      const journal = (item.journal || "").toLowerCase();
-      const doi = (item.doi || "").toLowerCase();
-      return title.includes(q) || journal.includes(q) || doi.includes(q);
-    });
-  }
-
-  function renderCurrentFootprints() {
-    renderFootprints(getFilteredHistoryItems(), currentHistoryQuery);
-  }
-
-  function parseAuthorsInput(value) {
-    return String(value || "")
-      .split(/[;\n]+/)
-      .map(author => author.trim())
-      .filter(Boolean);
-  }
-
-  function persistHistory(successMsg) {
-    setStorage({ history: historyData }, (error) => {
-      if (error) {
-        showToast("Research Record 保存失败");
-        return;
-      }
-      renderCurrentFootprints();
-      showToast(successMsg);
-    });
   }
 
   function openRecordEditor(index, anchor) {
@@ -958,19 +937,39 @@ const initPopup = () => {
   }
 
   function persistHistory(successMsg) {
-    setStorage({ history: historyData }, (error) => {
-      if (error) {
-        showToast("Research Record 保存失败");
+    sendBackgroundMessage({ action: "HISTORY_REPLACE", history: historyData, revision: historyRevision }, response => {
+      if (!response?.success) {
+        if (response?.errorCode === "HISTORY_CONFLICT" && Array.isArray(response.history)) {
+          historyData = response.history;
+          historyRevision = Number.isInteger(response.revision) ? response.revision : historyRevision;
+          renderCurrentFootprints();
+          showToast("留痕已在其他页面更新，本次修改未覆盖；请刷新后重试");
+          return;
+        }
+        showToast(`Research Record 保存失败：${response?.error || "未知错误"}`);
         return;
       }
+      historyData = Array.isArray(response.history) ? response.history : historyData;
+      historyRevision = Number.isInteger(response.revision) ? response.revision : historyRevision;
       renderCurrentFootprints();
       if (successMsg) showToast(successMsg);
     });
   }
 
   function loadFootprints() {
-    getStorage("history", (res) => {
-      const raw = res.history || [];
+    sendBackgroundMessage({ action: "HISTORY_GET" }, response => {
+      if (!response?.success) {
+        // Keep the standalone preview usable; Chrome extension contexts always use
+        // the serialized background path above.
+        getStorage(["history", "history_revision"], fallback => applyHistorySnapshot(fallback?.history, fallback?.history_revision));
+        return;
+      }
+      applyHistorySnapshot(response.history, response.revision);
+    });
+  }
+
+  function applyHistorySnapshot(rawHistory, revision) {
+      const raw = Array.isArray(rawHistory) ? rawHistory : [];
       const now = Date.now();
       historyData = raw.map((item, idx) => {
         const rawTime = item.time || item.updatedAt || item.timestamp;
@@ -982,8 +981,8 @@ const initPopup = () => {
         }
         return item;
       });
+      historyRevision = Number.isInteger(revision) ? revision : 0;
       renderCurrentFootprints();
-    });
   }
 
   function getCalendarGridDays() {
@@ -1133,39 +1132,48 @@ const initPopup = () => {
     if (dlEl) dlEl.textContent = String(historyData.filter(i => i.status === "downloaded").length);
     if (cpEl) cpEl.textContent = String(historyData.filter(i => (i.status || "").startsWith("copied")).length);
 
-    // Update chips labels
-    const chipContainer = document.getElementById("footprint-chips");
-    if (chipContainer) {
-      const allChip = chipContainer.querySelector('[data-filter="all"]');
-      const starChip = chipContainer.querySelector('[data-filter="starred"]');
-      const dlChip = chipContainer.querySelector('[data-filter="downloaded"]');
-      const cpChip = chipContainer.querySelector('[data-filter="copied"]');
-
-      const starCount = historyData.filter(i => i.starred === true).length;
-      const dlCount = historyData.filter(i => i.status === "downloaded").length;
-      const cpCount = historyData.filter(i => (i.status || "").startsWith("copied")).length;
-
-      if (allChip) allChip.textContent = `全部 (${historyData.length})`;
-      if (starChip) starChip.textContent = `⭐ 收藏 (${starCount})`;
-      if (dlChip) dlChip.textContent = `📥 已下载 (${dlCount})`;
-      if (cpChip) cpChip.textContent = `📝 已复引用 (${cpCount})`;
-    }
+    const counts = {
+      all: historyData.length,
+      starred: historyData.filter(i => i.starred === true).length,
+      downloaded: historyData.filter(i => i.status === "downloaded").length,
+      copied: historyData.filter(i => (i.status || "").startsWith("copied")).length
+    };
+    const labels = {
+      all: `全部 (${counts.all})`,
+      starred: `⭐ 收藏 (${counts.starred})`,
+      downloaded: `📥 已下载 (${counts.downloaded})`,
+      copied: `📝 已复引用 (${counts.copied})`
+    };
+    document.querySelectorAll("#footprint-chips [data-filter], #footprint-quick-filters [data-filter]").forEach(button => {
+      const filter = button.dataset.filter || "all";
+      if (labels[filter]) button.textContent = labels[filter];
+      const isActive = filter === currentChipFilter;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    });
 
     renderHeatmapBoard();
   }
 
-  // Bind Footprint Filter Chips
-  const chipContainer = document.getElementById("footprint-chips");
-  if (chipContainer) {
-    chipContainer.querySelectorAll(".pp-chip").forEach(chip => {
-      chip.onclick = () => {
-        chipContainer.querySelectorAll(".pp-chip").forEach(c => c.classList.remove("active"));
-        chip.classList.add("active");
-        currentChipFilter = chip.dataset.filter || "all";
-        renderCurrentFootprints();
-      };
-    });
+  function selectFootprintFilter(filter, { clearDate = false, revealResults = false } = {}) {
+    currentChipFilter = filter || "all";
+    if (clearDate) currentDateFilter = null;
+    renderCurrentFootprints();
+    if (revealResults) {
+      requestAnimationFrame(() => historyList?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
   }
+
+  // This shortcut makes saved papers reachable directly from the activity overview.
+  document.querySelectorAll("#footprint-chips [data-filter], #footprint-quick-filters [data-filter]").forEach(button => {
+    button.onclick = () => {
+      const isQuickFilter = button.closest("#footprint-quick-filters") !== null;
+      selectFootprintFilter(button.dataset.filter, {
+        clearDate: isQuickFilter,
+        revealResults: true
+      });
+    };
+  });
 
   function renderFootprints(items, query = "") {
     updateFootprintStats();
@@ -1575,7 +1583,12 @@ const initPopup = () => {
       exported = JSON.stringify(citation.buildCslJson(normalized), null, 2);
       label = "CSL JSON";
     } else if (format === "json") {
-      exported = JSON.stringify(normalized, null, 2);
+      exported = JSON.stringify({
+        schema: "paperpilot.history",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        history: normalized
+      }, null, 2);
       label = "完整 JSON 备份";
     } else if (citation) {
       exported = citation.buildBibtexEntries(normalized);
@@ -1603,15 +1616,24 @@ const initPopup = () => {
       reader.onload = (event) => {
         try {
           const parsed = JSON.parse(event.target.result);
+          if (!Array.isArray(parsed) && parsed?.schema && parsed.schema !== "paperpilot.history") {
+            throw new Error("不支持的备份类型");
+          }
+          if (!Array.isArray(parsed) && parsed?.version && parsed.version > 1) {
+            throw new Error(`备份版本 ${parsed.version} 高于当前支持版本`);
+          }
           const list = Array.isArray(parsed) ? parsed : (parsed.history || []);
-          if (!Array.isArray(list)) throw new Error("无有效留痕数据架构");
+          if (!Array.isArray(list) || list.length > 2000) throw new Error("无有效留痕数据架构或记录数过多");
 
           let addedCount = 0;
           const existingDois = new Set(historyData.map(i => (i.doi || "").toLowerCase()).filter(Boolean));
           const existingTitles = new Set(historyData.map(i => (i.title || "").toLowerCase()).filter(Boolean));
 
-          list.forEach(item => {
-            if (!item || !item.title) return;
+          const validItems = list.filter(item => item && typeof item === "object" && (item.title || item.doi));
+          if (!validItems.length && list.length) throw new Error("备份中没有可恢复的文献记录");
+          if (!window.confirm(`将检查并合并 ${validItems.length} 条备份记录；重复文献会跳过。是否继续？`)) return;
+
+          validItems.forEach(item => {
             const doi = (item.doi || "").toLowerCase();
             const title = (item.title || "").toLowerCase();
             if ((doi && existingDois.has(doi)) || (title && existingTitles.has(title))) return;

@@ -15,9 +15,8 @@
   let lastPdfDownloadStatus = null;
   let lastPdfDiscoveryDiagnostics = null;
   let initGeneration = 0;
-  let storageListenerInstalled = false;
-  const PDF_URL_CANDIDATE_CACHE_MS = 15000;
-  const PDF_EMPTY_CANDIDATE_CACHE_MS = 1200;
+  const PDF_URL_CANDIDATE_CACHE_MS = 30000;
+  const PDF_EMPTY_CANDIDATE_CACHE_MS = 2000;
   const MAX_PDF_URL_CANDIDATES = 32;
 
   function getIcon(name, fallback = "") {
@@ -82,6 +81,14 @@
     } catch (e) {
       if (callback) callback({ success: false, error: e.message || "Message error" });
     }
+  }
+
+  function getPublicSettings(keys, callback) {
+    safeSendMessage({ action: "GET_PUBLIC_SETTINGS", keys }, response => callback(response?.settings || {}));
+  }
+
+  function setPublicSettings(settings, callback = () => {}) {
+    safeSendMessage({ action: "SET_PUBLIC_SETTINGS", settings }, callback);
   }
 
   const PDF_PRIORITY_SELECTORS = [
@@ -1065,12 +1072,12 @@
         logFootprint("visited");
 
         // 3. Handle Auto-Redirect if enabled
-        chrome.storage.local.get(["auto_redirect", "pdf_landing_cache"], (config) => {
+        getPublicSettings(["auto_redirect", "pdf_landing_cache"], (config) => {
           if (generation !== initGeneration) return;
           if (config.auto_redirect && paperMeta.pdfUrl && !isSameUrl(paperMeta.pdfUrl, window.location.href)) {
             const landingCache = config.pdf_landing_cache || {};
             landingCache[paperMeta.pdfUrl] = window.location.href;
-            chrome.storage.local.set({ pdf_landing_cache: landingCache }, () => {
+            setPublicSettings({ pdf_landing_cache: landingCache }, () => {
               showToast("正在自动直链跳转至 PDF 全文页...");
               setTimeout(() => {
                 window.location.href = paperMeta.pdfUrl;
@@ -1088,50 +1095,37 @@
     });
 
     // Load theme
-    chrome.storage.local.get("appearance_mode", (res) => {
+    getPublicSettings(["appearance_mode"], (res) => {
       if (res.appearance_mode) {
         currentTheme = res.appearance_mode;
         updateAllThemes();
       }
     });
 
-    // Listen for storage changes
-    if (!storageListenerInstalled) {
-      storageListenerInstalled = true;
-      chrome.storage.onChanged.addListener((changes) => {
-      if (changes.appearance_mode) {
-        currentTheme = changes.appearance_mode.newValue;
+    return true;
+  }
+
+  function refreshMetacardForPublicSettings(keys) {
+    const changed = new Set(keys || []);
+    if (changed.has("appearance_mode")) {
+      getPublicSettings(["appearance_mode"], config => {
+        currentTheme = config.appearance_mode || "system";
         updateAllThemes();
-      }
-      const shouldRedraw = changes.enable_metacard ||
-                           changes.enable_metrics_display ||
-                           changes.enable_metrics_auto_detect ||
-                           changes.enable_copy_doi_btn ||
-                           changes.enable_scholar_copy_doi_btn ||
-                           changes.enable_journal_copy_doi_btn ||
-                           changes.enable_pdf_download_btn ||
-                           changes.enable_ai_summary_btn ||
-                           changes.enable_ccf_badge ||
-                           changes.enable_core_badge ||
-                           changes.enable_warn_badge ||
-                           changes.enable_if_badge ||
-                           changes.enable_cas_badge ||
-                           changes.enable_jcr_badge ||
-                           changes.enable_cite_badge ||
-                           changes.enable_pdf_badge ||
-                           changes.easyscholar_key;
-      if (shouldRedraw) {
-        const card = document.getElementById("pp-journal-metacard");
-        if (card) card.remove();
-        chrome.storage.local.get("enable_metacard", (config) => {
-          if (config.enable_metacard !== false) {
-            injectMetacard();
-          }
-        });
-      }
       });
     }
-    return true;
+    const redrawKeys = [
+      "enable_metacard", "enable_metrics_display", "enable_metrics_auto_detect",
+      "enable_journal_copy_doi_btn", "enable_pdf_download_btn", "enable_ai_summary_btn",
+      "enable_ccf_badge", "enable_core_badge", "enable_warn_badge", "enable_if_badge",
+      "enable_cas_badge", "enable_jcr_badge", "enable_cite_badge", "enable_pdf_badge",
+      "metacard_pinned"
+    ];
+    if (!redrawKeys.some(key => changed.has(key))) return;
+    const card = document.getElementById("pp-journal-metacard");
+    if (card) card.remove();
+    getPublicSettings(["enable_metacard"], config => {
+      if (config.enable_metacard !== false) injectMetacard();
+    });
   }
 
   // Local DOM PDF Link Sniffer for both OA and Institutional Paid Databases
@@ -1417,7 +1411,7 @@
   // Inject beautiful Glassmorphic Float Panel
   // Inject beautiful Glassmorphic Float Panel
   function injectMetacard() {
-    chrome.storage.local.get([
+    getPublicSettings([
       "enable_metacard",
       "enable_metrics_display",
       "enable_metrics_auto_detect",
@@ -1434,7 +1428,6 @@
       "enable_jcr_badge",
       "enable_cite_badge",
       "enable_pdf_badge",
-      "easyscholar_key",
       "metacard_pinned"
     ], (config) => {
       if (config.enable_metacard === false) {
@@ -1454,9 +1447,7 @@
       // Set minimized layout
       const isNi = checkNatureIndexMatch(paperMeta.journal);
 
-      const hasEasyScholarKey = Boolean((config.easyscholar_key || "").trim());
-      const autoDetectMetrics = config.enable_metrics_auto_detect !== false;
-      const enable_metrics_display = config.enable_metrics_display !== false && (!autoDetectMetrics || hasEasyScholarKey);
+      const enable_metrics_display = config.enable_metrics_display !== false;
       const enable_pdf_download_btn = config.enable_pdf_download_btn !== false;
       const enable_ai_summary_btn = config.enable_ai_summary_btn !== false;
 
@@ -1716,7 +1707,7 @@
         event.stopPropagation();
         const pinned = !cardEl.classList.contains("pp-jc-pinned");
         setPinnedState(pinned);
-        chrome.storage.local.set({ metacard_pinned: pinned }, () => {
+        setPublicSettings({ metacard_pinned: pinned }, () => {
           showToast(pinned ? "侧边栏已固定" : "侧边栏已恢复可拖动");
         });
       };
@@ -1816,7 +1807,7 @@
     // Direct PDF downloader with auto rename
     if (downloadBtn) {
       downloadBtn.onclick = () => {
-        chrome.storage.local.get("pdf_naming", (config) => {
+        getPublicSettings(["pdf_naming"], (config) => {
           const pattern = config.pdf_naming || "1";
           const firstAuthor = paperMeta.authors.length > 0 ? paperMeta.authors[0] : "Unknown";
           
@@ -2043,6 +2034,15 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const action = message?.action || message?.type;
+    if (action === "PUBLIC_SETTINGS_CHANGED") {
+      refreshMetacardForPublicSettings(message.keys);
+      return false;
+    }
+    if (action === "PDF_DOWNLOAD_STATUS") {
+      if (message.phase === "complete") showToast("PDF 下载完成");
+      if (message.phase === "interrupted") showToast(`PDF 下载中断：${message.error || "请重试或检查登录状态"}`);
+      return false;
+    }
     if (action === "diagnostics.currentPage" || action === "pdf.candidates") {
       sendResponse(getCurrentPageDiagnostics(Boolean(message.refresh)));
       return false;
@@ -2112,7 +2112,10 @@
     }
     setInterval(() => {
       if (document.visibilityState !== "hidden") checkRoute();
-    }, 1500);
+    }, 8000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "hidden") checkRoute();
+    }, { passive: true });
     window.addEventListener("popstate", checkRoute, { passive: true });
     window.addEventListener("hashchange", checkRoute, { passive: true });
   }

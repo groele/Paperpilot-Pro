@@ -18,6 +18,73 @@ try {
 const PP_CORE = globalThis.PaperPilotCore || {};
 const PP_BACKGROUND = globalThis.PaperPilotBackground || {};
 
+const PUBLIC_SETTING_KEYS = new Set([
+  "auto_redirect", "pdf_download_save_as", "pdf_naming", "pdf_download_dir",
+  "appearance_mode", "enable_ni", "enable_dedup", "enable_sorting_filter",
+  "enable_badges", "enable_metacard", "enable_markdown_note", "enable_metrics_display",
+  "enable_metrics_auto_detect", "enable_bibtex_btn", "enable_scholar_copy_doi_btn",
+  "enable_journal_copy_doi_btn", "pdf_landing_cache", "enable_pdf_download_btn",
+  "enable_ai_summary_btn", "enable_ccf_badge", "enable_core_badge", "enable_warn_badge",
+  "enable_if_badge", "enable_cas_badge", "enable_jcr_badge", "enable_cite_badge",
+  "enable_pdf_badge", "metacard_pinned"
+]);
+const MAX_PDF_LANDING_CACHE_ENTRIES = 100;
+let historyMutationQueue = Promise.resolve();
+
+function restrictLocalStorageToTrustedContexts() {
+  const setAccessLevel = chrome.storage?.local?.setAccessLevel;
+  if (typeof setAccessLevel !== "function") return;
+  Promise.resolve(setAccessLevel.call(chrome.storage.local, { accessLevel: "TRUSTED_CONTEXTS" }))
+    .catch(error => console.warn("PaperPilot Pro: unable to restrict local storage access", error));
+}
+
+function getRequestedPublicSettingKeys(keys) {
+  const requested = Array.isArray(keys) ? keys : Array.from(PUBLIC_SETTING_KEYS);
+  return requested.filter(key => PUBLIC_SETTING_KEYS.has(key));
+}
+
+async function getPublicSettings(keys) {
+  const safeKeys = getRequestedPublicSettingKeys(keys);
+  const settings = await chrome.storage.local.get(safeKeys);
+  return { success: true, ok: true, settings };
+}
+
+function isContentScriptSender(sender) {
+  return Number.isInteger(sender?.tab?.id) && /^https?:\/\//i.test(sender?.url || sender?.tab?.url || "");
+}
+
+async function setPublicSettings(values, sender) {
+  if (!isContentScriptSender(sender)) {
+    return { success: false, ok: false, errorCode: "SETTINGS_WRITE_DENIED", error: "Unsupported settings sender" };
+  }
+  const updates = {};
+  for (const [key, value] of Object.entries(values || {})) {
+    if (!PUBLIC_SETTING_KEYS.has(key)) continue;
+    if (key === "pdf_landing_cache") {
+      const entries = Object.entries(value || {}).filter(([url, pageUrl]) => /^https?:\/\//i.test(url) && /^https?:\/\//i.test(pageUrl));
+      updates[key] = Object.fromEntries(entries.slice(-MAX_PDF_LANDING_CACHE_ENTRIES));
+    } else if (key === "metacard_pinned" && typeof value === "boolean") {
+      updates[key] = value;
+    }
+  }
+  if (!Object.keys(updates).length) {
+    return { success: false, ok: false, errorCode: "SETTINGS_WRITE_INVALID", error: "No permitted settings update" };
+  }
+  await chrome.storage.local.set(updates);
+  return { success: true, ok: true, settings: updates };
+}
+
+function broadcastPublicSettingsChanged(changes) {
+  const keys = Object.keys(changes || {}).filter(key => PUBLIC_SETTING_KEYS.has(key));
+  if (!keys.length || !chrome.tabs?.query || !chrome.tabs?.sendMessage) return;
+  chrome.tabs.query({}, tabs => {
+    for (const tab of tabs || []) {
+      if (!Number.isInteger(tab?.id)) continue;
+      chrome.tabs.sendMessage(tab.id, { action: "PUBLIC_SETTINGS_CHANGED", keys }).catch?.(() => {});
+    }
+  });
+}
+
 /**
  * PaperPilot Pro - Service Worker (background.js)
  * Handles CORS-free API calls, PDF verification, and footprint history management.
@@ -46,8 +113,11 @@ function withMessageDuration(source, handler) {
     }));
 }
 
+restrictLocalStorageToTrustedContexts();
+
 // Initialize default settings on install
 chrome.runtime.onInstalled.addListener(() => {
+    restrictLocalStorageToTrustedContexts();
     chrome.storage.local.get([
       "auto_redirect",
       "pdf_download_save_as",
@@ -59,6 +129,7 @@ chrome.runtime.onInstalled.addListener(() => {
       "ai_api_key",
       "ai_prompt",
       "history",
+      "history_revision",
       "pdf_cache",
       "appearance_mode",
       "enable_ni",
@@ -98,6 +169,7 @@ chrome.runtime.onInstalled.addListener(() => {
         ai_api_key: "",
         ai_prompt: "请用中文以3行精简要点总结以下学术论文摘要，以TL;DR形式呈现：",
         history: [],
+        history_revision: 0,
         pdf_cache: {},
         appearance_mode: "system",
         enable_ni: true,
@@ -145,6 +217,28 @@ chrome.runtime.onInstalled.addListener(() => {
 // Listener for messages from Content Scripts (scholar.js & journal.js) or Popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const action = message.action || message.type;
+
+  if (action === "GET_PUBLIC_SETTINGS" || action === "settings.public.get") {
+    getPublicSettings(message.keys).then(sendResponse).catch(error => sendResponse({ success: false, ok: false, error: error.message }));
+    return true;
+  }
+
+  if (action === "SET_PUBLIC_SETTINGS" || action === "settings.public.set") {
+    setPublicSettings(message.settings, sender).then(sendResponse).catch(error => sendResponse({ success: false, ok: false, error: error.message }));
+    return true;
+  }
+
+  if (action === "HISTORY_GET" || action === "history.get") {
+    getHistorySnapshot().then(snapshot => sendResponse({ success: true, ok: true, ...snapshot }))
+      .catch(error => sendResponse({ success: false, ok: false, error: error.message }));
+    return true;
+  }
+
+  if (action === "HISTORY_REPLACE" || action === "history.replace") {
+    replaceHistorySnapshot(message.history, message.revision).then(sendResponse)
+      .catch(error => sendResponse({ success: false, ok: false, error: error.message }));
+    return true;
+  }
 
   if (action === "ACTIVATE_JOURNAL_PAGE" || action === "page.activateJournal") {
     withMessageDuration("page-activation-service", () => PP_BACKGROUND.pageActivation.activate(sender, message.url))
@@ -216,6 +310,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (action === "EASYSCHOLAR_STATUS" || action === "metadata.easyscholar.status") {
+    withMessageDuration("easyscholar-service", async () => {
+      const settings = await chrome.storage.local.get("easyscholar_key");
+      return { success: true, ok: true, configured: Boolean(String(settings.easyscholar_key || "").trim()) };
+    })
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ success: false, ok: false, configured: false, error: err.message }));
+    return true;
+  }
+
   if (action === "UPDATE_PDF_DOWNLOAD_SETTINGS" || action === "pdf.settings.update") {
     applyPdfRuntimePreferences({
       saveAs: typeof message.saveAs === "boolean" ? message.saveAs : undefined,
@@ -259,6 +363,8 @@ function buildDownloadFilename(downloadDir, filename) {
 // Active download trackers to match dynamic PDF downloads for forced renaming
 const activeDownloads = new Map(); // downloadId -> { finalFilename, saveAs }
 const activeDownloadsByUrl = new Map(); // url -> queued download descriptors
+let activeDownloadTrackingSequence = 0;
+let activeDownloadsReady = false;
 
 const sessionStore = (typeof chrome !== "undefined" && chrome.storage?.session)
   ? chrome.storage.session
@@ -279,27 +385,44 @@ function syncActiveDownloadsToSession() {
 function restoreActiveDownloadsFromSession() {
   if (!sessionStore) return Promise.resolve();
   return new Promise(resolve => {
-    sessionStore.get(["__active_downloads_by_id", "__active_downloads_by_url"], result => {
-      try {
-        if (Array.isArray(result?.__active_downloads_by_id)) {
-          activeDownloads.clear();
-          for (const [id, desc] of result.__active_downloads_by_id) {
-            activeDownloads.set(Number(id) || id, desc);
+    try {
+      sessionStore.get(["__active_downloads_by_id", "__active_downloads_by_url"], result => {
+        try {
+          if (Array.isArray(result?.__active_downloads_by_id)) {
+            activeDownloads.clear();
+            for (const [id, desc] of result.__active_downloads_by_id) {
+              activeDownloads.set(Number(id) || id, desc);
+            }
           }
-        }
-        if (Array.isArray(result?.__active_downloads_by_url)) {
-          activeDownloadsByUrl.clear();
-          for (const [url, queue] of result.__active_downloads_by_url) {
-            activeDownloadsByUrl.set(url, queue);
+          if (Array.isArray(result?.__active_downloads_by_url)) {
+            activeDownloadsByUrl.clear();
+            for (const [url, queue] of result.__active_downloads_by_url) {
+              activeDownloadsByUrl.set(url, queue);
+            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+        resolve();
+      });
+    } catch (_) {
       resolve();
-    });
+    }
   });
 }
 
-void restoreActiveDownloadsFromSession();
+const activeDownloadsReadyPromise = restoreActiveDownloadsFromSession()
+  .catch(() => {})
+  .finally(() => {
+    activeDownloadsReady = true;
+  });
+
+function descriptorsMatch(left, right) {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (left.trackingId && right.trackingId) return left.trackingId === right.trackingId;
+  return left.downloadUrl === right.downloadUrl &&
+    left.originalUrl === right.originalUrl &&
+    left.finalFilename === right.finalFilename;
+}
 
 function queueActiveDownloadUrl(url, descriptor) {
   if (!url) return;
@@ -313,7 +436,7 @@ function queueActiveDownloadUrl(url, descriptor) {
 function removeActiveDownloadDescriptor(descriptor) {
   if (!descriptor) return;
   for (const [url, queue] of activeDownloadsByUrl.entries()) {
-    const remaining = queue.filter(item => item !== descriptor);
+    const remaining = queue.filter(item => !descriptorsMatch(item, descriptor));
     if (remaining.length) activeDownloadsByUrl.set(url, remaining);
     else activeDownloadsByUrl.delete(url);
   }
@@ -344,8 +467,20 @@ function invalidateTrackedPdfCache(descriptor) {
   });
 }
 
+function emitDownloadStatus(descriptor, phase, details = {}) {
+  if (!Number.isInteger(descriptor?.tabId) || !chrome.tabs?.sendMessage) return;
+  chrome.tabs.sendMessage(descriptor.tabId, {
+    action: "PDF_DOWNLOAD_STATUS",
+    downloadId: details.downloadId,
+    phase,
+    filename: descriptor.finalFilename,
+    source: descriptor.source || "",
+    error: details.error || ""
+  }).catch?.(() => {});
+}
+
 // Intercept filename determination to override server-side Content-Disposition headers (e.g. Wiley, Springer)
-chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+function determinePdfFilename(item, suggest) {
   const custom = findActiveDownloadDescriptor(item);
   if (custom) {
     // Chrome often reports an empty MIME type or application/octet-stream
@@ -442,6 +577,12 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
   });
 
   return true; // Asynchronous callback
+}
+
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  if (activeDownloadsReady) return determinePdfFilename(item, suggest);
+  void activeDownloadsReadyPromise.then(() => determinePdfFilename(item, suggest));
+  return true;
 });
 
 // GC / Memory leak cleanup listener: Remove items from mapping when download completes, fails or is cancelled
@@ -451,6 +592,7 @@ chrome.downloads.onChanged.addListener((delta) => {
     const tracked = activeDownloads.get(downloadId);
     if (tracked) {
       if (delta.state.current === "interrupted") invalidateTrackedPdfCache(tracked);
+      emitDownloadStatus(tracked, delta.state.current, { downloadId, error: delta.error?.current || "" });
       activeDownloads.delete(downloadId);
       // Clean up corresponding URL tracker as well
       removeActiveDownloadDescriptor(tracked);
@@ -572,7 +714,9 @@ function updatePdfRuntimeState(changes) {
 
 if (chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === "local") updatePdfRuntimeState(changes);
+    if (areaName !== "local") return;
+    updatePdfRuntimeState(changes);
+    broadcastPublicSettingsChanged(changes);
   });
 }
 
@@ -726,9 +870,21 @@ function buildPdfDownloadDiagnostics(candidateSummary, attempted, options = {}) 
   };
 }
 
-function startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source, requestKey = "", fallbackUsed = false) {
+async function startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source, requestKey = "", fallbackUsed = false, context = {}) {
+  await activeDownloadsReadyPromise;
   return new Promise((resolve) => {
-    const downloadItem = { finalFilename, saveAs, downloadUrl, originalUrl, requestKey };
+    const downloadItem = {
+      trackingId: `pdf-${Date.now()}-${++activeDownloadTrackingSequence}`,
+      finalFilename,
+      saveAs,
+      downloadUrl,
+      originalUrl,
+      requestKey,
+      source,
+      tabId: Number.isInteger(context.tabId) ? context.tabId : null,
+      pageUrl: context.pageUrl || "",
+      createdAt: Date.now()
+    };
     queueActiveDownloadUrl(downloadUrl, downloadItem);
     if (downloadUrl !== originalUrl) queueActiveDownloadUrl(originalUrl, downloadItem);
 
@@ -752,6 +908,8 @@ function startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs,
       }
 
       activeDownloads.set(downloadId, downloadItem);
+      syncActiveDownloadsToSession();
+      emitDownloadStatus(downloadItem, "created", { downloadId });
       resolve({
         success: true,
         ok: true,
@@ -936,7 +1094,9 @@ async function performPdfDownload(preparedCandidates, filename, requestKey, cont
       finalFilename,
       saveAs,
       cachedRequest.source || "pdf-request-cache",
-      requestKey
+      requestKey,
+      false,
+      context
     );
     if (result.ok) {
       return {
@@ -974,7 +1134,7 @@ async function performPdfDownload(preparedCandidates, filename, requestKey, cont
     const cached = downloadCache[normalizeDownloadUrlKey(cachedCandidate.url)];
     const cachedUrl = cached?.url || cachedCandidate.url;
     const attempted = [cachedUrl];
-    const result = await startChromePdfDownload(cachedUrl, cachedCandidate.url, finalFilename, saveAs, cachedCandidate.source || "pdf-cache", requestKey);
+    const result = await startChromePdfDownload(cachedUrl, cachedCandidate.url, finalFilename, saveAs, cachedCandidate.source || "pdf-cache", requestKey, false, context);
     if (result.ok) {
       return {
         ...result,
@@ -1002,7 +1162,9 @@ async function performPdfDownload(preparedCandidates, filename, requestKey, cont
       finalFilename,
       saveAs,
       nativeFastCandidate.source || "native-fast-path",
-      requestKey
+      requestKey,
+      false,
+      context
     );
     if (result.ok) {
       verifyNativeDownloadInBackground(nativeFastCandidate, requestKey, downloadCache);
@@ -1066,10 +1228,10 @@ async function performPdfDownload(preparedCandidates, filename, requestKey, cont
   const selectedDownloadUrl = forceNativeSaveAs ? pageCandidate.url : downloadUrl;
   const selectedOriginalUrl = forceNativeSaveAs ? pageCandidate.url : originalUrl;
   const result = forceNativeSaveAs
-    ? await startChromePdfDownload(selectedDownloadUrl, selectedOriginalUrl, finalFilename, true, "native-save-as-fallback", requestKey, true)
+    ? await startChromePdfDownload(selectedDownloadUrl, selectedOriginalUrl, finalFilename, true, "native-save-as-fallback", requestKey, true, context)
     : usePageContext
     ? await startPageContextPdfDownload(context.tabId, pageUrl, pageCandidate.url, finalFilename, pageCandidate.source || "page-context")
-    : await startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source, requestKey);
+    : await startChromePdfDownload(downloadUrl, originalUrl, finalFilename, saveAs, source, requestKey, false, context);
   const attempted = uniqueUrls([
     ...verificationResults.map(item => item.candidate?.url),
     selectedDownloadUrl
@@ -1266,7 +1428,7 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
 
     // OpenAlex lookup
     const openAlexUrl = `https://api.openalex.org/works/https://doi.org/${metadata.doi}`;
-    promises.push(fetch(openAlexUrl, {
+    promises.push(fetchResponseWithTimeout(openAlexUrl, {
       headers: { "User-Agent": "mailto:paperpilot@gmail.com" }
     }).then(async (oaResponse) => {
       if (oaResponse.ok) {
@@ -1279,7 +1441,7 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
     }).catch(e => console.warn("OpenAlex lookup failed:", e.message)));
 
     // Unpaywall lookup
-    promises.push(fetch(`https://api.unpaywall.org/v2/${metadata.doi}?email=paperpilot@gmail.com`).then(async (upResponse) => {
+    promises.push(fetchResponseWithTimeout(`https://api.unpaywall.org/v2/${metadata.doi}?email=paperpilot@gmail.com`).then(async (upResponse) => {
       if (upResponse.ok) {
         const upData = await upResponse.json();
         if (upData.best_oa_location) {
@@ -1298,7 +1460,7 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
     // Crossref fallback if title is weak after OpenAlex
     if (isWeakMetadataTitle(metadata.title, metadata.doi)) {
       try {
-        const crResponse = await fetch(`https://api.crossref.org/works/${encodeURIComponent(metadata.doi)}`);
+        const crResponse = await fetchResponseWithTimeout(`https://api.crossref.org/works/${encodeURIComponent(metadata.doi)}`);
         if (crResponse.ok) {
           const crData = await crResponse.json();
           applyCrossrefItem(metadata, crData.message);
@@ -1312,7 +1474,7 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
     if (title) {
       try {
         const openAlexUrl = `https://api.openalex.org/works?filter=title.search:${encodeURIComponent(title)}&limit=1`;
-        const oaResponse = await fetch(openAlexUrl, {
+        const oaResponse = await fetchResponseWithTimeout(openAlexUrl, {
           headers: { "User-Agent": "mailto:paperpilot@gmail.com" }
         });
         if (oaResponse.ok) {
@@ -1330,7 +1492,7 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
     // Crossref lookup fallback if DOI is still missing
     if (!metadata.doi && title && !isWeakMetadataTitle(title)) {
       try {
-        const crResponse = await fetch(`https://api.crossref.org/works?query.title=${encodeURIComponent(title)}&rows=1`);
+        const crResponse = await fetchResponseWithTimeout(`https://api.crossref.org/works?query.title=${encodeURIComponent(title)}&rows=1`);
         if (crResponse.ok) {
           const crData = await crResponse.json();
           if (crData.message && crData.message.items && crData.message.items.length > 0) {
@@ -1345,7 +1507,7 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
     // If DOI was resolved, query Unpaywall
     if (metadata.doi && !metadata.pdfUrl) {
       try {
-        const upResponse = await fetch(`https://api.unpaywall.org/v2/${metadata.doi}?email=paperpilot@gmail.com`);
+        const upResponse = await fetchResponseWithTimeout(`https://api.unpaywall.org/v2/${metadata.doi}?email=paperpilot@gmail.com`);
         if (upResponse.ok) {
           const upData = await upResponse.json();
           if (upData.best_oa_location) {
@@ -1430,48 +1592,93 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
  * Enforces a strict maximum of 500 footprints, shifting out old items.
  * Deduplicates by DOI or title (moving matching item to top of history).
  */
+async function getHistorySnapshot() {
+  const storage = await chrome.storage.local.get(["history", "history_revision"]);
+  return {
+    history: Array.isArray(storage.history) ? storage.history : [],
+    revision: Number.isInteger(storage.history_revision) ? storage.history_revision : 0
+  };
+}
+
+function normalizeHistoryRecords(records) {
+  return (Array.isArray(records) ? records : [])
+    .filter(item => item && typeof item === "object" && (String(item.title || "").trim() || String(item.doi || "").trim()))
+    .slice(0, 500)
+    .map(item => ({
+      title: String(item.title || "Unknown Title").trim(),
+      authors: Array.isArray(item.authors) ? item.authors.map(author => String(author || "").trim()).filter(Boolean).slice(0, 30) : [],
+      journal: String(item.journal || "").trim(),
+      year: Number.isFinite(Number(item.year)) ? Number(item.year) : new Date().getFullYear(),
+      doi: String(item.doi || "").trim(),
+      pdfUrl: /^https?:\/\//i.test(String(item.pdfUrl || "")) ? String(item.pdfUrl) : "",
+      starred: item.starred === true,
+      status: ["visited", "downloaded", "copied_bibtex", "copied_doi", "copied_citation", "copied_markdown"].includes(item.status) ? item.status : "visited",
+      time: Number.isFinite(Number(item.time || item.updatedAt || item.timestamp)) ? Number(item.time || item.updatedAt || item.timestamp) : Date.now()
+    }));
+}
+
+function enqueueHistoryMutation(mutator) {
+  const run = historyMutationQueue.then(async () => {
+    const snapshot = await getHistorySnapshot();
+    return mutator(snapshot);
+  });
+  historyMutationQueue = run.catch(() => {});
+  return run;
+}
+
+async function replaceHistorySnapshot(records, expectedRevision) {
+  return enqueueHistoryMutation(async snapshot => {
+    if (!Number.isInteger(expectedRevision) || expectedRevision !== snapshot.revision) {
+      return {
+        success: false,
+        ok: false,
+        errorCode: "HISTORY_CONFLICT",
+        error: "History changed in another extension context",
+        ...snapshot
+      };
+    }
+    const history = normalizeHistoryRecords(records);
+    const revision = snapshot.revision + 1;
+    await chrome.storage.local.set({ history, history_revision: revision });
+    return { success: true, ok: true, history, revision, historyLength: history.length };
+  });
+}
+
 async function addFootprint(footprint) {
   if (!footprint || (!footprint.title && !footprint.doi)) {
     return { success: false, ok: false, errorCode: "HISTORY_INVALID_RECORD", error: "Invalid footprint data" };
   }
-
-  const storage = await chrome.storage.local.get("history");
-  let history = storage.history || [];
-
-  const timestamp = Date.now();
-  const newItem = {
-    title: footprint.title || "Unknown Title",
-    authors: footprint.authors || [],
-    journal: footprint.journal || "",
-    year: footprint.year || new Date().getFullYear(),
-    doi: footprint.doi || "",
-    pdfUrl: footprint.pdfUrl || "",
-    status: footprint.status || "visited", // 'visited', 'downloaded', 'copied_bibtex'
-    time: timestamp
-  };
-
-  // Deduplicate
-  history = history.filter(item => {
-    const matchDoi = newItem.doi && item.doi && newItem.doi.toLowerCase() === item.doi.toLowerCase();
-    const matchTitle = newItem.title && item.title && newItem.title.toLowerCase().trim() === item.title.toLowerCase().trim();
-    return !matchDoi && !matchTitle;
+  return enqueueHistoryMutation(async snapshot => {
+    let history = snapshot.history;
+    const sameFootprint = item => {
+      const matchDoi = footprint.doi && item.doi && String(footprint.doi).toLowerCase() === String(item.doi).toLowerCase();
+      const matchTitle = footprint.title && item.title && String(footprint.title).toLowerCase().trim() === String(item.title).toLowerCase().trim();
+      return Boolean(matchDoi || matchTitle);
+    };
+    const existing = history.find(sameFootprint) || null;
+    const newItem = normalizeHistoryRecords([{
+      ...footprint,
+      starred: typeof footprint.starred === "boolean" ? footprint.starred : Boolean(existing?.starred),
+      time: Date.now()
+    }])[0];
+    history = [newItem, ...history.filter(item => !sameFootprint(item))].slice(0, 500);
+    const revision = snapshot.revision + 1;
+    await chrome.storage.local.set({ history, history_revision: revision });
+    return {
+      success: true,
+      ok: true,
+      history,
+      revision,
+      historyLength: history.length,
+      starred: newItem.starred,
+      source: "chrome.storage.local"
+    };
   });
-
-  // Put at the top
-  history.unshift(newItem);
-
-  // Cap at 500 entries
-  if (history.length > 500) {
-    history = history.slice(0, 500);
-  }
-
-  await chrome.storage.local.set({ history });
-  return { success: true, ok: true, historyLength: history.length, source: "chrome.storage.local" };
 }
 
 /**
  * Interfaces optional AI API keys for a high-quality summary.
- * Fallback to local offline dynamic mock generator if API key is not configured.
+ * Missing credentials and provider failures are returned explicitly to the page.
  */
 const AI_PROVIDER_DEFAULTS = {
   openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
@@ -1525,6 +1732,16 @@ function buildAcademicMessages(prompt, title, abstract, testOnly = false) {
     { role: "system", content: "You are a helpful academic assistant. Be concise and do not invent paper details." },
     { role: "user", content: `${prompt}\n\nTitle: ${title || ""}\nAbstract: ${abstract || ""}` }
   ];
+}
+
+async function fetchResponseWithTimeout(endpoint, options = {}, timeoutMs = 9000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(endpoint, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function fetchJsonWithTimeout(endpoint, options, timeoutMs = 25000) {
@@ -1718,10 +1935,9 @@ async function fetchEasyScholarDirect(journalName, secretKey) {
   const url = `https://www.easyscholar.cc/open/getPublicationRank?secretKey=${encodeURIComponent(secretKey)}&publicationName=${encodeURIComponent(journalName)}`;
   try {
     console.log("PaperPilot Pro: Querying easyScholar API for", journalName);
-    const response = await fetch(url);
+    const response = await fetchResponseWithTimeout(url, {}, 9000);
     if (response.ok) {
       const json = await response.json();
-      console.log("PaperPilot Pro: easyScholar API raw response for", journalName, json);
       if (json && (json.code == 200 || json.code == "200" || json.msg === "SUCCESS") && json.data) {
         return json.data;
       }

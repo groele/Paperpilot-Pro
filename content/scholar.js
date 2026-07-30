@@ -44,7 +44,6 @@
     "enable_bibtex_btn",
     "enable_scholar_copy_doi_btn",
     "enable_pdf_download_btn",
-    "easyscholar_key",
     "enable_ccf_badge",
     "enable_core_badge",
     "enable_warn_badge",
@@ -69,6 +68,7 @@
     toolbarObserverAttached: false,
     toolbarObserverTarget: null,
     toolbarWatchdog: null,
+    toolbarRepairTimer: null,
     isInternalUpdating: false,
     refreshTimer: null,
     saveTimer: null,
@@ -256,19 +256,19 @@
     return article._ppStableId;
   }
 
-  function getResultSetKey() {
+  function getResultSetKey(articles = getScholarArticles()) {
     const url = new URL(location.href);
     const q = url.searchParams.get('q') || '';
     const start = url.searchParams.get('start') || '0';
-    const ids = getScholarArticles()
+    const ids = articles
       .map((article, index) => getArticleStableId(article, index))
       .sort(collator.compare);
 
     return `${url.pathname}|q=${q}|start=${start}|count=${ids.length}|${ids.join('||')}`;
   }
 
-  function getArticleSignature() {
-    const ids = getScholarArticles()
+  function getArticleSignature(articles = getScholarArticles()) {
+    const ids = articles
       .map((article, index) => {
         return [
           getArticleStableId(article, index),
@@ -313,7 +313,8 @@
   // Life Cycle Engine & Re-rendering Loops
   // =========================================================
   function fetchSettingsAndRun(callback) {
-    chrome.storage.local.get(SETTINGS_KEYS, (settings) => {
+    safeSendMessage({ action: "GET_PUBLIC_SETTINGS", keys: SETTINGS_KEYS }, (response) => {
+      const settings = response?.settings || {};
       state.settings = {
         appearance_mode: settings.appearance_mode || "system",
         enable_ni: settings.enable_ni !== false,
@@ -326,7 +327,7 @@
         enable_bibtex_btn: settings.enable_bibtex_btn !== false,
         enable_scholar_copy_doi_btn: settings.enable_scholar_copy_doi_btn !== false,
         enable_pdf_download_btn: settings.enable_pdf_download_btn !== false,
-        easyscholar_key: (settings.easyscholar_key || "").trim(),
+        easyscholarConfigured: false,
         enable_ccf_badge: settings.enable_ccf_badge !== false,
         enable_core_badge: settings.enable_core_badge !== false,
         enable_warn_badge: settings.enable_warn_badge !== false,
@@ -337,7 +338,10 @@
       };
       currentTheme = state.settings.appearance_mode;
       updateAllThemes();
-      if (callback) callback();
+      safeSendMessage({ action: "EASYSCHOLAR_STATUS" }, status => {
+        state.settings.easyscholarConfigured = Boolean(status?.configured);
+        if (callback) callback();
+      });
     });
   }
 
@@ -365,8 +369,9 @@
     const container = getResultsContainer();
     if (!container) return;
 
-    const currentResultSetKey = getResultSetKey();
-    const currentSignature = getArticleSignature();
+    const articles = getScholarArticles();
+    const currentResultSetKey = getResultSetKey(articles);
+    const currentSignature = getArticleSignature(articles);
 
     const needReprocess =
       forcePanel ||
@@ -399,9 +404,8 @@
     container.classList.add('pp-order-mode');
   }
 
-  function refreshDefaultOrderIfNeeded() {
-    const nextResultSetKey = getResultSetKey();
-    const articles = getScholarArticles();
+  function refreshDefaultOrderIfNeeded(articles = getScholarArticles()) {
+    const nextResultSetKey = getResultSetKey(articles);
 
     if (nextResultSetKey !== state.lastResultSetKey) {
       articles.forEach(article => {
@@ -422,7 +426,7 @@
 
     withInternalUpdate(() => {
       ensureOrderMode();
-      refreshDefaultOrderIfNeeded();
+      refreshDefaultOrderIfNeeded(articles);
 
       // Clear dynamic stats
       maxCites = 100;
@@ -471,7 +475,7 @@
       applyFilters();
     });
 
-    state.lastArticleSignature = getArticleSignature();
+    state.lastArticleSignature = getArticleSignature(articles);
     return true;
   }
 
@@ -545,6 +549,7 @@
     if (state.toolbarWatchdog) return;
 
     state.toolbarWatchdog = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
       if (!isScholarPage() || !state.settings || !state.settings.enable_sorting_filter) return;
       if (!getResultsContainer()) return;
 
@@ -553,7 +558,7 @@
       if (toolbarContainer && (!toolbar || toolbar.parentNode !== toolbarContainer)) {
         ensureSortingToolbar();
       }
-    }, 800);
+    }, 6000);
   }
 
   function setSortType(sortType, silent = false) {
@@ -941,6 +946,22 @@
     
     if (state.toolbarObserver) state.toolbarObserver.disconnect();
     state.toolbarObserverAttached = false;
+    clearTimeout(state.toolbarRepairTimer);
+    state.toolbarRepairTimer = null;
+  }
+
+  function scheduleToolbarRepair() {
+    if (state.toolbarRepairTimer) return;
+    state.toolbarRepairTimer = setTimeout(() => {
+      state.toolbarRepairTimer = null;
+      if (state.isInternalUpdating || !state.settings?.enable_sorting_filter) return;
+      const toolbar = document.getElementById("pp-scholar-sorting-toolbar");
+      const toolbarRoot = getToolbar();
+      const toolbarContainer = getToolbarMountNode();
+      if (toolbarContainer && (!toolbar || !toolbarRoot?.contains(toolbar) || toolbar.parentNode !== toolbarContainer)) {
+        ensureSortingToolbar();
+      }
+    }, 80);
   }
 
   function attachToolbarObserver() {
@@ -958,15 +979,7 @@
 
     state.toolbarObserver = new MutationObserver(() => {
       if (state.isInternalUpdating) return;
-      if (state.settings && state.settings.enable_sorting_filter) {
-        const toolbar = document.getElementById("pp-scholar-sorting-toolbar");
-        const toolbarRoot = getToolbar();
-        const toolbarContainer = getToolbarMountNode();
-        // If Google Scholar's client-side JS wiped it or it was deleted, restore it immediately
-        if (toolbarContainer && (!toolbar || !toolbarRoot.contains(toolbar) || toolbar.parentNode !== toolbarContainer)) {
-          ensureSortingToolbar();
-        }
-      }
+      scheduleToolbarRepair();
     });
 
     state.toolbarObserver.observe(abContainer, {
@@ -1072,10 +1085,11 @@
     if (state.urlWatchTimer) return;
 
     state.urlWatchTimer = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
       if (location.href !== state.lastUrl || getQueryKey() !== state.lastQueryKey) {
         handleRouteChange();
       }
-    }, 1200);
+    }, 5000);
   }
 
   // =========================================================
@@ -1213,7 +1227,7 @@
         let jcrBadge = null;
 
         const shouldShowMetrics = settings.enable_metrics_display &&
-          (settings.enable_metrics_auto_detect === false || Boolean(settings.easyscholar_key));
+          (settings.enable_metrics_auto_detect === false || settings.easyscholarConfigured);
 
         if (shouldShowMetrics) {
           const metrics = getJournalMetrics(venue, year, citations);
@@ -1267,7 +1281,7 @@
             }
 
             // Async easyScholar integration (Robust & Defensively Guarded)
-            if (settings.easyscholar_key && venue && venue !== "Other") {
+            if (settings.easyscholarConfigured && venue && venue !== "Other") {
               safeSendMessage({
                 action: "FETCH_EASYSCHOLAR",
                 journal: venue
@@ -1576,9 +1590,13 @@
           status: "visited"
         }
       }, (response) => {
-        showToast("已成功将该文献加入精选收藏！");
-        starBtn.innerHTML = `⭐ 已收藏`;
-        starBtn.style.color = "#f59e0b";
+        if (response?.success) {
+          showToast("已成功将该文献加入精选收藏！可在扩展弹窗的“文过留痕 → ⭐ 收藏”中查看。");
+          starBtn.innerHTML = `⭐ 已收藏`;
+          starBtn.style.color = "#f59e0b";
+        } else {
+          showToast(`收藏失败：${response?.error || "未能写入文过留痕"}`);
+        }
       });
     };
     actionBar.appendChild(starBtn);
@@ -1856,7 +1874,7 @@
         resultCount: articles.length,
         enhancedCount: articles.filter(card => card.dataset.ppEnhanced === "true").length,
         lastError: "",
-        metricsSource: state.settings?.easyscholar_key ? "easyScholar" : "未配置数据源",
+        metricsSource: state.settings?.easyscholarConfigured ? "easyScholar" : "未配置数据源",
         cachedAt: null,
         stale: false
       },
@@ -1867,6 +1885,11 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const action = message?.action || message?.type;
+    if (action === "PDF_DOWNLOAD_STATUS") {
+      if (message.phase === "complete") showToast("PDF 下载完成");
+      if (message.phase === "interrupted") showToast(`PDF 下载中断：${message.error || "请重试或检查登录状态"}`);
+      return false;
+    }
     if (action === "diagnostics.currentPage") {
       sendResponse(getCurrentPageDiagnostics());
       return false;
@@ -1908,9 +1931,10 @@
     });
   }
 
-  // Reactive settings listener
-  chrome.storage.onChanged.addListener((changes) => {
-    const keysChanged = Object.keys(changes).some(k => SETTINGS_KEYS.includes(k));
+  // Settings are brokered by the service worker so content scripts never read private storage.
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.action !== "PUBLIC_SETTINGS_CHANGED") return false;
+    const keysChanged = (message.keys || []).some(key => SETTINGS_KEYS.includes(key));
     if (keysChanged) {
       const oldPanel = document.querySelector(".pp-scholar-sidebar-panel");
       if (oldPanel) oldPanel.remove();
@@ -1946,6 +1970,7 @@
         refreshPage(true);
       });
     }
+    return false;
   });
 
   if (document.readyState === "loading") {

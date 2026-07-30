@@ -24,7 +24,7 @@
       </div>
       <div class="pp-header-badges">
         <button class="pp-theme-toggle-btn" id="btn-quick-theme-toggle" type="button" title="一键切换深浅色主题">🌙</button>
-        <span class="pp-popup-version">v2.0.0</span>
+        <span class="pp-popup-version">v2.0.2</span>
       </div>
     </header>
 
@@ -217,6 +217,13 @@
             <span class="pp-heatmap-active-copy" id="heatmap-active-text">正在显示选中日期的留痕</span>
             <button type="button" class="pp-heatmap-reset-btn" id="btn-reset-heatmap-filter">重置显示全部</button>
           </div>
+        </div>
+
+        <!-- Keep saved papers discoverable immediately after the activity overview. -->
+        <div class="pp-footprint-quick-filters" id="footprint-quick-filters" aria-label="文过留痕快捷筛选">
+          <span class="pp-footprint-quick-label">快捷查看</span>
+          <button type="button" class="pp-quick-filter active" data-filter="all" aria-pressed="true">全部 (0)</button>
+          <button type="button" class="pp-quick-filter" data-filter="starred" aria-pressed="false">⭐ 收藏 (0)</button>
         </div>
 
         <!-- Expandable Search & Date Filter Panel Card -->

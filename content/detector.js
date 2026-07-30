@@ -76,6 +76,15 @@
     if (!activated) activate(detectAcademicPage());
   }
 
+  function mutationMayExposeAcademicSignal(mutations) {
+    return mutations.some(mutation => Array.from(mutation.addedNodes || []).some(node => {
+      if (node.nodeType !== Node.ELEMENT_NODE) return false;
+      const element = node;
+      if (element.matches?.("meta,link[type='application/pdf'],a[href],button[aria-label],button[title]")) return true;
+      return Boolean(element.querySelector?.("meta[name*='citation' i],link[type='application/pdf'],a[href*='pdf' i],a[href*='doi.org' i],button[aria-label*='pdf' i],button[title*='pdf' i]"));
+    }));
+  }
+
   function scheduleCheck(delayMs) {
     const timer = setTimeout(() => {
       timers.delete(timer);
@@ -86,14 +95,16 @@
 
   RETRY_DELAYS_MS.forEach(scheduleCheck);
   if (document.head) {
-    observer = new MutationObserver(() => {
+    observer = new MutationObserver(mutations => {
+      if (!mutationMayExposeAcademicSignal(mutations)) return;
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(check, 180);
     });
-    observer.observe(document.head, { childList: true, subtree: true, attributes: true });
+    observer.observe(document.head, { childList: true, subtree: true });
     const attachBodyObserver = () => {
       if (!document.body || bodyObserver) return;
-      bodyObserver = new MutationObserver(() => {
+      bodyObserver = new MutationObserver(mutations => {
+        if (!mutationMayExposeAcademicSignal(mutations)) return;
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(check, 220);
       });

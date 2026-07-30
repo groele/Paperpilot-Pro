@@ -272,6 +272,18 @@
       score: 98
     }));
 
+    // A direct PDF surface or a nested viewer target already provides an
+    // actionable route. Avoid walking large application DOMs in this common
+    // fast path; uncertain article pages still receive the full scan below.
+    const initialTerminalCandidate = state.items.some(item => Number(item.score || 0) >= 98);
+    if (options.deferDeepScan === true && initialTerminalCandidate) {
+      state.diagnostics.discoveryMode = "terminal-short-circuit";
+      const prepared = root.pdf?.preparePdfCandidates
+        ? root.pdf.preparePdfCandidates(state.items, { baseUrl })
+        : state.items.sort((a, b) => b.score - a.score);
+      return { candidates: prepared.slice(0, state.maxCandidates), diagnostics: state.diagnostics };
+    }
+
     const discovery = discoverRoots(documentRef, Number(options.maxNodes || 3000), Number(options.maxShadowRoots || 16));
     state.diagnostics.roots = discovery.roots.length;
     state.diagnostics.nodesVisited = discovery.visited;

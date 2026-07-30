@@ -29,13 +29,28 @@ function loadCore(...files) {
 }
 
 function loadBackgroundHarness(options = {}) {
-  const calls = { downloads: [], fetches: [], cancellations: [] };
+  const calls = { downloads: [], fetches: [], cancellations: [], messages: [] };
   const listeners = {};
   const storageData = {
     pdf_download_save_as: false,
     pdf_download_dir: "PaperPilot Pro",
     pdf_download_cache: {}
   };
+  const sessionData = {};
+  const createStorageArea = data => ({
+    get(keys, callback) {
+      const names = Array.isArray(keys) ? keys : [keys];
+      const result = {};
+      names.forEach(name => { if (name in data) result[name] = data[name]; });
+      if (callback) queueMicrotask(() => callback(result));
+      return Promise.resolve(result);
+    },
+    set(values, callback) {
+      Object.assign(data, values);
+      if (callback) queueMicrotask(() => callback());
+      return Promise.resolve();
+    }
+  });
   const sandbox = {
     URL,
     Date,
@@ -67,19 +82,16 @@ function loadBackgroundHarness(options = {}) {
         onMessage: { addListener(listener) { listeners.message = listener; } }
       },
       storage: {
-        local: {
-          get(keys, callback) {
-            const names = Array.isArray(keys) ? keys : [keys];
-            const result = {};
-            names.forEach(name => { if (name in storageData) result[name] = storageData[name]; });
-            queueMicrotask(() => callback(result));
-          },
-          set(values, callback) {
-            Object.assign(storageData, values);
-            queueMicrotask(() => callback?.());
-          }
-        },
+        local: createStorageArea(storageData),
+        session: createStorageArea(sessionData),
         onChanged: { addListener(listener) { listeners.storage = listener; } }
+      },
+      tabs: {
+        query() { return Promise.resolve([]); },
+        sendMessage(tabId, message) {
+          calls.messages.push({ tabId, message });
+          return Promise.resolve();
+        }
       },
       downloads: {
         download(options, callback) {
@@ -110,7 +122,7 @@ function loadBackgroundHarness(options = {}) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "background", "background.js"), "utf8"), sandbox, {
     filename: "background/background.js"
   });
-  return { sandbox, calls, listeners, storageData };
+  return { sandbox, calls, listeners, storageData, sessionData };
 }
 
 test("AI summary reports missing API key instead of creating a fake summary", async () => {
@@ -401,6 +413,26 @@ test("PDF discovery extracts nested viewer URLs and recognizes query-based PDF r
   assert.equal(core.pdfDiscovery.looksLikePdfUrl("https://repo.example/article/file?id=10.1/demo&type=pdf"), true);
 });
 
+test("PDF discovery skips a deep DOM scan for direct PDF and viewer surfaces", () => {
+  const core = loadCore("core/pdf.js", "core/pdf-discovery.js");
+  let scanned = false;
+  const fakeDocument = {
+    contentType: "application/pdf",
+    documentElement: { children: [] },
+    scripts: [],
+    querySelectorAll() { scanned = true; return []; }
+  };
+
+  const result = core.pdfDiscovery.collect(fakeDocument, "https://repo.example/files/article.pdf", {
+    deferDeepScan: true
+  });
+
+  assert.equal(result.diagnostics.discoveryMode, "terminal-short-circuit");
+  assert.equal(result.diagnostics.elementsScanned, 0);
+  assert.equal(scanned, false);
+  assert.equal(result.candidates[0].url, "https://repo.example/files/article.pdf");
+});
+
 test("PDF discovery accepts explicit blob download controls", () => {
   const core = loadCore("core/pdf.js", "core/pdf-discovery.js");
   const element = {
@@ -657,6 +689,95 @@ test("accepted native PDF tasks survive ambiguous MIME and mismatched background
   assert.equal(filenameSuggestion.filename, "PaperPilot Pro/article.pdf");
 });
 
+test("favorites persist through later footprint events and stay visible to the Popup filter", async () => {
+  const { sandbox, storageData } = loadBackgroundHarness();
+
+  const first = await sandbox.addFootprint({ title: "Durable favorite", doi: "10.1000/favorite", starred: true });
+  const second = await sandbox.addFootprint({ title: "Durable favorite", doi: "10.1000/favorite", status: "downloaded" });
+
+  assert.equal(first.starred, true);
+  assert.equal(second.starred, true);
+  assert.equal(storageData.history.length, 1);
+  assert.equal(storageData.history[0].starred, true);
+  assert.equal(storageData.history[0].status, "downloaded");
+});
+
+test("concurrent footprint writes are serialized without dropping either record", async () => {
+  const { sandbox, storageData } = loadBackgroundHarness();
+
+  await Promise.all([
+    sandbox.addFootprint({ title: "First concurrent record", doi: "10.1000/first" }),
+    sandbox.addFootprint({ title: "Second concurrent record", doi: "10.1000/second", starred: true })
+  ]);
+
+  assert.equal(storageData.history.length, 2);
+  assert.equal(storageData.history.some(item => item.doi === "10.1000/first"), true);
+  assert.equal(storageData.history.some(item => item.doi === "10.1000/second" && item.starred), true);
+  assert.equal(storageData.history_revision, 2);
+});
+
+test("history replacement rejects a stale revision without overwriting new records", async () => {
+  const { sandbox, storageData } = loadBackgroundHarness();
+  const snapshot = await sandbox.getHistorySnapshot();
+
+  await sandbox.addFootprint({ title: "New record", doi: "10.1000/new" });
+  const staleReplace = await sandbox.replaceHistorySnapshot([], snapshot.revision);
+
+  assert.equal(staleReplace.success, false);
+  assert.equal(staleReplace.errorCode, "HISTORY_CONFLICT");
+  assert.equal(storageData.history.length, 1);
+  assert.equal(storageData.history[0].doi, "10.1000/new");
+});
+
+test("public settings broker never exposes API secrets to content scripts", async () => {
+  const { sandbox, storageData } = loadBackgroundHarness();
+  storageData.ai_api_key = "sk-private";
+  storageData.easyscholar_key = "private-ranking-key";
+  storageData.appearance_mode = "dark";
+
+  const result = await sandbox.getPublicSettings(["appearance_mode", "ai_api_key", "easyscholar_key"]);
+  const update = await sandbox.setPublicSettings(
+    { metacard_pinned: true, ai_api_key: "attempted-leak" },
+    { tab: { id: 1, url: "https://publisher.example/article" }, url: "https://publisher.example/article" }
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.settings.appearance_mode, "dark");
+  assert.equal(result.settings.ai_api_key, undefined);
+  assert.equal(result.settings.easyscholar_key, undefined);
+  assert.equal(update.success, true);
+  assert.equal(storageData.metacard_pinned, true);
+  assert.equal(storageData.ai_api_key, "sk-private");
+});
+
+test("native download tracking persists the download id after the Chrome task is created", async () => {
+  const { sandbox, sessionData } = loadBackgroundHarness();
+  const candidate = { url: "https://repository.example/article.pdf", source: "explicit-pdf-control", score: 96 };
+
+  const result = await sandbox.downloadPdf(candidate.url, "article.pdf", [candidate]);
+  const trackedIds = sessionData.__active_downloads_by_id || [];
+
+  assert.equal(result.ok, true);
+  assert.equal(trackedIds.some(([id]) => id === result.downloadId), true);
+});
+
+test("native download lifecycle reports creation and completion back to the source tab", async () => {
+  const { sandbox, calls, listeners, sessionData } = loadBackgroundHarness();
+  const candidate = { url: "https://repository.example/article.pdf", source: "explicit-pdf-control", score: 96 };
+
+  const result = await sandbox.downloadPdf(candidate.url, "article.pdf", [candidate], {
+    tabId: 12,
+    pageUrl: "https://repository.example/article"
+  });
+  listeners.downloadChanged({ id: result.downloadId, state: { current: "complete" } });
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls.messages.map(item => item.message.phase), ["created", "complete"]);
+  assert.equal(calls.messages.every(item => item.tabId === 12), true);
+  assert.equal((sessionData.__active_downloads_by_id || []).length, 0);
+});
+
 test("journal content caches site profile resolution per URL", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
 
@@ -699,6 +820,9 @@ test("PDF Save As preference is prewarmed and synchronized without per-click sto
   assert.match(popup, /UPDATE_PDF_DOWNLOAD_SETTINGS/);
   assert.match(background, /forceNativeSaveAs/);
   assert.match(background, /args: \[downloadUrl, filename\]/);
+  assert.match(background, /activeDownloadsReadyPromise/);
+  assert.match(background, /syncActiveDownloadsToSession\(\);/);
+  assert.doesNotMatch(background, /easyScholar API raw response/);
 });
 
 test("broad detector activates for DOI and PDF controls without full-document observer", () => {
@@ -707,14 +831,20 @@ test("broad detector activates for DOI and PDF controls without full-document ob
   assert.match(source, /hasDoiRoute/);
   assert.match(source, /directPdfControl/);
   assert.match(source, /bodyObserver/);
+  assert.match(source, /mutationMayExposeAcademicSignal/);
   assert.doesNotMatch(source, /observer\.observe\(document\.documentElement/);
 });
 
 test("Scholar rendering avoids estimated metric labels and unsafe duplicate selectors", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "content/scholar.js"), "utf8");
+  const journal = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
+  const background = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
 
   assert.doesNotMatch(source, /\(估\)/);
   assert.match(source, /CSS\.escape/);
+  assert.doesNotMatch(source, /easyscholar_key/);
+  assert.doesNotMatch(journal, /easyscholar_key/);
+  assert.match(background, /EASYSCHOLAR_STATUS/);
 });
 
 test("ScienceDirect candidates distinguish signed direct PDFs from browser fallbacks", () => {
@@ -754,6 +884,7 @@ test("journal runtime is guarded, SPA-aware and delegates discovery to the core 
   assert.match(journal, /__PAPERPILOT_JOURNAL_LOADED__/);
   assert.match(journal, /pdfDiscovery\?\.collect/);
   assert.match(journal, /installPageLifecycleWatcher/);
+  assert.match(journal, /PDF_URL_CANDIDATE_CACHE_MS = 30000/);
   assert.match(background, /ACTIVATE_JOURNAL_PAGE/);
   assert.match(activation, /JOURNAL_RUNTIME_FILES/);
   assert.match(activation, /PAGE_ACTIVATION_INCOMPLETE/);
@@ -816,6 +947,19 @@ test("popup and content scripts expose current-page diagnostics", () => {
   assert.match(scholar, /getCurrentPageDiagnostics/);
 });
 
+test("Popup exposes a post-calendar favorite shortcut and reveals filtered records", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "popup/popup.html"), "utf8");
+  const popup = fs.readFileSync(path.join(__dirname, "..", "popup/popup.js"), "utf8");
+
+  const quickFilterIndex = html.indexOf('id="footprint-quick-filters"');
+  const calendarIndex = html.indexOf('id="footprint-heatmap-card"');
+  assert.ok(quickFilterIndex > calendarIndex);
+  assert.match(html, /pp-popup-version">v2\.0\.2/);
+  assert.match(html, /id="footprint-quick-filters"[\s\S]*data-filter="starred"/);
+  assert.match(popup, /function selectFootprintFilter/);
+  assert.match(popup, /historyList\?\.scrollIntoView/);
+});
+
 test("Dashboard Overview exposes and synchronizes the PDF save-as shortcut", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "popup/popup.html"), "utf8");
   const popup = fs.readFileSync(path.join(__dirname, "..", "popup/popup.js"), "utf8");
@@ -862,6 +1006,8 @@ test("citation exports create unique stable keys and include provenance fields",
 });
 
 test("background script includes native download interceptor and pageUrl tracking", () => {
+  const scholar = fs.readFileSync(path.join(__dirname, "..", "content/scholar.js"), "utf8");
+  const journal = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
   const source = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
 
   assert.match(source, /function isSameUrl/);
@@ -870,6 +1016,10 @@ test("background script includes native download interceptor and pageUrl trackin
   assert.match(source, /pdf_cache/);
   assert.match(source, /item\.referrer/);
   assert.match(source, /syncActiveDownloadsToSession/);
-  assert.match(source, /history\.length > 500/);
+  assert.match(source, /setAccessLevel/);
+  assert.match(source, /HISTORY_CONFLICT/);
+  assert.match(source, /PDF_DOWNLOAD_STATUS/);
+  assert.match(source, /fetchResponseWithTimeout/);
+  assert.doesNotMatch(scholar, /chrome\.storage\.local/);
+  assert.doesNotMatch(journal, /chrome\.storage\.local/);
 });
-

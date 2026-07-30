@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.0.2 - 2026-07-30
+
+### Fixed
+
+- Persisted Scholar favorites in footprint history and preserved them after later visit, download, or citation events.
+- Restored and synchronized active Chrome PDF download tracking across MV3 service worker wake-ups.
+- Kept easyScholar secret values out of Scholar and journal content-script configuration paths.
+
+### Changed
+
+- Removed raw easyScholar API response logging and the obsolete duplicate Popup history filter.
+
 ## v2.0.1 - 2026-07-24
 
 ### Fixed & Optimized
