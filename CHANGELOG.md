@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.1 - 2026-08-03
+
+### Fixed
+
+- Restored Scholar source-filter state initialization to prevent `ensureSourceFilterState is not defined` from interrupting result enhancement.
+
 ## v2.1.0 - 2026-08-03
 
 ### Performance & Compatibility

@@ -308,6 +308,14 @@
     return stats;
   }
 
+  function ensureSourceFilterState() {
+    venuesFound.forEach((_, source) => {
+      if (!state.sourceFilterState.has(source)) {
+        state.sourceFilterState.set(source, true);
+      }
+    });
+  }
+
   function getSourceSignature() {
     return JSON.stringify(
       Array.from(getSourceStats().entries()).sort((a, b) => {
