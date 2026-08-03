@@ -45,7 +45,7 @@
     if (!cleanTitle) return true;
     if (/^https?:\/\//i.test(cleanTitle)) return true;
     if (/\.pdf(\?|$)/i.test(cleanTitle)) return true;
-    if (/^(pdf|download|article|full text|acs publications)$/i.test(cleanTitle)) return true;
+    if (/^(pdf|download|article|full text|acs publications|just a moment|please wait|access denied|请稍候…?|访问被拒绝)$/i.test(cleanTitle)) return true;
 
     const cleanDoi = normalizeDoi(doi).toLowerCase();
     const normalizedTitle = cleanTitle
@@ -67,13 +67,13 @@
       pdfUrl: "",
       journal: journal || "",
       publisher: "",
-      year: new Date().getFullYear(),
+      year: null,
       authors: [],
       impactFactor: "N/A",
       jcrQuartile: "N/A",
       casPartition: "N/A",
       citeScore: "N/A",
-      oaStatus: "Closed",
+      oaStatus: "Unknown",
       isEstimated: false,
       metricsSource: "unconfigured",
       ccfRank: "",

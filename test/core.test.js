@@ -954,7 +954,9 @@ test("Popup exposes a post-calendar favorite shortcut and reveals filtered recor
   const quickFilterIndex = html.indexOf('id="footprint-quick-filters"');
   const calendarIndex = html.indexOf('id="footprint-heatmap-card"');
   assert.ok(quickFilterIndex > calendarIndex);
-  assert.match(html, /pp-popup-version">v2\.0\.2/);
+  assert.match(html, /pp-popup-version">v2\.0\.3/);
+  assert.match(html, /id="setting-enable-easyscholar"/);
+  assert.match(popup, /enable_easyscholar: enableEasyScholarInput\.checked/);
   assert.match(html, /id="footprint-quick-filters"[\s\S]*data-filter="starred"/);
   assert.match(popup, /function selectFootprintFilter/);
   assert.match(popup, /historyList\?\.scrollIntoView/);

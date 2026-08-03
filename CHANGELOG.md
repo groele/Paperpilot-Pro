@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.0.3 - 2026-08-03
+
+### Changed
+
+- Added an explicit easyScholar master switch that is disabled by default.
+- Prevented background easyScholar requests unless the integration is explicitly enabled and configured.
+- Improved weak-title detection and preserved unknown publication year and open-access status instead of inventing defaults.
+
 ## v2.0.2 - 2026-07-30
 
 ### Fixed

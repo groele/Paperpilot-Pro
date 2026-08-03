@@ -611,6 +611,7 @@ const initPopup = () => {
     "enable_copy_doi_btn",
     "enable_pdf_download_btn",
     "enable_ai_summary_btn",
+    "enable_easyscholar",
     "easyscholar_key",
     "enable_ccf_badge",
     "enable_core_badge",
@@ -635,6 +636,9 @@ const initPopup = () => {
     }
 
     const easyScholarKeyInput = document.getElementById("setting-easyscholar-key");
+    const enableEasyScholarInput = document.getElementById("setting-enable-easyscholar");
+    enableEasyScholarInput.checked = config.enable_easyscholar === true;
+    easyScholarKeyInput.disabled = !enableEasyScholarInput.checked;
     if (config.easyscholar_key !== undefined) {
       easyScholarKeyInput.value = config.easyscholar_key;
     }
@@ -794,6 +798,22 @@ const initPopup = () => {
 
   const easyScholarKeyInput = document.getElementById("setting-easyscholar-key");
   const toggleEasyScholarBtn = document.getElementById("btn-toggle-easyscholar-visible");
+  const enableEasyScholarInput = document.getElementById("setting-enable-easyscholar");
+
+  const syncEasyScholarControls = () => {
+    const disabled = !enableEasyScholarInput.checked;
+    easyScholarKeyInput.disabled = disabled;
+    toggleEasyScholarBtn.disabled = disabled;
+  };
+  syncEasyScholarControls();
+  enableEasyScholarInput.onchange = () => {
+    syncEasyScholarControls();
+    saveSettings({
+      enable_easyscholar: enableEasyScholarInput.checked,
+      pdf_cache: {},
+      easyscholar_cache: {}
+    }, enableEasyScholarInput.checked ? "easyScholar 学术数据已启用" : "easyScholar 学术数据已关闭");
+  };
 
   easyScholarKeyInput.oninput = () => {
     const keyVal = easyScholarKeyInput.value.trim();

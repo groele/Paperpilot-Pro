@@ -146,6 +146,7 @@ chrome.runtime.onInstalled.addListener(() => {
       "pdf_landing_cache",
       "enable_pdf_download_btn",
       "enable_ai_summary_btn",
+      "enable_easyscholar",
       "easyscholar_key",
       "easyscholar_cache",
       "enable_ccf_badge",
@@ -186,6 +187,7 @@ chrome.runtime.onInstalled.addListener(() => {
         pdf_landing_cache: {},
         enable_pdf_download_btn: true,
         enable_ai_summary_btn: true,
+        enable_easyscholar: false,
         easyscholar_key: "",
         easyscholar_cache: {},
         enable_ccf_badge: true,
@@ -312,8 +314,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (action === "EASYSCHOLAR_STATUS" || action === "metadata.easyscholar.status") {
     withMessageDuration("easyscholar-service", async () => {
-      const settings = await chrome.storage.local.get("easyscholar_key");
-      return { success: true, ok: true, configured: Boolean(String(settings.easyscholar_key || "").trim()) };
+      const settings = await chrome.storage.local.get(["enable_easyscholar", "easyscholar_key"]);
+      const enabled = settings.enable_easyscholar === true;
+      return { success: true, ok: true, enabled, configured: enabled && Boolean(String(settings.easyscholar_key || "").trim()) };
     })
       .then(result => sendResponse(result))
       .catch(err => sendResponse({ success: false, ok: false, configured: false, error: err.message }));
@@ -1348,8 +1351,10 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
   const cacheKey = paperDoi || `title_${title}`;
 
   // Fetch the easyScholar key to determine if we should bypass a stale estimate cache
-  const settings = await chrome.storage.local.get("easyscholar_key");
-  const secretKey = (settings.easyscholar_key || "").trim();
+  const settings = await chrome.storage.local.get(["enable_easyscholar", "easyscholar_key"]);
+  const secretKey = settings.enable_easyscholar === true
+    ? (settings.easyscholar_key || "").trim()
+    : "";
 
   // Check cache first (incorporating 7-day Cache Expiration & Eviction mechanism)
   const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7-day TTL
@@ -1395,13 +1400,13 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
         pdfUrl: "",
         journal: clientJournal || "",
         publisher: "",
-        year: new Date().getFullYear(),
+        year: null,
         authors: [],
         impactFactor: "N/A",
         jcrQuartile: "N/A",
         casPartition: "N/A",
         citeScore: "N/A",
-        oaStatus: "Closed",
+        oaStatus: "Unknown",
         isEstimated: false,
         metricsSource: "unconfigured",
         ccfRank: "",
@@ -1997,7 +2002,10 @@ function mapEasyScholarRank(metadata, rankData) {
 
 async function fetchEasyScholarForScholar(journalName) {
   if (!journalName) return { success: false, error: "Journal name empty" };
-  const settings = await chrome.storage.local.get(["easyscholar_key", "easyscholar_cache"]);
+  const settings = await chrome.storage.local.get(["enable_easyscholar", "easyscholar_key", "easyscholar_cache"]);
+  if (settings.enable_easyscholar !== true) {
+    return { success: false, ok: false, errorCode: "EASYSCHOLAR_DISABLED", error: "easyScholar integration is disabled" };
+  }
   const secretKey = (settings.easyscholar_key || "").trim();
   if (!secretKey) return { success: false, error: "No easyScholar secretKey configured" };
 
