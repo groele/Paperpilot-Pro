@@ -9,7 +9,13 @@
   const COMMON_CHALLENGE_SIGNALS = Object.freeze([
     "just a moment", "checking your browser", "enable javascript and cookies", "verify you are human",
     "access denied", "attention required", "unusual traffic", "institutional sign in",
-    "log in through your institution"
+    "log in through your institution", "sign in to access", "login required", "authentication required",
+    "请稍候", "正在检查您的浏览器", "验证您是真人", "访问被拒绝", "需要登录", "机构登录",
+    "確認しています", "アクセスが拒否されました", "ログインしてください", "人間であることを確認",
+    "잠시만 기다려 주세요", "브라우저를 확인하는 중", "로그인이 필요합니다", "사람인지 확인",
+    "un instant", "vérification de votre navigateur", "connectez-vous pour accéder", "accès refusé",
+    "einen moment", "browser wird überprüft", "anmeldung erforderlich", "zugriff verweigert",
+    "espere un momento", "comprobando su navegador", "inicie sesión para acceder", "acceso denegado"
   ]);
 
   function toUrl(rawUrl) {
@@ -30,6 +36,13 @@
     const decodedPath = decodeURIComponent(url.pathname);
     const match = decodedPath.match(/\/doi\/(?:full\/|abs\/|epdf\/|pdf\/)?(10\.[^?#]+)/i);
     return match ? doiFromText(match[1]) : doiFromText(decodedPath);
+  }
+
+  function iopDoiFromPath(url) {
+    if (!url.hostname.toLowerCase().includes("iopscience.iop.org")) return "";
+    const decodedPath = decodeURIComponent(url.pathname);
+    const match = decodedPath.match(/^\/article\/(10\.\d{4,9}\/.+?)(?:\/(?:meta|pdf|full|abstract))?\/?$/i);
+    return match ? doiFromText(match[1]) : "";
   }
 
   function pdfCandidate(url, source, reason, score = 92, extra = {}) {
@@ -281,7 +294,10 @@
       host: url.hostname.toLowerCase(),
       path: url.pathname,
       lowerPath: url.pathname.toLowerCase(),
-      doi: doiFromPath(url) || doiFromText(url.href)
+      // IOP appends presentation routes such as /meta and /pdf after the DOI.
+      // Resolve that publisher grammar before the generic DOI path matcher so
+      // UI route segments never become part of the bibliographic identifier.
+      doi: iopDoiFromPath(url) || doiFromPath(url) || doiFromText(url.href)
     };
     const adapter = adapters.find(candidate => {
       try {

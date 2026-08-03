@@ -1,15 +1,18 @@
 (function() {
   if (window.top !== window || globalThis.__PAPERPILOT_JOURNAL_LOADED__) return;
 
-  const RETRY_DELAYS_MS = [0, 250, 1000, 3000, 8000, 20000];
+  const RETRY_DELAYS_MS = [0, 300, 1200, 4000, 12000];
+  const JSON_LD_TOTAL_BUDGET = 240000;
   let activationInFlight = false;
   let activated = false;
   let observer = null;
   let bodyObserver = null;
   let debounceTimer = null;
   const timers = new Set();
+  const jsonLdScanCache = new WeakMap();
 
   function detectAcademicPage() {
+    if (document.visibilityState === "hidden") return "";
     const contentType = String(document.contentType || "").toLowerCase();
     if (contentType.includes("application/pdf")) return "pdf-document";
 
@@ -29,10 +32,19 @@
     const articleType = document.querySelector("meta[name='citation_journal_title' i],meta[property='og:type'][content='article' i]");
     if (titleMeta && (doiMeta || articleType)) return "scholarly-metadata";
 
-    const jsonLd = Array.from(document.querySelectorAll("script[type='application/ld+json']")).slice(0, 12);
-    return jsonLd.some(script => /\bScholarlyArticle\b|\bcitation_pdf_url\b|\bcontentUrl\b[^]{0,300}\bpdf\b/i.test(String(script.textContent || "").slice(0, 120000)))
-      ? "scholarly-jsonld"
-      : "";
+    let remaining = JSON_LD_TOTAL_BUDGET;
+    for (const script of document.querySelectorAll("script[type='application/ld+json']")) {
+      if (remaining <= 0) break;
+      const text = String(script.textContent || "").slice(0, remaining);
+      remaining -= text.length;
+      const cached = jsonLdScanCache.get(script);
+      const matched = cached?.text === text
+        ? cached.matched
+        : /\bScholarlyArticle\b|\bcitation_pdf_url\b|\bcontentUrl\b[^]{0,300}\bpdf\b/i.test(text);
+      if (cached?.text !== text) jsonLdScanCache.set(script, { text, matched });
+      if (matched) return "scholarly-jsonld";
+    }
+    return "";
   }
 
   function stop() {
@@ -73,7 +85,7 @@
   }
 
   function check() {
-    if (!activated) activate(detectAcademicPage());
+    if (!activated && document.visibilityState !== "hidden") activate(detectAcademicPage());
   }
 
   function mutationMayExposeAcademicSignal(mutations) {
@@ -88,7 +100,7 @@
   function scheduleCheck(delayMs) {
     const timer = setTimeout(() => {
       timers.delete(timer);
-      check();
+      if (document.visibilityState !== "hidden") check();
     }, delayMs);
     timers.add(timer);
   }
@@ -112,8 +124,11 @@
     };
     attachBodyObserver();
     setTimeout(attachBodyObserver, 500);
-    scheduleCheck(45000);
-    const stopTimer = setTimeout(stop, 50000);
+    const stopTimer = setTimeout(stop, 30000);
     timers.add(stopTimer);
   }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "hidden") check();
+  }, { passive: true });
+  window.addEventListener("pagehide", stop, { once: true });
 })();

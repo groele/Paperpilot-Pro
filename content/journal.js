@@ -239,14 +239,18 @@
   function isPublisherChallengePage() {
     const title = (document.title || "").toLowerCase();
     const bodyPreview = (document.body?.textContent || "").slice(0, 1200).toLowerCase();
-    const challengeHints = [
+    const challengeHints = window.PaperPilotCore?.siteProfiles?.COMMON_CHALLENGE_SIGNALS || [
       "just a moment",
       "checking your browser",
       "enable javascript and cookies",
       "verify you are human",
       "access denied",
       "attention required",
-      "unusual traffic"
+      "unusual traffic", "sign in to access", "login required", "authentication required",
+      "请稍候", "正在检查您的浏览器", "验证您是真人", "访问被拒绝", "需要登录", "机构登录",
+      "ログインしてください", "アクセスが拒否されました", "로그인이 필요합니다", "사람인지 확인",
+      "connectez-vous pour accéder", "accès refusé", "anmeldung erforderlich", "zugriff verweigert",
+      "inicie sesión para acceder", "acceso denegado"
     ];
     return challengeHints.some(hint => title.includes(hint) || bodyPreview.includes(hint));
   }
@@ -1024,6 +1028,7 @@
   // Initialize
   function init() {
     const generation = ++initGeneration;
+    if (document.visibilityState === "hidden") return false;
     if (!hasAcademicMetadata()) return false;
 
     // 1. Extract metadata from the current abstract page
@@ -1034,6 +1039,9 @@
       console.log("PaperPilot Pro: No DOI or Title resolved on this page. Stopping.");
       return false;
     }
+
+    // Paint useful local metadata immediately; remote metrics/OA enrichment is progressive.
+    injectMetacard();
 
     // 2. Query Background for cache/Unpaywall/OpenAlex resolution
     safeSendMessage({
@@ -1068,6 +1076,11 @@
         paperMeta.source = enriched.source || response.source || "";
         paperMeta.cachedAt = enriched.cachedAt || response.cachedAt || null;
 
+        // Refresh the already visible card with enriched data.
+        cardEl?.remove();
+        cardEl = null;
+        injectMetacard();
+
         // Auto Log to history as 'visited'
         logFootprint("visited");
 
@@ -1083,14 +1096,8 @@
                 window.location.href = paperMeta.pdfUrl;
               }, 1200);
             });
-          } else {
-            // 4. Inject Metacard float dashboard
-            injectMetacard();
           }
         });
-      } else {
-        // Enriched failed, fallback to native metadata injection
-        injectMetacard();
       }
     });
 
@@ -1180,11 +1187,14 @@
     const doiLinkCandidates = Array.from(document.querySelectorAll("a[href*='doi.org/'], a[href*='/doi/10.']"))
       .flatMap(link => [link.href, link.textContent || ""]);
     const doi = extractDoiFromCandidates([
-      ...(siteProfile?.doiCandidates || []),
+      // Embedded bibliographic metadata is authoritative. Publisher URL
+      // routes are fallbacks because paths can append UI suffixes (/meta,
+      // /pdf, /full) that are not part of the DOI itself.
       ...getMetaCandidates(doiMetaNames),
       extractJsonLdDoi(jsonLdArticle),
-      window.location.href,
       ...doiLinkCandidates,
+      ...(siteProfile?.doiCandidates || []),
+      window.location.href,
       document.body?.textContent?.slice(0, 20000) || ""
     ]);
 
@@ -2081,8 +2091,12 @@
     globalThis.__PAPERPILOT_JOURNAL_ROUTE_WATCHER__ = true;
     let currentIdentity = getArticleIdentity();
     let timer = null;
+    let observer = null;
+    let pollTimer = null;
+    let disposed = false;
 
     const checkRoute = () => {
+      if (disposed || document.visibilityState === "hidden") return;
       clearTimeout(timer);
       timer = setTimeout(() => {
         const nextIdentity = getArticleIdentity();
@@ -2103,21 +2117,40 @@
     // watching the document head plus a low-frequency URL poll avoids a
     // permanent full-page subtree observer on mutation-heavy journal apps.
     if (document.head) {
-      const observer = new MutationObserver(checkRoute);
+      observer = new MutationObserver(checkRoute);
       observer.observe(document.head, {
         childList: true,
         subtree: true,
         attributes: true
       });
     }
-    setInterval(() => {
-      if (document.visibilityState !== "hidden") checkRoute();
-    }, 8000);
+    const startPolling = () => {
+      if (!pollTimer && !disposed && document.visibilityState !== "hidden") {
+        pollTimer = setInterval(checkRoute, 15000);
+      }
+    };
+    const stopPolling = () => {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
+    };
+    startPolling();
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState !== "hidden") checkRoute();
+      if (document.visibilityState === "hidden") stopPolling();
+      else {
+        checkRoute();
+        startPolling();
+        if (!paperMeta && !cardEl) init();
+      }
     }, { passive: true });
     window.addEventListener("popstate", checkRoute, { passive: true });
     window.addEventListener("hashchange", checkRoute, { passive: true });
+    window.addEventListener("pagehide", () => {
+      disposed = true;
+      ++initGeneration;
+      clearTimeout(timer);
+      stopPolling();
+      observer?.disconnect();
+    }, { once: true });
   }
 
   // Run initialization

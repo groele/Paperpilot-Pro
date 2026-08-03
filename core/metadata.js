@@ -60,6 +60,36 @@
     return cleanTitle.length < 8;
   }
 
+  function normalizeTitle(title) {
+    return String(title || "")
+      .normalize("NFKD")
+      .toLowerCase()
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/&/g, " and ")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  function titleSimilarity(left, right) {
+    const a = normalizeTitle(left);
+    const b = normalizeTitle(right);
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    const aTokens = new Set(a.split(" ").filter(token => token.length > 1));
+    const bTokens = new Set(b.split(" ").filter(token => token.length > 1));
+    if (!aTokens.size || !bTokens.size) return 0;
+    let intersection = 0;
+    for (const token of aTokens) if (bTokens.has(token)) intersection += 1;
+    // Sørensen-Dice is robust to subtitle/punctuation differences while still
+    // rejecting an unrelated first search result.
+    return (2 * intersection) / (aTokens.size + bTokens.size);
+  }
+
+  function isTitleMatch(query, candidate, threshold = 0.72) {
+    return titleSimilarity(query, candidate) >= threshold;
+  }
+
   function createBaseMetadata({ doi = "", title = "", journal = "" } = {}) {
     return {
       doi: normalizeDoi(doi),
@@ -99,6 +129,22 @@
       metadata.authors = item.author.map(a => `${a.given || ""} ${a.family || ""}`.trim()).filter(Boolean);
     }
     if (!metadata.sources.includes("Crossref")) metadata.sources.push("Crossref");
+    return metadata;
+  }
+
+  function applyCslJson(metadata, item) {
+    if (!item) return metadata;
+    const compatible = {
+      ...item,
+      DOI: item.DOI || item.doi,
+      title: Array.isArray(item.title) ? item.title : [item.title].filter(Boolean),
+      "container-title": Array.isArray(item["container-title"])
+        ? item["container-title"]
+        : [item["container-title"]].filter(Boolean)
+    };
+    applyCrossrefItem(metadata, compatible);
+    metadata.sources = metadata.sources.filter(source => source !== "Crossref");
+    if (!metadata.sources.includes("DOI CSL JSON")) metadata.sources.push("DOI CSL JSON");
     return metadata;
   }
 
@@ -164,8 +210,12 @@
     normalizeDoi,
     extractDoi,
     isWeakTitle,
+    normalizeTitle,
+    titleSimilarity,
+    isTitleMatch,
     createBaseMetadata,
     applyCrossrefItem,
+    applyCslJson,
     applyOpenAlexWork,
     applyUnpaywall,
     applyEasyScholarRank,

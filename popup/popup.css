@@ -1281,6 +1281,15 @@ body {
   box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.15);
 }
 
+.pp-history-load-more {
+  width: 100%; min-height: 36px; margin: 4px 0 8px;
+  border: 1px solid var(--glass-border); border-radius: 9px;
+  background: var(--glass-card); color: var(--primary); font: inherit; cursor: pointer;
+}
+.pp-history-load-more:hover, .pp-history-load-more:focus-visible {
+  border-color: var(--primary); background: var(--glass-card-hover); outline: none;
+}
+
 /* Left accent bar — colored by status */
 .pp-foot-accent {
   width: 4px;

@@ -74,6 +74,13 @@
     saveTimer: null,
     routeHooked: false,
     urlWatchTimer: null,
+    initRetryTimer: null,
+    suspended: false,
+    urlWatchDelay: 2000,
+    easyScholarStatus: null,
+    easyScholarStatusAt: 0,
+    easyScholarStatusPending: false,
+    easyScholarStatusCallbacks: [],
 
     lastUrl: location.href,
     lastQueryKey: '',
@@ -89,6 +96,7 @@
 
     initRetryCount: 0,
     initialized: false,
+    initializing: false,
     settings: null
   };
 
@@ -312,6 +320,25 @@
   // =========================================================
   // Life Cycle Engine & Re-rendering Loops
   // =========================================================
+  function getEasyScholarStatus(callback, force = false) {
+    const fresh = state.easyScholarStatus !== null &&
+      (Date.now() - state.easyScholarStatusAt) < 300000;
+    if (!force && fresh) {
+      callback(state.easyScholarStatus);
+      return;
+    }
+    state.easyScholarStatusCallbacks.push(callback);
+    if (state.easyScholarStatusPending) return;
+    state.easyScholarStatusPending = true;
+    safeSendMessage({ action: "EASYSCHOLAR_STATUS" }, status => {
+      state.easyScholarStatus = Boolean(status?.configured);
+      state.easyScholarStatusAt = Date.now();
+      state.easyScholarStatusPending = false;
+      const callbacks = state.easyScholarStatusCallbacks.splice(0);
+      callbacks.forEach(fn => fn(state.easyScholarStatus));
+    });
+  }
+
   function fetchSettingsAndRun(callback) {
     safeSendMessage({ action: "GET_PUBLIC_SETTINGS", keys: SETTINGS_KEYS }, (response) => {
       const settings = response?.settings || {};
@@ -338,8 +365,8 @@
       };
       currentTheme = state.settings.appearance_mode;
       updateAllThemes();
-      safeSendMessage({ action: "EASYSCHOLAR_STATUS" }, status => {
-        state.settings.easyscholarConfigured = Boolean(status?.configured);
+      getEasyScholarStatus(configured => {
+        state.settings.easyscholarConfigured = configured;
         if (callback) callback();
       });
     });
@@ -1084,12 +1111,45 @@
   function startUrlFallbackWatcher() {
     if (state.urlWatchTimer) return;
 
-    state.urlWatchTimer = setInterval(() => {
-      if (document.visibilityState === "hidden") return;
+    const tick = () => {
+      state.urlWatchTimer = null;
+      if (state.suspended || document.visibilityState === "hidden") return;
       if (location.href !== state.lastUrl || getQueryKey() !== state.lastQueryKey) {
         handleRouteChange();
+        state.urlWatchDelay = 2000;
+      } else {
+        state.urlWatchDelay = Math.min(10000, state.urlWatchDelay + 1000);
       }
-    }, 5000);
+      state.urlWatchTimer = setTimeout(tick, state.urlWatchDelay);
+    };
+    state.urlWatchTimer = setTimeout(tick, state.urlWatchDelay);
+  }
+
+  function suspendLifecycle() {
+    state.suspended = true;
+    disconnectObserver();
+    clearTimeout(state.refreshTimer);
+    clearTimeout(state.saveTimer);
+    clearTimeout(state.urlWatchTimer);
+    clearTimeout(state.initRetryTimer);
+    clearInterval(state.toolbarWatchdog);
+    state.refreshTimer = state.saveTimer = state.urlWatchTimer = state.initRetryTimer = null;
+    state.toolbarWatchdog = null;
+  }
+
+  function resumeLifecycle() {
+    if (document.visibilityState === "hidden") return;
+    state.suspended = false;
+    state.urlWatchDelay = 2000;
+    startUrlFallbackWatcher();
+    if (state.settings?.enable_sorting_filter) startToolbarWatchdog();
+    if (state.initialized) {
+      attachObserver();
+      handleRouteChange();
+      debounceRefresh(false);
+    } else {
+      init();
+    }
   }
 
   // =========================================================
@@ -1901,7 +1961,8 @@
   // Initializer Sequence
   // =========================================================
   function init() {
-    if (!isScholarPage()) return;
+    if (!isScholarPage() || state.suspended || state.initializing) return;
+    state.initializing = true;
 
     hookRouteChanges();
     startUrlFallbackWatcher();
@@ -1911,6 +1972,8 @@
     loadPersistedState();
 
     fetchSettingsAndRun(() => {
+      state.initializing = false;
+      if (state.suspended) return;
       if (state.settings.enable_sorting_filter) {
         ensureSortingToolbar();
         startToolbarWatchdog();
@@ -1921,7 +1984,8 @@
       if (!ok) {
         state.initRetryCount += 1;
         if (state.initRetryCount <= 25) {
-          setTimeout(init, 250);
+          clearTimeout(state.initRetryTimer);
+          state.initRetryTimer = setTimeout(init, 250);
           return;
         }
         return;
@@ -1978,4 +2042,11 @@
   } else {
     init();
   }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") suspendLifecycle();
+    else resumeLifecycle();
+  });
+  window.addEventListener("pagehide", suspendLifecycle);
+  window.addEventListener("pageshow", resumeLifecycle);
 })();

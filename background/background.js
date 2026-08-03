@@ -17,6 +17,10 @@ try {
 
 const PP_CORE = globalThis.PaperPilotCore || {};
 const PP_BACKGROUND = globalThis.PaperPilotBackground || {};
+const METADATA_CACHE_SCHEMA_VERSION = 2;
+const METADATA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const METADATA_TITLE_MATCH_THRESHOLD = 0.72;
+const DEFAULT_METADATA_CONTACT_EMAIL = PP_CORE.metadata?.UNPAYWALL_EMAIL || "paperpilot@gmail.com";
 
 const PUBLIC_SETTING_KEYS = new Set([
   "auto_redirect", "pdf_download_save_as", "pdf_naming", "pdf_download_dir",
@@ -30,6 +34,7 @@ const PUBLIC_SETTING_KEYS = new Set([
 ]);
 const MAX_PDF_LANDING_CACHE_ENTRIES = 100;
 let historyMutationQueue = Promise.resolve();
+let easyScholarConfigGeneration = 0;
 
 function restrictLocalStorageToTrustedContexts() {
   const setAccessLevel = chrome.storage?.local?.setAccessLevel;
@@ -149,6 +154,8 @@ chrome.runtime.onInstalled.addListener(() => {
       "enable_easyscholar",
       "easyscholar_key",
       "easyscholar_cache",
+      "openalex_api_key",
+      "scholarly_contact_email",
       "enable_ccf_badge",
       "enable_core_badge",
       "enable_warn_badge",
@@ -190,6 +197,8 @@ chrome.runtime.onInstalled.addListener(() => {
         enable_easyscholar: false,
         easyscholar_key: "",
         easyscholar_cache: {},
+        openalex_api_key: "",
+        scholarly_contact_email: "",
         enable_ccf_badge: true,
         enable_core_badge: true,
         enable_warn_badge: true,
@@ -635,6 +644,8 @@ const PDF_URL_CACHE_MAX_ENTRIES = 320;
 const PDF_REQUEST_CACHE_MAX_ENTRIES = 120;
 const pdfDownloadSingleFlight = PP_CORE.cache?.createSingleFlight?.();
 const pdfVerificationSingleFlight = PP_CORE.cache?.createSingleFlight?.();
+const metadataSingleFlight = PP_CORE.cache?.createSingleFlight?.();
+const metadataFlights = new Map();
 const inFlightPdfDownloads = new Map();
 let pdfRuntimeStatePromise = null;
 let pdfRuntimeState = null;
@@ -719,6 +730,7 @@ if (chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local") return;
     updatePdfRuntimeState(changes);
+    if (changes.enable_easyscholar || changes.easyscholar_key) easyScholarConfigGeneration += 1;
     broadcastPublicSettingsChanged(changes);
   });
 }
@@ -1345,29 +1357,81 @@ async function checkPdfUrl(url, parentSignal = null) {
  * Queries Unpaywall & OpenAlex APIs concurrently to retrieve open access PDF links,
  * journal metrics (JCR quartiles, IF) and formats metadata, using cache if available.
  */
-async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
+function getMetadataFlightKey(doi, title, pageUrl = "") {
+  const normalizedDoi = normalizeDoiForLookup(doi);
+  const normalizedTitle = PP_CORE.metadata?.normalizeTitle?.(title) || String(title || "").trim().toLowerCase();
+  const pageKey = String(pageUrl || "").split("#")[0];
+  return `${normalizedDoi ? `doi:${normalizedDoi.toLowerCase()}` : `title:${normalizedTitle}`}|page:${pageKey}`;
+}
+
+function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
+  const key = getMetadataFlightKey(doi, title, pageUrl);
+  if (metadataSingleFlight) {
+    return metadataSingleFlight.run(key, () => performFetchPaperMetadata(doi, title, clientJournal, pageUrl));
+  }
+  if (metadataFlights.has(key)) return metadataFlights.get(key);
+  const flight = performFetchPaperMetadata(doi, title, clientJournal, pageUrl)
+    .finally(() => metadataFlights.delete(key));
+  metadataFlights.set(key, flight);
+  return flight;
+}
+
+function metadataTitleMatches(query, candidate) {
+  return PP_CORE.metadata?.isTitleMatch
+    ? PP_CORE.metadata.isTitleMatch(query, candidate, METADATA_TITLE_MATCH_THRESHOLD)
+    : String(query || "").trim().toLowerCase() === String(candidate || "").trim().toLowerCase();
+}
+
+function buildOpenAlexUrl(path, apiKey, email) {
+  const url = new URL(`https://api.openalex.org/${path}`);
+  if (apiKey) url.searchParams.set("api_key", apiKey);
+  if (email) url.searchParams.set("mailto", email);
+  return url.toString();
+}
+
+function encodeDoiPath(doi) {
+  return String(doi || "").split("/").map(segment => encodeURIComponent(segment)).join("/");
+}
+
+async function fetchJsonResponse(url, options = {}) {
+  const response = await fetchResponseWithTimeout(url, options);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
   // If DOI is missing, try to resolve via title using OpenAlex
   let paperDoi = normalizeDoiForLookup(doi);
-  const cacheKey = paperDoi || `title_${title}`;
+  const normalizedRequestedTitle = PP_CORE.metadata?.normalizeTitle?.(title) || String(title || "").trim().toLowerCase();
+  const cacheKey = paperDoi || `title_${normalizedRequestedTitle}`;
 
   // Fetch the easyScholar key to determine if we should bypass a stale estimate cache
-  const settings = await chrome.storage.local.get(["enable_easyscholar", "easyscholar_key"]);
+  const settings = await chrome.storage.local.get([
+    "enable_easyscholar", "easyscholar_key", "openalex_api_key", "scholarly_contact_email"
+  ]);
   const secretKey = settings.enable_easyscholar === true
     ? (settings.easyscholar_key || "").trim()
     : "";
+  const openAlexApiKey = String(settings.openalex_api_key || "").trim();
+  const contactEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(settings.scholarly_contact_email || "").trim())
+    ? String(settings.scholarly_contact_email).trim()
+    : DEFAULT_METADATA_CONTACT_EMAIL;
 
   // Check cache first (incorporating 7-day Cache Expiration & Eviction mechanism)
-  const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7-day TTL
   const storage = await chrome.storage.local.get("pdf_cache");
   const cache = storage.pdf_cache || {};
   if (cache[cacheKey]) {
     const cachedData = cache[cacheKey];
+    if (cachedData.cacheSchemaVersion !== METADATA_CACHE_SCHEMA_VERSION) {
+      delete cache[cacheKey];
+      await chrome.storage.local.set({ pdf_cache: cache });
+    } else {
     if (pageUrl && cachedData.pageUrl !== pageUrl) {
       cachedData.pageUrl = pageUrl;
       await chrome.storage.local.set({ pdf_cache: cache });
     }
     const cachedAt = cachedData.cachedAt || 0;
-    const expiresAt = cachedData.expiresAt || (cachedAt + CACHE_TTL_MS);
+    const expiresAt = cachedData.expiresAt || (cachedAt + METADATA_CACHE_TTL_MS);
     const isExpired = Date.now() > expiresAt;
     cachedData.expiresAt = expiresAt;
     cachedData.stale = isExpired;
@@ -1389,6 +1453,7 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
       }
     } else {
       console.log("PaperPilot Pro: Metadata cache expired or legacy for key:", cacheKey);
+    }
     }
   }
 
@@ -1427,40 +1492,26 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
     }).catch(err => console.warn("easyScholar lookup failed:", err.message));
   }
 
-  // 1. Resolve DOI & fetch OpenAlex/Unpaywall in parallel if DOI is present
+  // Resolve independent providers concurrently. DOI content negotiation gives
+  // authoritative CSL metadata without an extra Crossref-specific dependency.
   if (metadata.doi) {
-    const promises = [];
-
-    // OpenAlex lookup
-    const openAlexUrl = `https://api.openalex.org/works/https://doi.org/${metadata.doi}`;
-    promises.push(fetchResponseWithTimeout(openAlexUrl, {
-      headers: { "User-Agent": "mailto:paperpilot@gmail.com" }
-    }).then(async (oaResponse) => {
-      if (oaResponse.ok) {
-        const oaData = await oaResponse.json();
-        const work = oaData.results ? oaData.results[0] : oaData;
-        if (work && PP_CORE.metadata?.applyOpenAlexWork) {
-          PP_CORE.metadata.applyOpenAlexWork(metadata, work);
-        }
-      }
-    }).catch(e => console.warn("OpenAlex lookup failed:", e.message)));
-
-    // Unpaywall lookup
-    promises.push(fetchResponseWithTimeout(`https://api.unpaywall.org/v2/${metadata.doi}?email=paperpilot@gmail.com`).then(async (upResponse) => {
-      if (upResponse.ok) {
-        const upData = await upResponse.json();
-        if (upData.best_oa_location) {
-          if (PP_CORE.metadata?.applyUnpaywall) {
-            PP_CORE.metadata.applyUnpaywall(metadata, upData);
-          } else {
-            metadata.pdfUrl = upData.best_oa_location.url_for_pdf || upData.best_oa_location.url || "";
-            metadata.oaStatus = upData.oa_status || "Open";
-          }
-        }
-      }
-    }).catch(e => console.warn("Unpaywall lookup failed:", e.message)));
-
-    await Promise.all(promises);
+    const encodedDoi = encodeDoiPath(metadata.doi);
+    const [csl, openAlex, unpaywall] = await Promise.all([
+      fetchJsonResponse(`https://doi.org/${encodedDoi}`, {
+        headers: { Accept: "application/vnd.citationstyles.csl+json" }
+      }).catch(e => (console.warn("DOI CSL lookup failed:", e.message), null)),
+      fetchJsonResponse(buildOpenAlexUrl(`works/https://doi.org/${encodedDoi}`, openAlexApiKey, contactEmail), {
+        headers: { "User-Agent": `mailto:${contactEmail}` }
+      }).catch(e => (console.warn("OpenAlex lookup failed:", e.message), null)),
+      fetchJsonResponse(`https://api.unpaywall.org/v2/${encodedDoi}?email=${encodeURIComponent(contactEmail)}`)
+        .catch(e => (console.warn("Unpaywall lookup failed:", e.message), null))
+    ]);
+    const work = openAlex?.results ? openAlex.results[0] : openAlex;
+    if (work && PP_CORE.metadata?.applyOpenAlexWork) PP_CORE.metadata.applyOpenAlexWork(metadata, work);
+    // DOI-negotiated CSL is the canonical bibliographic source and therefore
+    // applies after OpenAlex enrichment so it wins for title/authors/journal/year.
+    if (csl && PP_CORE.metadata?.applyCslJson) PP_CORE.metadata.applyCslJson(metadata, csl);
+    if (unpaywall && PP_CORE.metadata?.applyUnpaywall) PP_CORE.metadata.applyUnpaywall(metadata, unpaywall);
 
     // Crossref fallback if title is weak after OpenAlex
     if (isWeakMetadataTitle(metadata.title, metadata.doi)) {
@@ -1475,44 +1526,31 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
       }
     }
   } else {
-    // DOI is missing, sequentially resolve DOI via title first
-    if (title) {
-      try {
-        const openAlexUrl = `https://api.openalex.org/works?filter=title.search:${encodeURIComponent(title)}&limit=1`;
-        const oaResponse = await fetchResponseWithTimeout(openAlexUrl, {
-          headers: { "User-Agent": "mailto:paperpilot@gmail.com" }
-        });
-        if (oaResponse.ok) {
-          const oaData = await oaResponse.json();
-          const work = oaData.results ? oaData.results[0] : oaData;
-          if (work && PP_CORE.metadata?.applyOpenAlexWork) {
-            PP_CORE.metadata.applyOpenAlexWork(metadata, work);
-          }
-        }
-      } catch (e) {
-        console.warn("OpenAlex title lookup failed:", e.message);
-      }
-    }
-
-    // Crossref lookup fallback if DOI is still missing
-    if (!metadata.doi && title && !isWeakMetadataTitle(title)) {
-      try {
-        const crResponse = await fetchResponseWithTimeout(`https://api.crossref.org/works?query.title=${encodeURIComponent(title)}&rows=1`);
-        if (crResponse.ok) {
-          const crData = await crResponse.json();
-          if (crData.message && crData.message.items && crData.message.items.length > 0) {
-            applyCrossrefItem(metadata, crData.message.items[0]);
-          }
-        }
-      } catch (e) {
-        console.warn("Crossref title lookup failed:", e.message);
-      }
+    // Search both indexes concurrently, but never accept a first result unless
+    // its normalized title is sufficiently similar to the requested paper.
+    if (title && !isWeakMetadataTitle(title)) {
+      const [oaData, crData] = await Promise.all([
+        fetchJsonResponse(buildOpenAlexUrl(`works?filter=title.search:${encodeURIComponent(title)}&limit=1`, openAlexApiKey, contactEmail), {
+          headers: { "User-Agent": `mailto:${contactEmail}` }
+        }).catch(e => (console.warn("OpenAlex title lookup failed:", e.message), null)),
+        fetchJsonResponse(`https://api.crossref.org/works?query.title=${encodeURIComponent(title)}&rows=1`)
+          .catch(e => (console.warn("Crossref title lookup failed:", e.message), null))
+      ]);
+      const oaWork = oaData?.results?.[0];
+      const crItem = crData?.message?.items?.[0];
+      const accepted = [
+        oaWork && { score: PP_CORE.metadata?.titleSimilarity?.(title, oaWork.title) || 0, source: "openalex", item: oaWork },
+        crItem && { score: PP_CORE.metadata?.titleSimilarity?.(title, crItem.title?.[0]) || 0, source: "crossref", item: crItem }
+      ].filter(Boolean).filter(candidate => metadataTitleMatches(title, candidate.source === "openalex" ? candidate.item.title : candidate.item.title?.[0]))
+        .sort((a, b) => b.score - a.score)[0];
+      if (accepted?.source === "openalex") PP_CORE.metadata?.applyOpenAlexWork?.(metadata, accepted.item);
+      if (accepted?.source === "crossref") applyCrossrefItem(metadata, accepted.item);
     }
 
     // If DOI was resolved, query Unpaywall
     if (metadata.doi && !metadata.pdfUrl) {
       try {
-        const upResponse = await fetchResponseWithTimeout(`https://api.unpaywall.org/v2/${metadata.doi}?email=paperpilot@gmail.com`);
+        const upResponse = await fetchResponseWithTimeout(`https://api.unpaywall.org/v2/${encodeURIComponent(metadata.doi)}?email=${encodeURIComponent(contactEmail)}`);
         if (upResponse.ok) {
           const upData = await upResponse.json();
           if (upData.best_oa_location) {
@@ -1570,13 +1608,14 @@ async function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
   // Cache final metadata with timestamp for expiration eviction
   metadata.pageUrl = pageUrl || metadata.pageUrl || "";
   metadata.cachedAt = Date.now();
-  metadata.expiresAt = metadata.cachedAt + CACHE_TTL_MS;
+  metadata.expiresAt = metadata.cachedAt + METADATA_CACHE_TTL_MS;
+  metadata.cacheSchemaVersion = METADATA_CACHE_SCHEMA_VERSION;
   metadata.stale = false;
   metadata.source = metadata.sources && metadata.sources.length ? metadata.sources.join(", ") : "local";
   cache[cacheKey] = metadata;
   PP_CORE.cache?.pruneRecordObject?.(cache, {
     maxEntries: 500,
-    ttlMs: 4 * CACHE_TTL_MS
+    ttlMs: 4 * METADATA_CACHE_TTL_MS
   });
   await chrome.storage.local.set({ pdf_cache: cache });
 
@@ -1905,12 +1944,23 @@ async function callAISummarize(abstract, title) {
 // FIFO rate-limiting queue for easyScholar API (max 2 requests per second)
 let easyscholarQueue = [];
 let isProcessingQueue = false;
+const easyScholarFlights = new Map();
 const RATE_LIMIT_MS = 600; // Keep safe interval > 500ms (2 req/s)
 
 function enqueueEasyScholar(journalName, secretKey) {
-  return new Promise((resolve) => {
-    easyscholarQueue.push({ journalName, secretKey, resolve });
+  const normalizedJournal = PP_CORE.metadata?.normalizeTitle?.(journalName) || String(journalName || "").trim().toLowerCase();
+  if (!normalizedJournal || !secretKey) return Promise.resolve(null);
+  if (easyScholarFlights.has(normalizedJournal)) return easyScholarFlights.get(normalizedJournal);
+  const generation = easyScholarConfigGeneration;
+  const promise = new Promise((resolve) => {
+    easyscholarQueue.push({ journalName, secretKey, generation, resolve });
     processEasyScholarQueue();
+  });
+  easyScholarFlights.set(normalizedJournal, promise);
+  return promise.finally(() => {
+    setTimeout(() => {
+      if (easyScholarFlights.get(normalizedJournal) === promise) easyScholarFlights.delete(normalizedJournal);
+    }, RATE_LIMIT_MS);
   });
 }
 
@@ -1918,8 +1968,15 @@ function processEasyScholarQueue() {
   if (isProcessingQueue || easyscholarQueue.length === 0) return;
   isProcessingQueue = true;
 
-  const { journalName, secretKey, resolve } = easyscholarQueue.shift();
-  fetchEasyScholarDirect(journalName, secretKey)
+  const { journalName, secretKey, generation, resolve } = easyscholarQueue.shift();
+  Promise.resolve().then(async () => {
+    // Re-check the default-off gate immediately before network I/O. A queued
+    // request is safely cancelled when the user disables or rotates the key.
+    if (generation !== easyScholarConfigGeneration) return null;
+    const latest = await chrome.storage.local.get(["enable_easyscholar", "easyscholar_key"]);
+    if (latest.enable_easyscholar !== true || String(latest.easyscholar_key || "").trim() !== secretKey) return null;
+    return fetchEasyScholarDirect(journalName, secretKey);
+  })
     .then(result => {
       resolve(result);
     })

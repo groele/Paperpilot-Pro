@@ -105,6 +105,8 @@ const initPopup = () => {
   const testAiBtn = document.getElementById("btn-test-ai-connection");
   const aiTestStatus = document.getElementById("ai-test-status");
   const configAppearanceMode = document.getElementById("setting-appearance-mode");
+  const configOpenAlexApiKey = document.getElementById("setting-openalex-api-key");
+  const configScholarlyContactEmail = document.getElementById("setting-scholarly-contact-email");
 
   // Feature toggles
   const configNi = document.getElementById("setting-enable-ni");
@@ -145,6 +147,10 @@ const initPopup = () => {
   let currentDiagnostics = null;
   let currentPdfDownloadSaveAs = false;
   const inputSaveTimers = new Map();
+  const HISTORY_PAGE_SIZE = 60;
+  let renderedHistoryLimit = HISTORY_PAGE_SIZE;
+  let historySearchTimer = null;
+  let historyStats = { all: 0, starred: 0, downloaded: 0, copied: 0 };
   const AI_PROVIDER_DEFAULTS = {
     openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
     gemini: { model: "gemini-1.5-flash", baseUrl: "https://generativelanguage.googleapis.com/v1beta" },
@@ -613,6 +619,8 @@ const initPopup = () => {
     "enable_ai_summary_btn",
     "enable_easyscholar",
     "easyscholar_key",
+    "openalex_api_key",
+    "scholarly_contact_email",
     "enable_ccf_badge",
     "enable_core_badge",
     "enable_warn_badge",
@@ -642,6 +650,8 @@ const initPopup = () => {
     if (config.easyscholar_key !== undefined) {
       easyScholarKeyInput.value = config.easyscholar_key;
     }
+    if (configOpenAlexApiKey) configOpenAlexApiKey.value = config.openalex_api_key || "";
+    if (configScholarlyContactEmail) configScholarlyContactEmail.value = config.scholarly_contact_email || "";
 
     // Set feature switches (default to true if undefined)
     configNi.checked = config.enable_ni !== false;
@@ -839,6 +849,23 @@ const initPopup = () => {
     }, "easyScholar Key 已保存，历史指标缓存已自动清除");
   };
 
+  if (configOpenAlexApiKey) {
+    configOpenAlexApiKey.oninput = () => saveSettingDebounced(
+      "openalex_api_key", configOpenAlexApiKey.value.trim(), "OpenAlex API Key 已保存", 700
+    );
+    configOpenAlexApiKey.onchange = () => flushSettingSave(
+      "openalex_api_key", configOpenAlexApiKey.value.trim(), "OpenAlex API Key 已保存"
+    );
+  }
+  if (configScholarlyContactEmail) {
+    configScholarlyContactEmail.oninput = () => saveSettingDebounced(
+      "scholarly_contact_email", configScholarlyContactEmail.value.trim(), "学术 API 联系邮箱已保存", 700
+    );
+    configScholarlyContactEmail.onchange = () => flushSettingSave(
+      "scholarly_contact_email", configScholarlyContactEmail.value.trim(), "学术 API 联系邮箱已保存"
+    );
+  }
+
   toggleEasyScholarBtn.onclick = () => {
     if (easyScholarKeyInput.type === "password") {
       easyScholarKeyInput.type = "text";
@@ -946,7 +973,18 @@ const initPopup = () => {
   }
 
   function renderCurrentFootprints() {
+    renderedHistoryLimit = HISTORY_PAGE_SIZE;
     renderFootprints(getFilteredHistoryItems(), currentHistoryQuery);
+  }
+
+  function refreshHistoryStats() {
+    const next = { all: historyData.length, starred: 0, downloaded: 0, copied: 0 };
+    historyData.forEach(item => {
+      if (item.starred === true) next.starred++;
+      if (item.status === "downloaded") next.downloaded++;
+      if ((item.status || "").startsWith("copied")) next.copied++;
+    });
+    historyStats = next;
   }
 
   function parseAuthorsInput(value) {
@@ -962,6 +1000,7 @@ const initPopup = () => {
         if (response?.errorCode === "HISTORY_CONFLICT" && Array.isArray(response.history)) {
           historyData = response.history;
           historyRevision = Number.isInteger(response.revision) ? response.revision : historyRevision;
+          refreshHistoryStats();
           renderCurrentFootprints();
           showToast("留痕已在其他页面更新，本次修改未覆盖；请刷新后重试");
           return;
@@ -971,6 +1010,7 @@ const initPopup = () => {
       }
       historyData = Array.isArray(response.history) ? response.history : historyData;
       historyRevision = Number.isInteger(response.revision) ? response.revision : historyRevision;
+      refreshHistoryStats();
       renderCurrentFootprints();
       if (successMsg) showToast(successMsg);
     });
@@ -1002,6 +1042,7 @@ const initPopup = () => {
         return item;
       });
       historyRevision = Number.isInteger(revision) ? revision : 0;
+      refreshHistoryStats();
       renderCurrentFootprints();
   }
 
@@ -1148,16 +1189,11 @@ const initPopup = () => {
     const totalEl = document.getElementById("stat-total-count");
     const dlEl = document.getElementById("stat-downloaded-count");
     const cpEl = document.getElementById("stat-copied-count");
-    if (totalEl) totalEl.textContent = String(historyData.length);
-    if (dlEl) dlEl.textContent = String(historyData.filter(i => i.status === "downloaded").length);
-    if (cpEl) cpEl.textContent = String(historyData.filter(i => (i.status || "").startsWith("copied")).length);
+    if (totalEl) totalEl.textContent = String(historyStats.all);
+    if (dlEl) dlEl.textContent = String(historyStats.downloaded);
+    if (cpEl) cpEl.textContent = String(historyStats.copied);
 
-    const counts = {
-      all: historyData.length,
-      starred: historyData.filter(i => i.starred === true).length,
-      downloaded: historyData.filter(i => i.status === "downloaded").length,
-      copied: historyData.filter(i => (i.status || "").startsWith("copied")).length
-    };
+    const counts = historyStats;
     const labels = {
       all: `全部 (${counts.all})`,
       starred: `⭐ 收藏 (${counts.starred})`,
@@ -1254,7 +1290,7 @@ const initPopup = () => {
     emptyMsg.style.display = "none";
     exportAllBtn.disabled = false;
 
-    items.forEach((item) => {
+    items.slice(0, renderedHistoryLimit).forEach((item) => {
       const recordIndex = historyData.indexOf(item);
       const card = document.createElement("div");
       card.className = `pp-foot-card ${item.starred ? 'pp-foot-card--starred' : ''}`;
@@ -1481,6 +1517,20 @@ const initPopup = () => {
       card.appendChild(body);
       historyList.appendChild(card);
     });
+
+    if (items.length > renderedHistoryLimit) {
+      const loadMore = document.createElement("button");
+      loadMore.type = "button";
+      loadMore.className = "pp-history-load-more";
+      loadMore.textContent = `加载更多（剩余 ${items.length - renderedHistoryLimit} 篇）`;
+      loadMore.setAttribute("aria-label", `加载更多研究留痕，剩余 ${items.length - renderedHistoryLimit} 篇`);
+      loadMore.onclick = () => {
+        renderedHistoryLimit += HISTORY_PAGE_SIZE;
+        renderFootprints(items, query);
+        requestAnimationFrame(() => historyList.querySelector(".pp-history-load-more")?.focus());
+      };
+      historyList.appendChild(loadMore);
+    }
   }
 
   // 5. Expandable Search Panel & Quick Date Shortcuts
@@ -1530,17 +1580,21 @@ const initPopup = () => {
   }
 
   searchInput.oninput = () => {
-    currentHistoryQuery = searchInput.value.trim();
     if (searchClearBtn) {
       searchClearBtn.style.display = searchInput.value ? "block" : "none";
     }
-    renderCurrentFootprints();
+    clearTimeout(historySearchTimer);
+    historySearchTimer = setTimeout(() => {
+      currentHistoryQuery = searchInput.value.trim();
+      renderCurrentFootprints();
+    }, 180);
   };
 
   searchInput.onkeydown = (e) => {
     if (e.key === "Escape") {
       searchInput.value = "";
       currentHistoryQuery = "";
+      clearTimeout(historySearchTimer);
       if (searchClearBtn) searchClearBtn.style.display = "none";
       renderCurrentFootprints();
     }
@@ -1560,6 +1614,7 @@ const initPopup = () => {
 
   if (searchClearBtn) {
     searchClearBtn.onclick = () => {
+      clearTimeout(historySearchTimer);
       searchInput.value = "";
       currentHistoryQuery = "";
       searchClearBtn.style.display = "none";

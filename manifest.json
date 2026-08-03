@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PaperPilot Pro - 一体化学术科研智能助手",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "description": "打通谷歌学术与期刊页的闭环检索与直链工具，内置自然指数高亮、本地无感双滑块过滤、去重折叠、跨域PDF探测、影响因子与分区展示及本地AI文献总结。",
   "permissions": [
     "storage",

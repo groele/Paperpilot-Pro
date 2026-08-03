@@ -546,6 +546,20 @@ test("site profiles expose DOI, PDF, metadata and challenge signals for common p
   }
 });
 
+test("IOP presentation routes do not become part of the DOI", () => {
+  const core = loadCore("core/metadata.js", "core/site-profiles.js");
+  for (const route of ["meta", "pdf", "full", "abstract"]) {
+    const profile = core.siteProfiles.resolve(`https://iopscience.iop.org/article/10.1088/2053-1583/ae28e0/${route}`);
+    assert.equal(profile.id, "iop");
+    assert.deepEqual(Array.from(profile.doiCandidates), ["10.1088/2053-1583/ae28e0"]);
+    assert.equal(profile.pdfCandidates[0].url, "https://iopscience.iop.org/article/10.1088/2053-1583/ae28e0/pdf");
+  }
+
+  // `/meta` is not globally stripped: it may be a legitimate DOI suffix
+  // when supplied as an authoritative DOI value rather than an IOP UI route.
+  assert.equal(core.metadata.extractDoi(["doi:10.1234/example/meta"]), "10.1234/example/meta");
+});
+
 test("modular site adapters cover eLife, PeerJ, PLOS and J-STAGE", () => {
   const core = loadCore("core/metadata.js", "core/site-profiles.js");
   const cases = [
@@ -954,7 +968,7 @@ test("Popup exposes a post-calendar favorite shortcut and reveals filtered recor
   const quickFilterIndex = html.indexOf('id="footprint-quick-filters"');
   const calendarIndex = html.indexOf('id="footprint-heatmap-card"');
   assert.ok(quickFilterIndex > calendarIndex);
-  assert.match(html, /pp-popup-version">v2\.0\.3/);
+  assert.match(html, /pp-popup-version">v2\.1\.0/);
   assert.match(html, /id="setting-enable-easyscholar"/);
   assert.match(popup, /enable_easyscholar: enableEasyScholarInput\.checked/);
   assert.match(html, /id="footprint-quick-filters"[\s\S]*data-filter="starred"/);

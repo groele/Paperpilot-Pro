@@ -24,7 +24,7 @@
       </div>
       <div class="pp-header-badges">
         <button class="pp-theme-toggle-btn" id="btn-quick-theme-toggle" type="button" title="一键切换深浅色主题">🌙</button>
-        <span class="pp-popup-version">v2.0.3</span>
+        <span class="pp-popup-version">v2.1.0</span>
       </div>
     </header>
 
@@ -531,6 +531,20 @@
             </div>
 
             <!-- Switch: CCF Rank Badge -->
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">OpenAlex API Key（可选）</span>
+              <input type="password" class="pp-popup-input" id="setting-openalex-api-key" autocomplete="off"
+                placeholder="用于提高 OpenAlex 请求额度">
+              <p class="pp-popup-setting-desc">仅保存在扩展本地存储中，由后台学术元数据服务使用，不会发送给网页内容脚本。</p>
+            </div>
+
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">学术 API 联系邮箱（可选）</span>
+              <input type="email" class="pp-popup-input" id="setting-scholarly-contact-email" autocomplete="email"
+                placeholder="name@example.edu">
+              <p class="pp-popup-setting-desc">用于 OpenAlex 等学术 API 的礼貌池标识；仅由扩展后台读取。</p>
+            </div>
+
             <div class="pp-popup-setting-item">
               <div class="pp-popup-setting-row">
                 <span class="pp-popup-setting-lbl">显示 CCF 等级徽章</span>

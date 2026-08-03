@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.1.0 - 2026-08-03
+
+### Performance & Compatibility
+
+- Rendered journal metadata cards immediately from local page metadata and progressively refreshed remote enrichment.
+- Bounded all-page academic detection, paused hidden-page work, and cleaned up observers and timers during page lifecycle transitions.
+- Added DOI CSL JSON negotiation, title-similarity validation, metadata single-flight, cache schema versioning, and parallel scholarly provider lookups.
+- Deduplicated easyScholar journal requests while preserving its default-off privacy gate.
+- Added adaptive Scholar lifecycle polling and incremental Popup history rendering with debounced search.
+- Expanded multilingual publisher challenge and authentication-page detection.
+- Added private OpenAlex API key and scholarly contact-email settings.
+- Fixed IOPscience `/article/{doi}/meta` and related presentation routes being misidentified as part of the DOI.
+
 ## v2.0.3 - 2026-08-03
 
 ### Changed
