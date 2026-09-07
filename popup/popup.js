@@ -61,6 +61,36 @@ const initPopup = () => {
     callback({ success: false, ok: false, error: "Extension context unavailable" });
   };
 
+  const robustCopyToClipboard = (text) => {
+    if (!text) return Promise.reject(new Error("Empty text"));
+    if (navigator.clipboard && (window.isSecureContext || location.protocol === 'https:')) {
+      return robustCopyToClipboard(text).catch(() => fallbackCopy(text));
+    }
+    return fallbackCopy(text);
+  };
+
+  const fallbackCopy = (text) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "-9999px";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const successful = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (successful) resolve();
+        else reject(new Error("execCommand copy failed"));
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+
   const tabFoot = document.getElementById("tab-btn-foot");
   const tabSet = document.getElementById("tab-btn-set");
   const panelFoot = document.getElementById("panel-foot");
@@ -102,6 +132,7 @@ const initPopup = () => {
   const configAiBaseUrl = document.getElementById("setting-ai-base-url");
   const configAiKey = document.getElementById("setting-ai-key");
   const configAiPrompt = document.getElementById("setting-ai-prompt");
+  const configAiPreset = document.getElementById("setting-ai-preset");
   const testAiBtn = document.getElementById("btn-test-ai-connection");
   const aiTestStatus = document.getElementById("ai-test-status");
   const configAppearanceMode = document.getElementById("setting-appearance-mode");
@@ -111,7 +142,6 @@ const initPopup = () => {
   // Feature toggles
   const configNi = document.getElementById("setting-enable-ni");
   const configDedup = document.getElementById("setting-enable-dedup");
-  const configSortingFilter = document.getElementById("setting-enable-sorting-filter");
   const configBadges = document.getElementById("setting-enable-badges");
   const configMetacard = document.getElementById("setting-enable-metacard");
   const configMarkdownNote = document.getElementById("setting-enable-markdown-note");
@@ -135,7 +165,6 @@ const initPopup = () => {
   // Feature status dots
   const statusNi = document.getElementById("status-ni");
   const statusDedup = document.getElementById("status-dedup");
-  const statusSortingFilter = document.getElementById("status-sorting-filter");
   const statusBadges = document.getElementById("status-badges");
   const statusMetacard = document.getElementById("status-metacard");
   const statusMarkdown = document.getElementById("status-markdown");
@@ -165,7 +194,6 @@ const initPopup = () => {
   const coreModules = [
     { card: statusNi, control: configNi, key: "enable_ni", name: "自然指数高亮" },
     { card: statusDedup, control: configDedup, key: "enable_dedup", name: "预印本折叠去重" },
-    { card: statusSortingFilter, control: configSortingFilter, key: "enable_sorting_filter", name: "高级重排与过滤" },
     { card: statusBadges, control: configBadges, key: "enable_badges", name: "学术状态徽章" },
     { card: statusMetacard, control: configMetacard, key: "enable_metacard", name: "期刊详情悬浮元卡" },
     { card: statusMarkdown, control: configMarkdownNote, key: "enable_markdown_note", name: "Markdown 笔记复制" }
@@ -605,7 +633,6 @@ const initPopup = () => {
     "appearance_mode",
     "enable_ni",
     "enable_dedup",
-    "enable_sorting_filter",
     "enable_badges",
     "enable_metacard",
     "enable_markdown_note",
@@ -638,6 +665,7 @@ const initPopup = () => {
     configAiBaseUrl.value = config.ai_base_url || getAiProviderDefaults(configAiProvider.value).baseUrl;
     if (config.ai_api_key !== undefined) configAiKey.value = config.ai_api_key;
     if (config.ai_prompt !== undefined) configAiPrompt.value = config.ai_prompt;
+      if (configAiPreset && config.ai_preset !== undefined) configAiPreset.value = config.ai_preset;
     if (config.appearance_mode !== undefined) {
       configAppearanceMode.value = config.appearance_mode;
       updateTheme(config.appearance_mode);
@@ -656,7 +684,6 @@ const initPopup = () => {
     // Set feature switches (default to true if undefined)
     configNi.checked = config.enable_ni !== false;
     configDedup.checked = config.enable_dedup !== false;
-    configSortingFilter.checked = config.enable_sorting_filter !== false;
     configBadges.checked = config.enable_badges !== false;
     configMetacard.checked = config.enable_metacard !== false;
     configMarkdownNote.checked = config.enable_markdown_note !== false;
@@ -763,6 +790,27 @@ const initPopup = () => {
   configAiKey.onchange = () => flushSettingSave("ai_api_key", configAiKey.value.trim(), "API 密钥已更新保存");
   configAiPrompt.oninput = () => saveSettingDebounced("ai_prompt", configAiPrompt.value, "自定义提示词已更新", 700);
   configAiPrompt.onchange = () => flushSettingSave("ai_prompt", configAiPrompt.value, "自定义提示词已更新");
+
+    if (configAiPreset) {
+      configAiPreset.onchange = () => {
+        const selected = configAiPreset.value;
+        saveSetting("ai_preset", selected, "默认学术分析预设已更新");
+        if (selected !== "custom") {
+          const defaultPrompts = {
+            tldr: "请用中文以3行精简要点总结以下学术论文摘要，以TL;DR形式呈现，突出核心发现与研究结论：",
+            novelty: "请深入剖析以下论文的核心创新点（Novelty）与学术贡献（Contributions），分条列出其相较于前人工作的根本突破：",
+            methodology: "请简明扼要地拆解以下论文的技术路线、核心方法与算法架构（Methodology），说明其关键设计与运行逻辑：",
+            limitations: "请以审稿人（Reviewer）的批判性视角，客观审视以下论文中可能存在的假设限制、潜在局限性（Limitations）、应用边界或未来待验证方向：",
+            glossary: "请从以下学术论文标题和摘要中提取3-5个最核心的关键术语/技术名词，提供精准的【中文翻译】以及【学术概念简要通俗解析】："
+          };
+          if (defaultPrompts[selected] && configAiPrompt) {
+            configAiPrompt.value = defaultPrompts[selected];
+            flushSettingSave("ai_prompt", configAiPrompt.value, "提示词已同步场景预设");
+          }
+        }
+      };
+    }
+
   if (testAiBtn) testAiBtn.onclick = testAiConnection;
   const THEME_CYCLE = ["system", "dark", "light", "violet", "cyan", "amber"];
   const THEME_ICONS = {
@@ -879,7 +927,6 @@ const initPopup = () => {
   // Feature toggles saves
   configNi.onchange = () => saveSetting("enable_ni", configNi.checked, "自然指数期刊高亮开关已同步");
   configDedup.onchange = () => saveSetting("enable_dedup", configDedup.checked, "预印本折叠去重开关已同步");
-  configSortingFilter.onchange = () => saveSetting("enable_sorting_filter", configSortingFilter.checked, "高级重排侧边过滤开关已同步");
   configBadges.onchange = () => saveSetting("enable_badges", configBadges.checked, "学术状态徽章开关已同步");
   configMetacard.onchange = () => saveSetting("enable_metacard", configMetacard.checked, "悬浮元卡面板开关已同步");
   configMarkdownNote.onchange = () => saveSetting("enable_markdown_note", configMarkdownNote.checked, "Markdown 笔记复制开关已同步");
@@ -1414,7 +1461,7 @@ const initPopup = () => {
         const text = citation
           ? citation.buildBibtexEntries([item])
           : `@article{paper_${item.year || 2026},\n  title={${item.title || ""}},\n  journal={${item.journal || ""}},\n  year={${item.year || 2026}},\n  doi={${item.doi || ""}}\n}`;
-        navigator.clipboard.writeText(text).then(() => {
+        robustCopyToClipboard(text).then(() => {
           item.status = "copied_bibtex";
           persistHistory("已将 BibTeX 引用写入剪贴板");
         }).catch(() => {
@@ -1436,7 +1483,7 @@ const initPopup = () => {
         const yearStr = item.year ? `(${item.year})` : "";
         const authorsStr = Array.isArray(item.authors) ? item.authors.join(", ") : (item.authors || "");
         const mdText = `${link} - ${journalStr} ${yearStr}${authorsStr ? ` - ${authorsStr}` : ""}`.trim();
-        navigator.clipboard.writeText(mdText).then(() => {
+        robustCopyToClipboard(mdText).then(() => {
           item.status = "copied_citation";
           persistHistory("已将 Markdown 笔记写入剪贴板");
         }).catch(() => {
@@ -1458,7 +1505,7 @@ const initPopup = () => {
         doiBtn.onclick = (event) => {
           event.stopPropagation();
           const doiUrl = item.doi.startsWith("http") ? item.doi : `https://doi.org/${item.doi}`;
-          navigator.clipboard.writeText(doiUrl).then(() => {
+          robustCopyToClipboard(doiUrl).then(() => {
             showToast("已复制 DOI 链接到剪贴板");
           });
         };
@@ -1671,7 +1718,7 @@ const initPopup = () => {
       exported = normalized.map(paper => `${paper.title || "Untitled"} ${paper.doi || ""}`.trim()).join("\n");
     }
 
-    navigator.clipboard.writeText(exported.trim()).then(() => {
+    robustCopyToClipboard(exported.trim()).then(() => {
       showToast(`已将 ${normalized.length} 篇文献留痕以 ${label} 写入剪贴板`);
     }).catch(err => {
       console.error("Export copy failed:", err);

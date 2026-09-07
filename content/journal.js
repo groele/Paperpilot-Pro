@@ -19,21 +19,6 @@
   const PDF_EMPTY_CANDIDATE_CACHE_MS = 2000;
   const MAX_PDF_URL_CANDIDATES = 32;
 
-  function getIcon(name, fallback = "") {
-    const icon = window.PP_ICONS?.[name];
-    if (icon) return icon;
-    if (name === "pin") {
-      return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pp-feather pp-feather-pin"><path d="M12 17v5"></path><path d="M5 17h14"></path><path d="M7 9l2-7h6l2 7"></path><path d="M8 9h8l2 8H6l2-8z"></path></svg>`;
-    }
-    if (name === "pin_off") {
-      return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pp-feather pp-feather-pin-off"><path d="M12 17v5"></path><path d="M5 17h14"></path><path d="M7 9l2-7h6l2 7"></path><path d="M8 9h8l2 8H6l2-8z"></path><line x1="4" y1="4" x2="20" y2="20"></line></svg>`;
-    }
-    if (name === "minimize") {
-      return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pp-feather pp-feather-minus"><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
-    }
-    return fallback;
-  }
-
   function robustCopyToClipboard(text) {
     if (!text) return Promise.reject(new Error("Empty copy text"));
     if (navigator.clipboard && (window.isSecureContext || location.protocol === 'https:')) {
@@ -767,7 +752,12 @@
       ["jstage.jst.go.jp", "J-STAGE"],
       ["pmc.ncbi.nlm.nih.gov", "PubMed Central"],
       ["pubmed.ncbi.nlm.nih.gov", "PubMed"],
-      ["ncbi.nlm.nih.gov", "NCBI"]
+      ["ncbi.nlm.nih.gov", "NCBI"],
+      ["biomedcentral.com", "BioMed Central"],
+      ["researchgate.net", "ResearchGate"],
+      ["semanticscholar.org", "Semantic Scholar"],
+      ["cnki.net", "CNKI"],
+      ["wanfangdata.com.cn", "Wanfang Data"]
     ];
 
     return hostMap.find(([domain]) => host.includes(domain))?.[1] || "";
@@ -781,6 +771,9 @@
   // Institutional Proxy & VPN (EZproxy / Bupt vpn) URL cleaner
   function cleanProxyUrl(urlString) {
     if (!urlString) return "";
+    if (globalThis.PaperPilotCore?.siteProfiles?.cleanProxyUrl) {
+      return globalThis.PaperPilotCore.siteProfiles.cleanProxyUrl(urlString);
+    }
     try {
       const url = new URL(urlString);
       let host = url.hostname.toLowerCase();
@@ -1208,6 +1201,9 @@
       const titleEl = document.querySelector("h1, [data-test='article-title'], [data-testid='article-title'], [data-article-title], [itemprop='headline'], [itemprop='name'], .article-title, .c-article-title, .publicationContentTitle, .citation__title, .hlFld-Title, .document-title, .chapter-title, .wi-article-title, .ArticleTitle, .NLM_article-title");
       title = (titleEl?.textContent || document.title).split(" - ")[0].split(" | ")[0].split(" - Nature")[0].trim();
     }
+    if (globalThis.PaperPilotCore?.metadata?.cleanTitleString) {
+      title = globalThis.PaperPilotCore.metadata.cleanTitleString(title);
+    }
 
     // Abstract Sniffer
     let abstract = getMeta([
@@ -1235,7 +1231,7 @@
 
     // Authors list
     let authors = [];
-    const authorEls = document.querySelectorAll('meta[name="citation_author"], meta[name="dc.creator"], meta[name="DC.Creator"], meta[name="article:author"], meta[property="article:author"]');
+    const authorEls = document.querySelectorAll('meta[name="citation_author"], meta[name="dc.creator"], meta[name="DC.Creator"], meta[name="article:author"], meta[property="article:author"], meta[name="bepress_citation_author"], meta[name="author"]');
     authorEls.forEach(el => {
       if (el.content) authors.push(el.content.trim());
     });
@@ -1661,10 +1657,22 @@
             ` : ''}
             
             ${enable_ai_summary_btn ? `
-            <button type="button" class="pp-jc-action-btn pp-jc-btn-ai" id="pp-jc-btn-ai-sum">
-              ${window.PP_ICONS.ai_sparkles} AI 智能速读总结 (TL;DR)
-            </button>
-            <div class="pp-jc-ai-summary-box" id="pp-jc-ai-box"></div>
+            <div class="pp-jc-ai-section">
+              <div class="pp-jc-ai-chips-hdr">
+                <span class="pp-jc-ai-chips-title">${window.PP_ICONS.ai_sparkles || '✨'} 学术分析视角</span>
+              </div>
+              <div class="pp-jc-ai-chips" id="pp-jc-ai-chips" role="tablist">
+                <button type="button" class="pp-jc-ai-chip active" data-preset="tldr" title="3行精简要点与结论速览">⚡ 极速速读</button>
+                <button type="button" class="pp-jc-ai-chip" data-preset="novelty" title="深入剖析核心创新点与突破">💡 创新贡献</button>
+                <button type="button" class="pp-jc-ai-chip" data-preset="methodology" title="拆解技术路线与算法框架">🔬 技术路线</button>
+                <button type="button" class="pp-jc-ai-chip" data-preset="limitations" title="审视假设限制与潜在局限性">⚠️ 局限批判</button>
+                <button type="button" class="pp-jc-ai-chip" data-preset="glossary" title="提取核心术语并提供解析">🌐 术语精讲</button>
+              </div>
+              <button type="button" class="pp-jc-action-btn pp-jc-btn-ai" id="pp-jc-btn-ai-sum">
+                ${window.PP_ICONS.ai_sparkles} <span id="pp-jc-ai-btn-label">AI 流式智能速读 (TL;DR)</span>
+              </button>
+              <div class="pp-jc-ai-summary-box" id="pp-jc-ai-box"></div>
+            </div>
             ` : ''}
           </div>
         </div>
@@ -1864,7 +1872,7 @@
         // Fallback: copy structured academic citation when no DOI is available
         const authorsStr = (paperMeta.authors && paperMeta.authors.length > 0) ? paperMeta.authors.join(", ") : "Unknown Author";
         const fallbackCitation = `${authorsStr}. ${paperMeta.title} (${paperMeta.year}).`;
-        navigator.clipboard.writeText(fallbackCitation).then(() => {
+        robustCopyToClipboard(fallbackCitation).then(() => {
           showToast("未匹配到该文献的 DOI，已将标题与引用复制到剪贴板！");
           logFootprint("copied_citation");
           // Button feedback
@@ -1880,7 +1888,7 @@
         });
         return;
       }
-      navigator.clipboard.writeText(paperMeta.doi).then(() => {
+      robustCopyToClipboard(paperMeta.doi).then(() => {
         showToast("DOI 已成功复制到剪贴板！");
         logFootprint("copied_doi");
 
@@ -1904,37 +1912,148 @@
 
     if (scihubJumpBtn) scihubJumpBtn.onclick = () => handleCopyDoi(scihubJumpBtn);
 
-    // Client-side AI summarize
+    // Client-side AI summarize with streaming & presets
     if (aiBtn) {
-      aiBtn.onclick = () => {
-        const aiBox = cardEl.querySelector("#pp-jc-ai-box");
-        if (!aiBox) return;
-        aiBtn.innerText = "AI 正在深度研读文献中...";
-        aiBtn.disabled = true;
+      const aiBox = cardEl.querySelector("#pp-jc-ai-box");
+      const chips = cardEl.querySelectorAll(".pp-jc-ai-chip");
+      const btnLabel = cardEl.querySelector("#pp-jc-ai-btn-label");
+      let activePreset = "tldr";
+      let activePort = null;
+      let lastGeneratedText = "";
 
-        safeSendMessage({
-          action: "AI_SUMMARIZE",
-          abstract: paperMeta.abstract,
-          title: paperMeta.title
-        }, (response) => {
-          aiBtn.disabled = false;
-          if (response && response.success) {
-            aiBtn.innerText = "✨ AI 总结 (TL;DR) 已生成";
-            aiBox.innerHTML = "";
-            const label = document.createElement("strong");
-            label.textContent = `AI 简述 (${response.provider || response.source || "provider"})：`;
-            const body = document.createElement("div");
-            body.textContent = response.summary || "";
-            aiBox.appendChild(label);
-            aiBox.appendChild(document.createElement("br"));
-            aiBox.appendChild(body);
-            aiBox.style.display = "block";
-          } else {
-            const errorCode = response?.errorCode || "";
-            aiBtn.innerText = errorCode === "AI_API_KEY_MISSING" ? "AI 未配置 API Key" : "AI 总结失败";
-            showToast(response?.error || "AI 未返回真实总结，请在 Popup 中检查 API 配置。");
+      const PRESET_LABELS = {
+        tldr: "极速速读 (TL;DR)",
+        novelty: "创新贡献剖析",
+        methodology: "技术路线拆解",
+        limitations: "审稿人局限批判",
+        glossary: "关键术语精讲"
+      };
+
+      chips.forEach(chip => {
+        chip.onclick = (e) => {
+          e.stopPropagation();
+          chips.forEach(c => c.classList.remove("active"));
+          chip.classList.add("active");
+          activePreset = chip.getAttribute("data-preset") || "tldr";
+          const labelText = PRESET_LABELS[activePreset] || activePreset;
+          if (btnLabel) {
+            btnLabel.textContent = `AI 深度研读：${labelText}`;
           }
-        });
+          if (aiBox && aiBox.classList.contains("pp-show")) {
+            startStreamingSummary();
+          }
+        };
+      });
+
+      function startStreamingSummary() {
+        if (!aiBox) return;
+        if (activePort) {
+          try { activePort.disconnect(); } catch (_) {}
+          activePort = null;
+        }
+
+        aiBtn.disabled = true;
+        const presetName = PRESET_LABELS[activePreset] || activePreset;
+        if (btnLabel) btnLabel.textContent = "AI 正在实时流式生成中...";
+        aiBox.classList.add("pp-show");
+        lastGeneratedText = "";
+
+        // Render AI Box Header & Content container
+        aiBox.innerHTML = `
+          <div class="pp-jc-ai-hdr">
+            <div class="pp-jc-ai-tags">
+              <span class="pp-jc-ai-badge" id="pp-jc-ai-provider-badge">AI 思考中...</span>
+              <span class="pp-jc-ai-tag">${escapeHtml(presetName)}</span>
+            </div>
+            <button type="button" class="pp-jc-ai-copy-btn" id="pp-jc-ai-copy" title="复制总结 Markdown" style="display: none;">
+              ${getIcon("copy", "📋")} 复制
+            </button>
+          </div>
+          <div class="pp-jc-ai-content" id="pp-jc-ai-content"><span class="pp-jc-ai-cursor">▌</span></div>
+        `;
+
+        const contentEl = aiBox.querySelector("#pp-jc-ai-content");
+        const providerBadge = aiBox.querySelector("#pp-jc-ai-provider-badge");
+        const copyBtn = aiBox.querySelector("#pp-jc-ai-copy");
+
+        if (copyBtn) {
+          copyBtn.onclick = () => {
+            if (!lastGeneratedText) return;
+            const fullNote = `### AI 学术研读 [${presetName}]\n**文献**：${paperMeta.title || ""}\n\n${lastGeneratedText}`;
+            robustCopyToClipboard(fullNote).then(() => {
+              showToast("✓ AI 总结已成功复制为 Markdown 格式！");
+              const origHtml = copyBtn.innerHTML;
+              copyBtn.innerHTML = `${getIcon("check", "✓")} 已复制`;
+              copyBtn.style.color = "#10b981";
+              setTimeout(() => {
+                copyBtn.innerHTML = origHtml;
+                copyBtn.style.color = "";
+              }, 1800);
+            });
+          };
+        }
+
+        try {
+          const port = chrome.runtime.connect({ name: "AI_STREAM" });
+          activePort = port;
+
+          port.onMessage.addListener(msg => {
+            if (msg.type === "start") {
+              if (providerBadge) {
+                providerBadge.textContent = `${msg.provider || "AI"} · ${msg.model || "Academic"}`;
+              }
+            } else if (msg.type === "chunk") {
+              lastGeneratedText = msg.accumulated || (lastGeneratedText + (msg.chunk || ""));
+              if (contentEl) {
+                contentEl.innerHTML = escapeHtml(lastGeneratedText) + `<span class="pp-jc-ai-cursor">▌</span>`;
+              }
+            } else if (msg.type === "done") {
+              lastGeneratedText = msg.fullText || lastGeneratedText;
+              if (contentEl) {
+                contentEl.innerHTML = escapeHtml(lastGeneratedText);
+              }
+              if (providerBadge) {
+                providerBadge.textContent = `${msg.provider || "AI"} · ${msg.model || "Academic"}`;
+              }
+              if (copyBtn) copyBtn.style.display = "inline-flex";
+              aiBtn.disabled = false;
+              if (btnLabel) btnLabel.textContent = `✨ 重新生成 [${presetName}]`;
+              logFootprint("visited");
+              activePort = null;
+            } else if (msg.type === "error") {
+              aiBtn.disabled = false;
+              const isMissingKey = msg.errorCode === "AI_API_KEY_MISSING";
+              if (btnLabel) btnLabel.textContent = isMissingKey ? "AI 未配置 API Key" : "AI 总结失败";
+              if (contentEl) {
+                contentEl.innerHTML = `<span style="color: #ef4444;">${escapeHtml(msg.error || "生成失败，请在扩展配置中检查 API Key。")}</span>`;
+              }
+              showToast(msg.error || "AI 未返回总结，请在扩展控制台中检查配置。");
+              activePort = null;
+            }
+          });
+
+          port.onDisconnect.addListener(() => {
+            aiBtn.disabled = false;
+            activePort = null;
+          });
+
+          port.postMessage({
+            action: "AI_STREAM_START",
+            abstract: paperMeta.abstract || "",
+            title: paperMeta.title || "",
+            preset: activePreset
+          });
+        } catch (err) {
+          aiBtn.disabled = false;
+          if (btnLabel) btnLabel.textContent = "AI 连接异常";
+          if (contentEl) {
+            contentEl.innerHTML = `<span style="color: #ef4444;">${escapeHtml(err.message || "无法连接到后台 AI 服务")}</span>`;
+          }
+        }
+      }
+
+      aiBtn.onclick = () => {
+        startStreamingSummary();
       };
     }
   }
@@ -1942,21 +2061,23 @@
   // Draggable drag handle mechanics
   function makeCardDraggable(card, header) {
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-    header.onmousedown = dragMouseDown;
+    let isDragging = false;
+    header.addEventListener("mousedown", dragMouseDown);
 
     function dragMouseDown(e) {
-      e = e || window.event;
-      if (e.target.classList.contains("pp-jc-hdr-btn")) return; // Don't trigger on close/min btns
+      if (e.target.closest?.(".pp-jc-hdr-btn")) return; // Don't trigger on close/min btns
       if (card.classList.contains("pp-jc-pinned")) return;
       e.preventDefault();
+      isDragging = true;
       pos3 = e.clientX;
       pos4 = e.clientY;
-      document.onmouseup = closeDragElement;
-      document.onmousemove = elementDrag;
+      document.addEventListener("mousemove", elementDrag, { passive: false });
+      document.addEventListener("mouseup", closeDragElement, { passive: true });
+      window.addEventListener("blur", closeDragElement, { passive: true });
     }
 
     function elementDrag(e) {
-      e = e || window.event;
+      if (!isDragging) return;
       e.preventDefault();
       pos1 = pos3 - e.clientX;
       pos2 = pos4 - e.clientY;
@@ -1974,8 +2095,11 @@
     }
 
     function closeDragElement() {
-      document.onmouseup = null;
-      document.onmousemove = null;
+      if (!isDragging) return;
+      isDragging = false;
+      document.removeEventListener("mousemove", elementDrag);
+      document.removeEventListener("mouseup", closeDragElement);
+      window.removeEventListener("blur", closeDragElement);
     }
   }
 

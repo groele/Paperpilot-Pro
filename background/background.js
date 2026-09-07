@@ -24,18 +24,17 @@ const DEFAULT_METADATA_CONTACT_EMAIL = PP_CORE.metadata?.UNPAYWALL_EMAIL || "pap
 
 const PUBLIC_SETTING_KEYS = new Set([
   "auto_redirect", "pdf_download_save_as", "pdf_naming", "pdf_download_dir",
-  "appearance_mode", "enable_ni", "enable_dedup", "enable_sorting_filter",
+  "appearance_mode", "enable_ni", "enable_dedup",
   "enable_badges", "enable_metacard", "enable_markdown_note", "enable_metrics_display",
   "enable_metrics_auto_detect", "enable_bibtex_btn", "enable_scholar_copy_doi_btn",
   "enable_journal_copy_doi_btn", "pdf_landing_cache", "enable_pdf_download_btn",
   "enable_ai_summary_btn", "enable_ccf_badge", "enable_core_badge", "enable_warn_badge",
   "enable_if_badge", "enable_cas_badge", "enable_jcr_badge", "enable_cite_badge",
-  "enable_pdf_badge", "metacard_pinned"
+  "enable_pdf_badge", "metacard_pinned", "ai_preset"
 ]);
 const MAX_PDF_LANDING_CACHE_ENTRIES = 100;
 let historyMutationQueue = Promise.resolve();
 let easyScholarConfigGeneration = 0;
-
 function restrictLocalStorageToTrustedContexts() {
   const setAccessLevel = chrome.storage?.local?.setAccessLevel;
   if (typeof setAccessLevel !== "function") return;
@@ -85,7 +84,9 @@ function broadcastPublicSettingsChanged(changes) {
   chrome.tabs.query({}, tabs => {
     for (const tab of tabs || []) {
       if (!Number.isInteger(tab?.id)) continue;
-      chrome.tabs.sendMessage(tab.id, { action: "PUBLIC_SETTINGS_CHANGED", keys }).catch?.(() => {});
+      try {
+        chrome.tabs.sendMessage(tab.id, { action: "PUBLIC_SETTINGS_CHANGED", keys }, () => void chrome.runtime.lastError);
+      } catch (_) {}
     }
   });
 }
@@ -133,13 +134,13 @@ chrome.runtime.onInstalled.addListener(() => {
       "ai_base_url",
       "ai_api_key",
       "ai_prompt",
+      "ai_preset",
       "history",
       "history_revision",
       "pdf_cache",
       "appearance_mode",
       "enable_ni",
       "enable_dedup",
-      "enable_sorting_filter",
       "enable_badges",
       "enable_metacard",
       "enable_markdown_note",
@@ -176,13 +177,13 @@ chrome.runtime.onInstalled.addListener(() => {
         ai_base_url: "https://api.openai.com/v1",
         ai_api_key: "",
         ai_prompt: "请用中文以3行精简要点总结以下学术论文摘要，以TL;DR形式呈现：",
+        ai_preset: "tldr",
         history: [],
         history_revision: 0,
         pdf_cache: {},
         appearance_mode: "system",
         enable_ni: true,
         enable_dedup: true,
-        enable_sorting_filter: true,
         enable_badges: true,
         enable_metacard: true,
         enable_markdown_note: true,
@@ -1394,9 +1395,14 @@ function encodeDoiPath(doi) {
 }
 
 async function fetchJsonResponse(url, options = {}) {
-  const response = await fetchResponseWithTimeout(url, options);
-  if (!response.ok) return null;
-  return response.json();
+  try {
+    const response = await fetchResponseWithTimeout(url, options);
+    if (!response || !response.ok) return null;
+    return await response.json();
+  } catch (err) {
+    console.warn("fetchJsonResponse failed for", url, err?.message);
+    return null;
+  }
 }
 
 async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
@@ -1752,7 +1758,8 @@ async function loadAiConfig() {
     "ai_model",
     "ai_base_url",
     "ai_api_key",
-    "ai_prompt"
+    "ai_prompt",
+    "ai_preset"
   ]);
   const provider = config.ai_provider || "openai";
   const defaults = getAiDefaults(provider);
@@ -1761,7 +1768,8 @@ async function loadAiConfig() {
     model: (config.ai_model || defaults.model || "").trim(),
     baseUrl: normalizeBaseUrl(config.ai_base_url, defaults.baseUrl),
     apiKey: (config.ai_api_key || "").trim(),
-    prompt: config.ai_prompt || "Please summarize this abstract in 3 sentences:"
+    prompt: config.ai_prompt || "请用中文以3行精简要点总结以下学术论文摘要，以TL;DR形式呈现：",
+    preset: config.ai_preset || "tldr"
   };
 }
 
@@ -1907,7 +1915,94 @@ async function testAIConnection() {
   };
 }
 
-async function callAISummarize(abstract, title) {
+
+// Long-lived Port connection listener for real-time streaming AI summarization
+chrome.runtime?.onConnect?.addListener(port => {
+  if (port.name === "AI_STREAM") {
+    const abortController = new AbortController();
+    port.onDisconnect.addListener(() => {
+      abortController.abort();
+    });
+
+    port.onMessage.addListener(async msg => {
+      if (msg.action === "AI_STREAM_START") {
+        try {
+          const config = await loadAiConfig();
+          const presetKey = msg.preset || config.preset || "tldr";
+          const prompt = PP_CORE.ai?.resolvePrompt
+            ? PP_CORE.ai.resolvePrompt(presetKey, msg.customPrompt || config.prompt)
+            : (msg.customPrompt || config.prompt);
+
+          port.postMessage({
+            type: "start",
+            provider: config.provider,
+            model: config.model,
+            preset: presetKey
+          });
+
+          if (PP_CORE.ai?.callProviderStream) {
+            const streamResult = await PP_CORE.ai.callProviderStream({
+              ...config,
+              prompt,
+              title: msg.title,
+              abstract: msg.abstract
+            }, (chunk, accumulated) => {
+              if (abortController.signal.aborted) return;
+              port.postMessage({
+                type: "chunk",
+                chunk,
+                accumulated
+              });
+            }, abortController.signal);
+
+            if (!abortController.signal.aborted) {
+              port.postMessage({
+                type: "done",
+                fullText: streamResult.fullText,
+                provider: streamResult.provider,
+                model: streamResult.model,
+                preset: presetKey
+              });
+            }
+          } else {
+            const fallbackText = await callAIProvider({
+              ...config,
+              prompt,
+              title: msg.title,
+              abstract: msg.abstract
+            });
+            if (!abortController.signal.aborted) {
+              port.postMessage({
+                type: "chunk",
+                chunk: fallbackText,
+                accumulated: fallbackText
+              });
+              port.postMessage({
+                type: "done",
+                fullText: fallbackText,
+                provider: config.provider,
+                model: config.model,
+                preset: presetKey
+              });
+            }
+          }
+        } catch (err) {
+          if (abortController.signal.aborted) return;
+          const code = err.code === "AI_API_KEY_MISSING" || err.code === "AI_MODEL_MISSING"
+            ? err.code
+            : "AI_PROVIDER_ERROR";
+          port.postMessage({
+            type: "error",
+            errorCode: code,
+            error: err.message || String(err)
+          });
+        }
+      }
+    });
+  }
+});
+
+async function callAISummarize(abstract, title, presetKey = "") {
   const config = await loadAiConfig();
 
   try {

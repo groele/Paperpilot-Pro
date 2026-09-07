@@ -763,3 +763,140 @@
 .pp-jc-ai-summary-box.pp-show {
   display: flex !important;
 }
+
+
+/* AI Section & Presets Chips */
+.pp-jc-ai-section {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  margin-top: 4px !important;
+}
+
+.pp-jc-ai-chips-hdr {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+.pp-jc-ai-chips-title {
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  color: var(--pp-text-muted) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+.pp-jc-ai-chips {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 5px !important;
+}
+
+.pp-jc-ai-chip {
+  background: var(--pp-btn-bg) !important;
+  border: 1px solid var(--pp-border) !important;
+  color: var(--pp-text-muted) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  padding: 4px 8px !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  user-select: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  white-space: nowrap !important;
+}
+
+.pp-jc-ai-chip:hover {
+  background: var(--pp-btn-hover) !important;
+  color: var(--pp-text-main) !important;
+  border-color: var(--pp-primary) !important;
+}
+
+.pp-jc-ai-chip.active {
+  background: var(--pp-primary-glow, rgba(16, 185, 129, 0.15)) !important;
+  color: var(--pp-primary) !important;
+  border-color: var(--pp-primary) !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2) !important;
+  font-weight: 700 !important;
+}
+
+/* AI Summary Box & Streaming Header */
+.pp-jc-ai-hdr {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  border-bottom: 1px solid var(--pp-ai-border) !important;
+  padding-bottom: 6px !important;
+  margin-bottom: 4px !important;
+}
+
+.pp-jc-ai-tags {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.pp-jc-ai-badge {
+  font-size: 9.5px !important;
+  font-weight: 700 !important;
+  padding: 2px 7px !important;
+  border-radius: 6px !important;
+  background: var(--pp-primary-glow, rgba(16, 185, 129, 0.2)) !important;
+  color: var(--pp-primary) !important;
+  letter-spacing: 0.3px !important;
+}
+
+.pp-jc-ai-tag {
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  color: var(--pp-text-muted) !important;
+}
+
+.pp-jc-ai-copy-btn {
+  background: var(--pp-btn-bg) !important;
+  border: 1px solid var(--pp-border) !important;
+  color: var(--pp-text-muted) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  padding: 2px 7px !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  transition: all 0.2s ease !important;
+}
+
+.pp-jc-ai-copy-btn:hover {
+  background: var(--pp-btn-hover) !important;
+  color: var(--pp-text-main) !important;
+  border-color: var(--pp-primary) !important;
+}
+
+.pp-jc-ai-content {
+  font-size: 11px !important;
+  line-height: 1.6 !important;
+  color: var(--pp-text-main) !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+
+.pp-jc-ai-cursor {
+  display: inline-block !important;
+  color: var(--pp-primary) !important;
+  font-weight: 900 !important;
+  animation: pp-jc-blink 0.8s infinite !important;
+  margin-left: 2px !important;
+}
+
+@keyframes pp-jc-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}

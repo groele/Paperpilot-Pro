@@ -24,7 +24,7 @@
       </div>
       <div class="pp-header-badges">
         <button class="pp-theme-toggle-btn" id="btn-quick-theme-toggle" type="button" title="一键切换深浅色主题">🌙</button>
-        <span class="pp-popup-version">v2.1.1</span>
+        <span class="pp-popup-version">v2.4.0</span>
       </div>
     </header>
 
@@ -56,16 +56,6 @@
           <span class="feature-copy">
             <span class="feature-name">预印本折叠去重</span>
             <span class="feature-domain">Cleanup</span>
-          </span>
-          <span class="feature-state">ON</span>
-        </div>
-
-        <div class="pp-popup-feature-status" id="status-sorting-filter" role="button" tabindex="0"
-          data-setting-target="setting-enable-sorting-filter" data-module="ranking" title="切换高级重排与过滤">
-          <span class="status-dot"></span>
-          <span class="feature-copy">
-            <span class="feature-name">高级重排与过滤</span>
-            <span class="feature-domain">Ranking</span>
           </span>
           <span class="feature-state">ON</span>
         </div>
@@ -354,18 +344,6 @@
                 </label>
               </div>
               <p class="pp-popup-setting-desc">智能识别同篇论文的 Preprint 预印本/会议版本并折叠，使检索列表更清爽干净。</p>
-            </div>
-
-            <!-- Switch: Advanced reordering & filtering sidebar -->
-            <div class="pp-popup-setting-item">
-              <div class="pp-popup-setting-row">
-                <span class="pp-popup-setting-lbl">检索高级重排与侧边过滤</span>
-                <label class="pp-popup-switch">
-                  <input type="checkbox" id="setting-enable-sorting-filter">
-                  <span class="pp-popup-switch-slider"></span>
-                </label>
-              </div>
-              <p class="pp-popup-setting-desc">在检索结果顶部注入「默认 / 被引 / 年份」重排按钮，左侧生成被引与年份滑块过滤器。</p>
             </div>
 
             <!-- Switch: Badges -->
@@ -731,6 +709,20 @@
               <span class="pp-popup-setting-lbl">AI API 密钥 (Key)</span>
               <input type="password" class="pp-popup-input" id="setting-ai-key" placeholder="输入您的 API Key...">
               <p class="pp-popup-setting-desc">密钥保存在您的本地 storage 中，绝对安全，不会泄漏。</p>
+            </div>
+
+            <!-- AI Prompt Preset Select -->
+            <div class="pp-popup-setting-item">
+              <span class="pp-popup-setting-lbl">默认学术分析场景预设</span>
+              <select class="pp-popup-select" id="setting-ai-preset">
+                <option value="tldr">⚡ TL;DR 极速速读 (3行精炼要点)</option>
+                <option value="novelty">💡 核心创新点与学术突破剖析</option>
+                <option value="methodology">🔬 技术路线与算法框架拆解</option>
+                <option value="limitations">⚠️ 审稿人视角局限批判与假设审视</option>
+                <option value="glossary">🌐 关键技术术语精讲与双语对照</option>
+                <option value="custom">✏️ 完全自定义提示词 (使用下方输入框)</option>
+              </select>
+              <p class="pp-popup-setting-desc">选择全局默认使用的分析视角。在期刊悬浮元卡内也可随时一键点击切换。</p>
             </div>
 
             <!-- AI Custom prompt -->

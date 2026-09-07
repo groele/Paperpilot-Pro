@@ -12,10 +12,21 @@
 
   function cleanDoiMatch(value) {
     let doi = normalizeDoi(value)
+      .replace(/^[\s"'<(\[{]+/, "")
       .replace(/^\/+/, "")
       .trim();
 
-    doi = doi.replace(/[.,;:)\]}]+$/g, "");
+    doi = doi.replace(/[\s"'>]+$/g, "");
+    while (/[.,;:)[\]}]+$/.test(doi)) {
+      const openParens = (doi.match(/\(/g) || []).length;
+      const closeParens = (doi.match(/\)/g) || []).length;
+      const openBrackets = (doi.match(/\[/g) || []).length;
+      const closeBrackets = (doi.match(/\]/g) || []).length;
+      if (/[)\]]$/.test(doi) && openParens >= closeParens && openBrackets >= closeBrackets) {
+        break;
+      }
+      doi = doi.replace(/[.,;:)[\]}]+$/, "");
+    }
     return /^10\.\d{4,9}\/\S+$/i.test(doi) ? doi : "";
   }
 
@@ -45,7 +56,7 @@
     if (!cleanTitle) return true;
     if (/^https?:\/\//i.test(cleanTitle)) return true;
     if (/\.pdf(\?|$)/i.test(cleanTitle)) return true;
-    if (/^(pdf|download|article|full text|acs publications|just a moment|please wait|access denied|请稍候…?|访问被拒绝)$/i.test(cleanTitle)) return true;
+    if (/^(pdf|download|article|full text|acs publications|just a moment|please wait|access denied|请稍候…?|访问被拒绝|untitled|untitled paper|n\/a|none|null)$/i.test(cleanTitle)) return true;
 
     const cleanDoi = normalizeDoi(doi).toLowerCase();
     const normalizedTitle = cleanTitle
@@ -60,8 +71,28 @@
     return cleanTitle.length < 8;
   }
 
+  function stripHtmlTags(str) {
+    return String(str || "").replace(/<[^>]+>/g, " ");
+  }
+
+  function decodeHtmlEntities(str) {
+    return String(str || "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(Number(num)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  }
+
+  function cleanTitleString(str) {
+    return decodeHtmlEntities(stripHtmlTags(str)).replace(/\s+/g, " ").trim();
+  }
+
   function normalizeTitle(title) {
-    return String(title || "")
+    return cleanTitleString(title)
       .normalize("NFKD")
       .toLowerCase()
       .replace(/[\u0300-\u036f]/g, "")
@@ -93,7 +124,7 @@
   function createBaseMetadata({ doi = "", title = "", journal = "" } = {}) {
     return {
       doi: normalizeDoi(doi),
-      title: title || "",
+      title: cleanTitleString(title),
       pdfUrl: "",
       journal: journal || "",
       publisher: "",
@@ -117,7 +148,7 @@
   function applyCrossrefItem(metadata, item) {
     if (!item) return metadata;
     if (item.DOI) metadata.doi = normalizeDoi(item.DOI);
-    if (item.title && item.title[0]) metadata.title = item.title[0];
+    if (item.title && item.title[0]) metadata.title = cleanTitleString(item.title[0]);
     if (item["container-title"] && item["container-title"][0]) {
       metadata.journal = item["container-title"][0] || metadata.journal;
     }
@@ -150,7 +181,7 @@
 
   function applyOpenAlexWork(metadata, work) {
     if (!work) return metadata;
-    metadata.title = work.title || metadata.title;
+    metadata.title = work.title ? cleanTitleString(work.title) : metadata.title;
     metadata.doi = work.doi ? normalizeDoi(work.doi) : metadata.doi;
     metadata.year = work.publication_year || metadata.year;
     metadata.authors = (work.authorships || []).map(a => a.author?.display_name).filter(Boolean);
@@ -208,8 +239,12 @@
   root.metadata = {
     UNPAYWALL_EMAIL,
     normalizeDoi,
+    cleanDoiMatch,
     extractDoi,
     isWeakTitle,
+    stripHtmlTags,
+    decodeHtmlEntities,
+    cleanTitleString,
     normalizeTitle,
     titleSimilarity,
     isTitleMatch,

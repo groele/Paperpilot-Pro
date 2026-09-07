@@ -5,6 +5,10 @@
  */
 
 (function() {
+  const sanitize = globalThis.PaperPilotCore?.sanitize || {};
+  const escapeHtml = sanitize.escapeHtml || (s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"));
+  const escapeAttr = sanitize.escapeAttr || (s => escapeHtml(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;"));
+
   // Built-in Nature Index journals normalized matching list
   const NATURE_INDEX_JOURNALS = new Set([
     "nature", "science", "cell", "journal of the american chemical society", "j. am. chem. soc.",
@@ -36,7 +40,6 @@
     "appearance_mode",
     "enable_ni",
     "enable_dedup",
-    "enable_sorting_filter",
     "enable_badges",
     "enable_markdown_note",
     "enable_metrics_display",
@@ -354,7 +357,6 @@
         appearance_mode: settings.appearance_mode || "system",
         enable_ni: settings.enable_ni !== false,
         enable_dedup: settings.enable_dedup !== false,
-        enable_sorting_filter: settings.enable_sorting_filter !== false,
         enable_badges: settings.enable_badges !== false,
         enable_markdown_note: settings.enable_markdown_note !== false,
         enable_metrics_display: settings.enable_metrics_display !== false,
@@ -418,14 +420,6 @@
       state.lastUrl = location.href;
       processAllArticles(forcePanel, false);
     } else {
-      if (state.settings.enable_sorting_filter) {
-        ensureSortingToolbar();
-        try {
-          renderSourcePanel(false);
-        } catch (e) {
-          console.warn("PaperPilot Pro: source panel render failed", e);
-        }
-      }
       applyCurrentSort();
       applyFilters();
     }
@@ -460,7 +454,6 @@
     if (!articles.length) return false;
 
     withInternalUpdate(() => {
-      ensureOrderMode();
       refreshDefaultOrderIfNeeded(articles);
 
       // Clear dynamic stats
@@ -609,6 +602,13 @@
   }
 
   function applyCurrentSort() {
+    if (!state.settings?.enable_sorting_filter) {
+      getResultsContainer()?.classList.remove('pp-order-mode');
+      getScholarArticles().forEach(article => {
+        article.style.order = "";
+      });
+      return;
+    }
     ensureOrderMode();
     const articles = getScholarArticles();
     if (!articles.length) return;
@@ -777,7 +777,7 @@
 
       panel.querySelector("#pp-preset-ni").onclick = () => {
         state.sourceFilterState.forEach((_, key) => {
-          const isNi = NATURE_INDEX_JOURNALS.includes(key.toLowerCase());
+          const isNi = NATURE_INDEX_JOURNALS.has(key.toLowerCase());
           state.sourceFilterState.set(key, isNi);
         });
         syncCheckboxesAndSlidersFromState();
@@ -866,15 +866,15 @@
         label.dataset.index = String(index);
         label.dataset.source = source;
 
-        const isNi = NATURE_INDEX_JOURNALS.includes(source.toLowerCase());
+        const isNi = NATURE_INDEX_JOURNALS.has(source.toLowerCase());
 
         label.innerHTML = `
           <span class="source-item-name">
-            <input type="checkbox" class="pp-source-cb" value="${source}" ${state.sourceFilterState.get(source) !== false ? 'checked' : ''}> 
+            <input type="checkbox" class="pp-source-cb" value="${escapeAttr(source)}" ${state.sourceFilterState.get(source) !== false ? 'checked' : ''}> 
             ${isNi ? '<span class="pp-ni-dot" title="Nature Index 顶级期刊">●</span>' : ''}
-            ${displayName}
+            ${escapeHtml(displayName)}
           </span>
-          <span class="pp-scholar-source-badge">${count}</span>
+          <span class="pp-scholar-source-badge">${escapeHtml(count)}</span>
         `;
 
         const cb = label.querySelector(".pp-source-cb");
@@ -928,6 +928,10 @@
 
   function applyFilters() {
     const articles = getScholarArticles();
+    if (!state.settings?.enable_sorting_filter) {
+      articles.forEach(card => card.classList.remove("pp-scholar-hidden-by-filter"));
+      return;
+    }
     let visibleCount = 0;
     let totalCount = 0;
 
@@ -1063,8 +1067,6 @@
     state.observer._ppParent = parent;
     state.observerAttached = true;
 
-    // Also attach toolbar observer to prevent timing issues on dynamic pages
-    attachToolbarObserver();
   }
 
   // =========================================================
@@ -1082,12 +1084,7 @@
     state.lastArticleSignature = '';
     state.lastSourceSignature = '';
 
-    loadPersistedState();
-
     setTimeout(() => {
-      if (state.settings && state.settings.enable_sorting_filter) {
-        ensureSortingToolbar();
-      }
       debounceRefresh(true);
     }, 120);
   }
@@ -1150,7 +1147,6 @@
     state.suspended = false;
     state.urlWatchDelay = 2000;
     startUrlFallbackWatcher();
-    if (state.settings?.enable_sorting_filter) startToolbarWatchdog();
     if (state.initialized) {
       attachObserver();
       handleRouteChange();
@@ -1207,9 +1203,9 @@
       if (authorLineEl) {
         const authorText = authorLineEl.innerText;
         
-        const yearMatch = authorText.match(/\b(19|20)\d{2}\b/);
-        if (yearMatch) {
-          year = parseInt(yearMatch[0]);
+        const yearMatches = authorText.match(/\b(19\d{2}|20\d{2})\b/g);
+        if (yearMatches && yearMatches.length > 0) {
+          year = parseInt(yearMatches[yearMatches.length - 1], 10);
         }
 
         const chunks = authorText.split(/\s*-\s*/);
@@ -1237,9 +1233,10 @@
         
         if (href.includes("cites=") || href.includes("scholar?cites=")) {
           citeLink = href;
-          const digitMatch = text.match(/\d+/);
+          const cleanText = text.replace(/[,.\s](?=\d{3}\b)/g, "").replace(/,/g, "");
+          const digitMatch = cleanText.match(/\d+/);
           if (digitMatch) {
-            citations = parseInt(digitMatch[0]);
+            citations = parseInt(digitMatch[0], 10);
           }
         }
       });
@@ -1977,15 +1974,9 @@
 
     state.lastUrl = location.href;
     state.lastQueryKey = getQueryKey();
-    loadPersistedState();
-
     fetchSettingsAndRun(() => {
       state.initializing = false;
       if (state.suspended) return;
-      if (state.settings.enable_sorting_filter) {
-        ensureSortingToolbar();
-        startToolbarWatchdog();
-      }
       const ok = processAllArticles(true, false);
       attachObserver();
 
@@ -2035,10 +2026,6 @@
       state.lastSourceSignature = '';
 
       fetchSettingsAndRun(() => {
-        if (state.settings.enable_sorting_filter) {
-          ensureSortingToolbar();
-          startToolbarWatchdog();
-        }
         refreshPage(true);
       });
     }

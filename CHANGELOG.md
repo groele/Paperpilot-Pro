@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.4.0 - 2026-09-07
+
+### Added & Enhanced
+- **高校图书馆代理无缝穿透 (Institutional Proxy Normalization)**：新增 `normalizeProxyHost` 与 `cleanProxyUrl`，深度兼容 EZProxy、LibProxy、OCLC IDM 及中国高校 WebVPN（如 `-s.vpn.xxx.edu.cn`）；自动标准化出版商域名匹配，并保留校内代理源站以复用已认证会话进行 1-Click PDF 下载。
+- **主流学术出版商与中文数据库深度适配**：
+  - 新增 BioMed Central (BMC 300+ 开放获取期刊) `/counter/pdf/{doi}.pdf` 直连。
+  - 新增 Cell Press (*Cell*, *Neuron*, *Immunity* 等) PII 提取与 showPdf 直链。
+  - 新增 The Lancet (柳叶刀全系列) `/pdf` 与 PII 官方直链。
+  - 增强 Wiley Online Library 多路由候选（`/doi/pdf/`、`/doi/epdf/`、`/doi/pdfdirect/`）。
+  - 新增 Taylor & Francis 电子阅读器 `/doi/epdf/` 路由支持。
+  - 新增 De Gruyter、Emerald Insight、Project MUSE 专用 PDF 映射规则。
+  - 新增 ResearchGate 论文页面探测与下载端点支持。
+  - 新增知网 (CNKI) 与万方数据 (Wanfang Data) 专属论文元数据选择器。
+- **学术元数据与作者解析鲁棒性**：
+  - 支持 Bepress/Digital Commons 与高校机构知识库多作者完整提取 (`bepress_citation_author`)。
+  - 完善期刊名从 Host 推断词典。
+  - 改进 Google Scholar 千分位逗号引用数及逆序出版年份精准提取。
+  - 规范 Zotero/JabRef 标准 BibTeX 引用 Key 首作者姓氏提取算法。
+- **系统稳健性加固**：
+  - AI 总结流式长连接引入 25 秒不活动安全看门狗与超时自愈机制。
+  - 增强剪贴板跨浏览器环境复制降级方案 (`execCommand` 兜底)。
+  - 优化悬浮元卡拖拽边界与事件监听生命周期管理，杜绝内存泄漏。
+
 ## v2.1.1 - 2026-08-03
 
 ### Fixed

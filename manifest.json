@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "PaperPilot Pro - 一体化学术科研智能助手",
-  "version": "2.1.1",
+  "version": "2.4.0",
   "description": "打通谷歌学术与期刊页的闭环检索与直链工具，内置自然指数高亮、本地无感双滑块过滤、去重折叠、跨域PDF探测、影响因子与分区展示及本地AI文献总结。",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "activeTab",
     "scripting",
     "clipboardWrite",
@@ -107,7 +108,16 @@
         "*://*.siam.org/*",
         "*://*.worldscientific.com/*",
         "*://*.doaj.org/*",
-        "*://*.scielo.org/*"
+        "*://*.scielo.org/*",
+        "*://*.chemrxiv.org/*",
+        "*://*.researchsquare.com/*",
+        "*://*.ssrn.com/*",
+        "*://*.annualreviews.org/*",
+        "*://*.biomedcentral.com/*",
+        "*://*.researchgate.net/*",
+        "*://*.semanticscholar.org/*",
+        "*://*.cnki.net/*",
+        "*://*.wanfangdata.com.cn/*"
       ],
       "js": [
         "core/messaging.js",
@@ -140,5 +150,6 @@
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "minimum_chrome_version": "100"
 }

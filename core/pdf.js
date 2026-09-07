@@ -8,6 +8,11 @@
     return headers[name] || headers[lower] || "";
   }
 
+  function normalizeHost(hostname) {
+    const raw = String(hostname || "").toLowerCase();
+    return root.siteProfiles?.normalizeProxyHost ? root.siteProfiles.normalizeProxyHost(raw) : raw;
+  }
+
   function normalizeDownloadUrlKey(rawUrl) {
     try {
       const url = new URL(rawUrl);
@@ -51,7 +56,7 @@
     if (!rawUrl) return false;
     try {
       const url = new URL(rawUrl);
-      const host = url.hostname.toLowerCase();
+      const host = normalizeHost(url.hostname);
       const path = url.pathname.toLowerCase();
       if ((host.includes("sciencedirect.com") || host.includes("elsevier.com")) &&
           !(path.includes("/pdfft") && url.searchParams.get("md5") && url.searchParams.get("pid"))) {
@@ -88,7 +93,7 @@
 
   function isScienceDirectUrl(rawUrl) {
     try {
-      const host = new URL(rawUrl).hostname.toLowerCase();
+      const host = normalizeHost(new URL(rawUrl).hostname);
       return host.includes("sciencedirect.com") || host.includes("elsevier.com");
     } catch (e) {
       return false;
@@ -154,7 +159,7 @@
       return candidate;
     }
 
-    const host = url.hostname.toLowerCase();
+    const host = normalizeHost(url.hostname);
     const path = url.pathname.toLowerCase();
     const source = candidate.source.toLowerCase();
     const text = candidate.text.toLowerCase();
