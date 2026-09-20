@@ -26,7 +26,9 @@ $items = @(
   "lib",
   "popup",
   "icons",
-  "README.md"
+  "README.md",
+  "CHANGELOG.md",
+  "docs"
 )
 
 $temp = Join-Path $env:TEMP ("paperpilot-package-" + [guid]::NewGuid().ToString("N"))
@@ -42,6 +44,12 @@ try {
   Write-Host "Created $outFile"
 } finally {
   if (Test-Path -LiteralPath $temp) {
-    Remove-Item -LiteralPath $temp -Recurse -Force
+    $resolvedTemp = [IO.Path]::GetFullPath($temp)
+    $tempRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    if (!$resolvedTemp.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($resolvedTemp) -notmatch '^paperpilot-package-[0-9a-f]{32}$') {
+      throw "Refusing to remove an unexpected packaging directory."
+    }
+    Remove-Item -LiteralPath $resolvedTemp -Recurse -Force
   }
 }

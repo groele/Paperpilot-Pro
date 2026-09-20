@@ -17,16 +17,45 @@
       .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
   }
 
-  function escapeBibtex(value) {
-    return decodeHtmlEntities(stripTags(value))
-      .replace(/[{}]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+  function cleanText(val) {
+    return decodeHtmlEntities(stripTags(val)).replace(/\s+/g, " ").trim();
+  }
+
+  function escapeBibtex(value, isVerbatim = false) {
+    let text = decodeHtmlEntities(stripTags(value)).trim();
+    if (!text) return "";
+    if (isVerbatim) {
+      return text.replace(/\s+/g, "");
+    }
+    // Protect LaTeX special characters from breaking pdflatex/biber compilation:
+    // & -> \&, % -> \%, _ -> \_, # -> \#, $ -> \$
+    text = text
+      .replace(/(^|[^\\])&/g, "$1\\&")
+      .replace(/(^|[^\\])%/g, "$1\\%")
+      .replace(/(^|[^\\])_/g, "$1\\_")
+      .replace(/(^|[^\\])#/g, "$1\\#")
+      .replace(/(^|[^\\])\$/g, "$1\\$");
+
+    return text.replace(/\s+/g, " ").trim();
   }
 
   function normalizeAuthors(authors) {
     if (Array.isArray(authors)) {
-      return authors.map(a => String(a || "").trim()).filter(Boolean);
+      return authors.map(a => {
+        if (!a) return "";
+        if (typeof a === "object") {
+          if (a.name) return String(a.name).trim();
+          if (a.literal) return String(a.literal).trim();
+          if (a.family || a.given) {
+            return `${a.given || ""} ${a.family || ""}`.trim();
+          }
+          if (a.display_name) return String(a.display_name).trim();
+          if (a.author && typeof a.author === "object") {
+            return a.author.display_name || a.author.name || "";
+          }
+        }
+        return String(a || "").trim();
+      }).filter(Boolean);
     }
     if (typeof authors === "string" && authors.trim()) {
       if (/\sand\s/i.test(authors)) {
@@ -86,8 +115,8 @@
         `  author={${escapeBibtex(authors.join(" and "))}},\n` +
         `  journal={${escapeBibtex(paper.journal || paper.venue || "Other")}},\n` +
         `  year={${escapeBibtex(paper.year || "")}},\n` +
-        `  doi={${escapeBibtex(paper.doi || "")}},\n` +
-        `  url={${escapeBibtex(paper.url || paper.pdfUrl || "")}},\n` +
+        `  doi={${escapeBibtex(paper.doi || "", true)}},\n` +
+        `  url={${escapeBibtex(paper.url || paper.pdfUrl || "", true)}},\n` +
         `  note={Source: ${escapeBibtex(source)}; Accessed: ${escapeBibtex(accessed)}}\n` +
         `}`;
     }).join("\n\n");
@@ -97,19 +126,25 @@
     return (papers || []).map(paper => {
       const authors = normalizeAuthors(paper.authors);
       const lines = ["TY  - JOUR"];
-      authors.forEach(author => lines.push(`AU  - ${escapeBibtex(author)}`));
-      lines.push(`TI  - ${escapeBibtex(paper.title || "Untitled paper")}`);
-      if (paper.journal || paper.venue) lines.push(`JO  - ${escapeBibtex(paper.journal || paper.venue)}`);
-      if (paper.year) lines.push(`PY  - ${escapeBibtex(paper.year)}`);
-      if (paper.doi) lines.push(`DO  - ${escapeBibtex(paper.doi)}`);
-      if (paper.url || paper.pdfUrl) lines.push(`UR  - ${escapeBibtex(paper.url || paper.pdfUrl)}`);
-      lines.push("ER  -");
+      authors.forEach(author => {
+        let formattedAuthor = cleanText(author);
+        if (formattedAuthor && !formattedAuthor.includes(",")) {
+          const parts = formattedAuthor.split(/\s+/);
+          if (parts.length > 1) {
+            const family = parts.pop();
+            formattedAuthor = `${family}, ${parts.join(" ")}`;
+          }
+        }
+        lines.push(`AU  - ${formattedAuthor}`);
+      });
+      lines.push(`TI  - ${cleanText(paper.title || "Untitled paper")}`);
+      if (paper.journal || paper.venue) lines.push(`JO  - ${cleanText(paper.journal || paper.venue)}`);
+      if (paper.year) lines.push(`PY  - ${cleanText(paper.year)}`);
+      if (paper.doi) lines.push(`DO  - ${cleanText(paper.doi)}`);
+      if (paper.url || paper.pdfUrl) lines.push(`UR  - ${cleanText(paper.url || paper.pdfUrl)}`);
+      lines.push("ER  - \n");
       return lines.join("\n");
     }).join("\n\n");
-  }
-
-  function cleanText(val) {
-    return decodeHtmlEntities(stripTags(val));
   }
 
   function buildCslJson(papers) {
@@ -131,6 +166,7 @@
   root.citation = {
     stripTags,
     decodeHtmlEntities,
+    cleanText,
     escapeBibtex,
     buildCitationKey,
     buildBibtexEntries,

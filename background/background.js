@@ -648,6 +648,42 @@ const pdfVerificationSingleFlight = PP_CORE.cache?.createSingleFlight?.();
 const metadataSingleFlight = PP_CORE.cache?.createSingleFlight?.();
 const metadataFlights = new Map();
 const inFlightPdfDownloads = new Map();
+let metadataCachePromise = null;
+let memoryMetadataCache = null;
+let metadataCacheWriteTimer = null;
+let metadataCacheWritePromise = Promise.resolve();
+const METADATA_CACHE_FLUSH_DELAY_MS = 60;
+
+async function getOrLoadMetadataCache() {
+  if (memoryMetadataCache) return memoryMetadataCache;
+  if (!metadataCachePromise) {
+    metadataCachePromise = chrome.storage.local.get("pdf_cache").then(storage => {
+      memoryMetadataCache = (storage && typeof storage.pdf_cache === "object" && storage.pdf_cache) || {};
+      return memoryMetadataCache;
+    }).finally(() => {
+      metadataCachePromise = null;
+    });
+  }
+  return metadataCachePromise;
+}
+
+function scheduleMetadataCacheFlush() {
+  if (metadataCacheWriteTimer) clearTimeout(metadataCacheWriteTimer);
+  return new Promise((resolve) => {
+    metadataCacheWriteTimer = setTimeout(() => {
+      metadataCacheWritePromise = metadataCacheWritePromise.then(async () => {
+        try {
+          const cache = await getOrLoadMetadataCache();
+          await chrome.storage.local.set({ pdf_cache: cache });
+        } catch (e) {
+          console.warn("PaperPilot Pro: Failed to flush metadata cache", e);
+        }
+        resolve();
+      });
+    }, METADATA_CACHE_FLUSH_DELAY_MS);
+  });
+}
+
 let pdfRuntimeStatePromise = null;
 let pdfRuntimeState = null;
 const pdfRuntimeOverrides = {};
@@ -731,6 +767,9 @@ if (chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local") return;
     updatePdfRuntimeState(changes);
+    if (changes.pdf_cache && changes.pdf_cache.newValue) {
+      memoryMetadataCache = changes.pdf_cache.newValue;
+    }
     if (changes.enable_easyscholar || changes.easyscholar_key) easyScholarConfigGeneration += 1;
     broadcastPublicSettingsChanged(changes);
   });
@@ -1424,17 +1463,16 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
     : DEFAULT_METADATA_CONTACT_EMAIL;
 
   // Check cache first (incorporating 7-day Cache Expiration & Eviction mechanism)
-  const storage = await chrome.storage.local.get("pdf_cache");
-  const cache = storage.pdf_cache || {};
+  const cache = await getOrLoadMetadataCache();
   if (cache[cacheKey]) {
     const cachedData = cache[cacheKey];
     if (cachedData.cacheSchemaVersion !== METADATA_CACHE_SCHEMA_VERSION) {
       delete cache[cacheKey];
-      await chrome.storage.local.set({ pdf_cache: cache });
+      void scheduleMetadataCacheFlush();
     } else {
     if (pageUrl && cachedData.pageUrl !== pageUrl) {
       cachedData.pageUrl = pageUrl;
-      await chrome.storage.local.set({ pdf_cache: cache });
+      void scheduleMetadataCacheFlush();
     }
     const cachedAt = cachedData.cachedAt || 0;
     const expiresAt = cachedData.expiresAt || (cachedAt + METADATA_CACHE_TTL_MS);
@@ -1598,18 +1636,8 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
     }
   }
 
-  // Map JCR Quartile to CAS Partition (only if not resolved by easyScholar)
-  if (metadata.jcrQuartile && metadata.jcrQuartile !== "N/A" && metadata.casPartition === "N/A") {
-    if (metadata.jcrQuartile.includes("Q1")) {
-      metadata.casPartition = "1区";
-    } else if (metadata.jcrQuartile.includes("Q2")) {
-      metadata.casPartition = "2区";
-    } else if (metadata.jcrQuartile.includes("Q3")) {
-      metadata.casPartition = "3区";
-    } else if (metadata.jcrQuartile.includes("Q4")) {
-      metadata.casPartition = "4区";
-    }
-  }
+  // Ensure authentic reporting: Keep JCR Quartile and CAS partition decoupled.
+  // We do not falsely map JCR Q1 to CAS 1区 without authoritative verification.
 
   // Cache final metadata with timestamp for expiration eviction
   metadata.pageUrl = pageUrl || metadata.pageUrl || "";
@@ -1618,12 +1646,14 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
   metadata.cacheSchemaVersion = METADATA_CACHE_SCHEMA_VERSION;
   metadata.stale = false;
   metadata.source = metadata.sources && metadata.sources.length ? metadata.sources.join(", ") : "local";
-  cache[cacheKey] = metadata;
-  PP_CORE.cache?.pruneRecordObject?.(cache, {
+
+  const targetCache = await getOrLoadMetadataCache();
+  targetCache[cacheKey] = metadata;
+  PP_CORE.cache?.pruneRecordObject?.(targetCache, {
     maxEntries: 500,
     ttlMs: 4 * METADATA_CACHE_TTL_MS
   });
-  await chrome.storage.local.set({ pdf_cache: cache });
+  void scheduleMetadataCacheFlush();
 
   return {
     success: true,
@@ -1920,14 +1950,35 @@ async function testAIConnection() {
 chrome.runtime?.onConnect?.addListener(port => {
   if (port.name === "AI_STREAM") {
     const abortController = new AbortController();
+    let started = false;
+    let deadline = null;
+    const onAnalysisSettingChanged = (changes, areaName) => {
+      if (areaName !== "local" || !["enable_ai_summary_btn", "enable_metacard"].some(key => changes[key]?.newValue === false)) return;
+      try { port.postMessage({ type: "error", error: "学术分析或期刊详情元卡已关闭。" }); } catch (_) {}
+      clearTimeout(deadline);
+      abortController.abort();
+      chrome.storage.onChanged.removeListener(onAnalysisSettingChanged);
+    };
+    chrome.storage.onChanged.addListener(onAnalysisSettingChanged);
     port.onDisconnect.addListener(() => {
+      clearTimeout(deadline);
+      chrome.storage.onChanged.removeListener(onAnalysisSettingChanged);
       abortController.abort();
     });
 
     port.onMessage.addListener(async msg => {
       if (msg.action === "AI_STREAM_START") {
+        if (started || abortController.signal.aborted) return;
+        started = true;
+        deadline = setTimeout(() => {
+          try { port.postMessage({ type: "error", error: "AI 请求超时，请稍后重试。" }); } catch (_) {}
+          abortController.abort();
+        }, 180000);
         try {
+          const settings = await chrome.storage.local.get(["enable_ai_summary_btn"]);
+          if (settings.enable_ai_summary_btn === false) throw new Error("学术分析视角已关闭，请在 Dashboard Overview 中开启。");
           const config = await loadAiConfig();
+          if (abortController.signal.aborted) return;
           const presetKey = msg.preset || config.preset || "tldr";
           const prompt = PP_CORE.ai?.resolvePrompt
             ? PP_CORE.ai.resolvePrompt(presetKey, msg.customPrompt || config.prompt)
@@ -1996,6 +2047,9 @@ chrome.runtime?.onConnect?.addListener(port => {
             errorCode: code,
             error: err.message || String(err)
           });
+        } finally {
+          clearTimeout(deadline);
+          chrome.storage.onChanged.removeListener(onAnalysisSettingChanged);
         }
       }
     });

@@ -21,7 +21,8 @@ const files = [
   "core/pdf-discovery.js",
   "core/ai.js",
   "core/citation.js",
-  "scripts/e2e.js"
+  "scripts/e2e.js",
+  "scripts/browser-smoke.js"
 ];
 
 let failed = false;
@@ -42,6 +43,13 @@ for (const file of files) {
 }
 
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
+const packageVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
+const popupVersion = fs.readFileSync(path.join(root, "popup/popup.html"), "utf8").match(/class="pp-popup-version">v([^<]+)</)?.[1];
+const readmeVersion = fs.readFileSync(path.join(root, "README.md"), "utf8").match(/badge\/version-([\d.]+)-/)?.[1];
+if ([packageVersion, popupVersion, readmeVersion].some(version => version !== manifest.version)) {
+  console.error("Manifest, package, popup, and README versions must agree.");
+  failed = true;
+}
 const broadScripts = (manifest.content_scripts || []).filter(script =>
   (script.matches || []).includes("http://*/*") || (script.matches || []).includes("https://*/*")
 );

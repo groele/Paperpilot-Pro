@@ -15,6 +15,24 @@
   let lastPdfDownloadStatus = null;
   let lastPdfDiscoveryDiagnostics = null;
   let initGeneration = 0;
+  let cardRenderGeneration = 0;
+  let disposeAnalysis = null;
+  let disposeDrag = null;
+
+  function removeMetacard(preserveAnalysis = false) {
+    ++cardRenderGeneration;
+    const analysis = preserveAnalysis ? cardEl?.querySelector(".pp-jc-ai-section") : null;
+    if (!analysis) {
+      disposeAnalysis?.();
+      disposeAnalysis = null;
+    }
+    disposeDrag?.();
+    disposeDrag = null;
+    window.removeEventListener("keydown", globalThis.__PAPERPILOT_METACARD_KEYBOARD__);
+    cardEl?.remove();
+    cardEl = null;
+    return analysis;
+  }
   const PDF_URL_CANDIDATE_CACHE_MS = 30000;
   const PDF_EMPTY_CANDIDATE_CACHE_MS = 2000;
   const MAX_PDF_URL_CANDIDATES = 32;
@@ -49,7 +67,7 @@
     });
   }
 
-  function safeSendMessage(message, callback) {
+  function safeSendMessage(message, callback, retries = 2) {
     try {
       if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.id) {
         if (callback) callback({ success: false, error: "Extension context invalidated" });
@@ -58,6 +76,13 @@
       chrome.runtime.sendMessage(message, (response) => {
         const err = chrome.runtime.lastError;
         if (err) {
+          const isWakeupDelay = /could not establish connection|receiving end does not exist/i.test(err.message || "");
+          if (isWakeupDelay && retries > 0) {
+            setTimeout(() => {
+              safeSendMessage(message, callback, retries - 1);
+            }, (3 - retries) * 120);
+            return;
+          }
           if (callback) callback({ success: false, error: err.message });
         } else {
           if (callback) callback(response);
@@ -223,7 +248,16 @@
 
   function isPublisherChallengePage() {
     const title = (document.title || "").toLowerCase();
-    const bodyPreview = (document.body?.textContent || "").slice(0, 1200).toLowerCase();
+    const bodyPreview = (document.body?.textContent || "").slice(0, 1500).toLowerCase();
+    const href = window.location.href.toLowerCase();
+    const path = window.location.pathname.toLowerCase();
+    const isAuthUrl = href.includes("carsi.edu.cn") ||
+      path.includes("/cas/login") ||
+      path.includes("/shibboleth") ||
+      path.includes("/openathens") ||
+      path.includes("/idp/profile/");
+    if (isAuthUrl) return true;
+
     const challengeHints = window.PaperPilotCore?.siteProfiles?.COMMON_CHALLENGE_SIGNALS || [
       "just a moment",
       "checking your browser",
@@ -232,7 +266,9 @@
       "access denied",
       "attention required",
       "unusual traffic", "sign in to access", "login required", "authentication required",
+      "shibboleth", "openathens", "carsi", "cas/login",
       "请稍候", "正在检查您的浏览器", "验证您是真人", "访问被拒绝", "需要登录", "机构登录",
+      "统一身份认证", "统一认证", "身份认证", "单点登录", "校园网认证",
       "ログインしてください", "アクセスが拒否されました", "로그인이 필요합니다", "사람인지 확인",
       "connectez-vous pour accéder", "accès refusé", "anmeldung erforderlich", "zugriff verweigert",
       "inicie sesión para acceder", "acceso denegado"
@@ -1053,7 +1089,7 @@
         paperMeta.doi = enriched.doi || paperMeta.doi;
         paperMeta.pdfUrl = enriched.pdfUrl || paperMeta.pdfUrl;
         paperMeta.journal = enriched.journal || paperMeta.journal;
-        paperMeta.authors = enriched.authors.length > 0 ? enriched.authors : paperMeta.authors;
+        paperMeta.authors = Array.isArray(enriched.authors) && enriched.authors.length > 0 ? enriched.authors : paperMeta.authors;
         paperMeta.year = enriched.year || paperMeta.year;
         paperMeta.impactFactor = enriched.impactFactor;
         paperMeta.jcrQuartile = enriched.jcrQuartile;
@@ -1070,9 +1106,8 @@
         paperMeta.cachedAt = enriched.cachedAt || response.cachedAt || null;
 
         // Refresh the already visible card with enriched data.
-        cardEl?.remove();
-        cardEl = null;
-        injectMetacard();
+        const analysis = removeMetacard(true);
+        injectMetacard(analysis);
 
         // Auto Log to history as 'visited'
         logFootprint("visited");
@@ -1118,14 +1153,11 @@
       "enable_journal_copy_doi_btn", "enable_pdf_download_btn", "enable_ai_summary_btn",
       "enable_ccf_badge", "enable_core_badge", "enable_warn_badge", "enable_if_badge",
       "enable_cas_badge", "enable_jcr_badge", "enable_cite_badge", "enable_pdf_badge",
-      "metacard_pinned"
+      "metacard_pinned", "ai_preset"
     ];
     if (!redrawKeys.some(key => changed.has(key))) return;
-    const card = document.getElementById("pp-journal-metacard");
-    if (card) card.remove();
-    getPublicSettings(["enable_metacard"], config => {
-      if (config.enable_metacard !== false) injectMetacard();
-    });
+    removeMetacard();
+    injectMetacard();
   }
 
   // Local DOM PDF Link Sniffer for both OA and Institutional Paid Databases
@@ -1416,7 +1448,9 @@
 
   // Inject beautiful Glassmorphic Float Panel
   // Inject beautiful Glassmorphic Float Panel
-  function injectMetacard() {
+  function injectMetacard(preservedAnalysis = null) {
+    const renderGeneration = ++cardRenderGeneration;
+    const pageGeneration = initGeneration;
     getPublicSettings([
       "enable_metacard",
       "enable_metrics_display",
@@ -1426,6 +1460,7 @@
       "pdf_landing_cache",
       "enable_pdf_download_btn",
       "enable_ai_summary_btn",
+      "ai_preset",
       "enable_ccf_badge",
       "enable_core_badge",
       "enable_warn_badge",
@@ -1436,7 +1471,10 @@
       "enable_pdf_badge",
       "metacard_pinned"
     ], (config) => {
+      if (renderGeneration !== cardRenderGeneration || pageGeneration !== initGeneration || !paperMeta) return;
       if (config.enable_metacard === false) {
+        disposeAnalysis?.();
+        disposeAnalysis = null;
         console.log("PaperPilot Pro: Metacard is disabled in settings. Skipping injection.");
         return;
       }
@@ -1446,6 +1484,7 @@
       cardEl.id = "pp-journal-metacard";
       cardEl.className = "pp-jc-floating-card";
       cardEl.setAttribute("data-pp-theme", currentTheme);
+      cardEl.dataset.aiPreset = config.ai_preset || "tldr";
       if (config.metacard_pinned === true) {
         cardEl.classList.add("pp-jc-pinned");
       }
@@ -1661,16 +1700,20 @@
               <div class="pp-jc-ai-chips-hdr">
                 <span class="pp-jc-ai-chips-title">${window.PP_ICONS.ai_sparkles || '✨'} 学术分析视角</span>
               </div>
-              <div class="pp-jc-ai-chips" id="pp-jc-ai-chips" role="tablist">
+              <p class="pp-jc-ai-scope">仅依据标题与摘要，区分论文陈述与待验证推断。点击生成后发送至已配置的 AI 服务。</p>
+              <div class="pp-jc-ai-chips" id="pp-jc-ai-chips" role="group" aria-label="学术分析视角">
                 <button type="button" class="pp-jc-ai-chip active" data-preset="tldr" title="3行精简要点与结论速览">⚡ 极速速读</button>
                 <button type="button" class="pp-jc-ai-chip" data-preset="novelty" title="深入剖析核心创新点与突破">💡 创新贡献</button>
                 <button type="button" class="pp-jc-ai-chip" data-preset="methodology" title="拆解技术路线与算法框架">🔬 技术路线</button>
                 <button type="button" class="pp-jc-ai-chip" data-preset="limitations" title="审视假设限制与潜在局限性">⚠️ 局限批判</button>
                 <button type="button" class="pp-jc-ai-chip" data-preset="glossary" title="提取核心术语并提供解析">🌐 术语精讲</button>
+                <button type="button" class="pp-jc-ai-chip" data-preset="custom" title="使用扩展设置中的自定义提示词">✎ 自定义</button>
               </div>
               <button type="button" class="pp-jc-action-btn pp-jc-btn-ai" id="pp-jc-btn-ai-sum">
                 ${window.PP_ICONS.ai_sparkles} <span id="pp-jc-ai-btn-label">AI 流式智能速读 (TL;DR)</span>
               </button>
+              <button type="button" class="pp-jc-ai-stop" id="pp-jc-ai-stop" hidden>停止生成</button>
+              <p class="pp-jc-ai-status" id="pp-jc-ai-status" role="status" aria-live="polite"></p>
               <div class="pp-jc-ai-summary-box" id="pp-jc-ai-box"></div>
             </div>
             ` : ''}
@@ -1679,10 +1722,16 @@
       `;
 
       document.body.appendChild(cardEl);
+      if (preservedAnalysis && config.enable_ai_summary_btn !== false) {
+        cardEl.querySelector(".pp-jc-ai-section")?.replaceWith(preservedAnalysis);
+      } else if (preservedAnalysis) {
+        disposeAnalysis?.();
+        disposeAnalysis = null;
+      }
 
       // Make Card Draggable
       const header = cardEl.querySelector("#pp-jc-card-hdr");
-      makeCardDraggable(cardEl, header);
+      disposeDrag = makeCardDraggable(cardEl, header);
 
       // Hook events
       bindMetacardEvents(resolvedLandingUrl);
@@ -1712,6 +1761,7 @@
     }
 
     const setPinnedState = (pinned) => {
+      ["top", "left", "right", "max-height"].forEach(property => cardEl.style.removeProperty(property));
       cardEl.classList.toggle("pp-jc-pinned", pinned);
       if (pinBtn) {
         pinBtn.classList.toggle("pp-jc-active", pinned);
@@ -1755,7 +1805,8 @@
 
     // Keyboard Shortcuts Handler (Alt+P, Alt+D, Alt+C)
     const onGlobalKeydown = (e) => {
-      if (e.altKey || e.metaKey) {
+      if (e.target?.closest?.("input, textarea, select, [contenteditable='true']")) return;
+      if (e.altKey && !e.ctrlKey && !e.metaKey && cardEl?.isConnected) {
         const key = e.key.toLowerCase();
         if (key === 'p') {
           e.preventDefault();
@@ -1912,148 +1963,152 @@
 
     if (scihubJumpBtn) scihubJumpBtn.onclick = () => handleCopyDoi(scihubJumpBtn);
 
-    // Client-side AI summarize with streaming & presets
-    if (aiBtn) {
-      const aiBox = cardEl.querySelector("#pp-jc-ai-box");
-      const chips = cardEl.querySelectorAll(".pp-jc-ai-chip");
-      const btnLabel = cardEl.querySelector("#pp-jc-ai-btn-label");
-      let activePreset = "tldr";
-      let activePort = null;
-      let lastGeneratedText = "";
-
-      const PRESET_LABELS = {
-        tldr: "极速速读 (TL;DR)",
-        novelty: "创新贡献剖析",
-        methodology: "技术路线拆解",
-        limitations: "审稿人局限批判",
-        glossary: "关键术语精讲"
+    // One active request per analysis section; late messages cannot mutate newer runs.
+    if (aiBtn && !aiBtn.dataset.bound) {
+      aiBtn.dataset.bound = "true";
+      const section = aiBtn.closest(".pp-jc-ai-section");
+      const aiBox = section.querySelector("#pp-jc-ai-box");
+      const chips = section.querySelectorAll(".pp-jc-ai-chip");
+      const btnLabel = section.querySelector("#pp-jc-ai-btn-label");
+      const stopBtn = section.querySelector("#pp-jc-ai-stop");
+      const status = section.querySelector("#pp-jc-ai-status");
+      const source = { title: paperMeta.title || "", abstract: paperMeta.abstract || "" };
+      const labels = {
+        tldr: "极速速读", novelty: "创新贡献", methodology: "技术路线",
+        limitations: "局限批判", glossary: "术语精讲", custom: "自定义"
       };
+      let activePreset = labels[cardEl.dataset.aiPreset] ? cardEl.dataset.aiPreset : "tldr";
+      let activePort = null;
+      let idleTimer = null;
+      let totalTimer = null;
+      let requestId = 0;
+      let lastGeneratedText = "";
+      let resultPreset = "";
+      let complete = false;
 
+      function stopRequest() {
+        ++requestId;
+        clearTimeout(idleTimer);
+        clearTimeout(totalTimer);
+        const port = activePort;
+        activePort = null;
+        if (port) { try { port.disconnect(); } catch (_) {} }
+        aiBtn.disabled = false;
+        stopBtn.hidden = true;
+        aiBox.setAttribute("aria-busy", "false");
+        aiBox.querySelector(".pp-jc-ai-cursor")?.remove();
+        btnLabel.textContent = `生成分析 · ${labels[activePreset]}`;
+      }
+      disposeAnalysis = stopRequest;
+
+      function updateSelection() {
+        chips.forEach(chip => {
+          const selected = chip.dataset.preset === activePreset;
+          chip.classList.toggle("active", selected);
+          chip.setAttribute("aria-pressed", String(selected));
+        });
+        btnLabel.textContent = `生成分析 · ${labels[activePreset]}`;
+      }
       chips.forEach(chip => {
-        chip.onclick = (e) => {
-          e.stopPropagation();
-          chips.forEach(c => c.classList.remove("active"));
-          chip.classList.add("active");
-          activePreset = chip.getAttribute("data-preset") || "tldr";
-          const labelText = PRESET_LABELS[activePreset] || activePreset;
-          if (btnLabel) {
-            btnLabel.textContent = `AI 深度研读：${labelText}`;
+        chip.onclick = event => {
+          event.stopPropagation();
+          if (activePort) {
+            stopRequest();
+            status.textContent = "已停止上一视角的生成，请点击生成新分析。";
           }
-          if (aiBox && aiBox.classList.contains("pp-show")) {
-            startStreamingSummary();
-          }
+          activePreset = chip.dataset.preset;
+          updateSelection();
         };
       });
-
-      function startStreamingSummary() {
-        if (!aiBox) return;
-        if (activePort) {
-          try { activePort.disconnect(); } catch (_) {}
-          activePort = null;
-        }
-
+      updateSelection();
+      stopBtn.onclick = () => {
+        stopRequest();
+        status.textContent = "已停止生成，已接收的内容保留供查看。";
+      };
+      if (!source.abstract.trim()) {
         aiBtn.disabled = true;
-        const presetName = PRESET_LABELS[activePreset] || activePreset;
-        if (btnLabel) btnLabel.textContent = "AI 正在实时流式生成中...";
-        aiBox.classList.add("pp-show");
-        lastGeneratedText = "";
-
-        // Render AI Box Header & Content container
-        aiBox.innerHTML = `
-          <div class="pp-jc-ai-hdr">
-            <div class="pp-jc-ai-tags">
-              <span class="pp-jc-ai-badge" id="pp-jc-ai-provider-badge">AI 思考中...</span>
-              <span class="pp-jc-ai-tag">${escapeHtml(presetName)}</span>
-            </div>
-            <button type="button" class="pp-jc-ai-copy-btn" id="pp-jc-ai-copy" title="复制总结 Markdown" style="display: none;">
-              ${getIcon("copy", "📋")} 复制
-            </button>
-          </div>
-          <div class="pp-jc-ai-content" id="pp-jc-ai-content"><span class="pp-jc-ai-cursor">▌</span></div>
-        `;
-
-        const contentEl = aiBox.querySelector("#pp-jc-ai-content");
-        const providerBadge = aiBox.querySelector("#pp-jc-ai-provider-badge");
-        const copyBtn = aiBox.querySelector("#pp-jc-ai-copy");
-
-        if (copyBtn) {
-          copyBtn.onclick = () => {
-            if (!lastGeneratedText) return;
-            const fullNote = `### AI 学术研读 [${presetName}]\n**文献**：${paperMeta.title || ""}\n\n${lastGeneratedText}`;
-            robustCopyToClipboard(fullNote).then(() => {
-              showToast("✓ AI 总结已成功复制为 Markdown 格式！");
-              const origHtml = copyBtn.innerHTML;
-              copyBtn.innerHTML = `${getIcon("check", "✓")} 已复制`;
-              copyBtn.style.color = "#10b981";
-              setTimeout(() => {
-                copyBtn.innerHTML = origHtml;
-                copyBtn.style.color = "";
-              }, 1800);
-            });
-          };
-        }
-
-        try {
-          const port = chrome.runtime.connect({ name: "AI_STREAM" });
-          activePort = port;
-
-          port.onMessage.addListener(msg => {
-            if (msg.type === "start") {
-              if (providerBadge) {
-                providerBadge.textContent = `${msg.provider || "AI"} · ${msg.model || "Academic"}`;
-              }
-            } else if (msg.type === "chunk") {
-              lastGeneratedText = msg.accumulated || (lastGeneratedText + (msg.chunk || ""));
-              if (contentEl) {
-                contentEl.innerHTML = escapeHtml(lastGeneratedText) + `<span class="pp-jc-ai-cursor">▌</span>`;
-              }
-            } else if (msg.type === "done") {
-              lastGeneratedText = msg.fullText || lastGeneratedText;
-              if (contentEl) {
-                contentEl.innerHTML = escapeHtml(lastGeneratedText);
-              }
-              if (providerBadge) {
-                providerBadge.textContent = `${msg.provider || "AI"} · ${msg.model || "Academic"}`;
-              }
-              if (copyBtn) copyBtn.style.display = "inline-flex";
-              aiBtn.disabled = false;
-              if (btnLabel) btnLabel.textContent = `✨ 重新生成 [${presetName}]`;
-              logFootprint("visited");
-              activePort = null;
-            } else if (msg.type === "error") {
-              aiBtn.disabled = false;
-              const isMissingKey = msg.errorCode === "AI_API_KEY_MISSING";
-              if (btnLabel) btnLabel.textContent = isMissingKey ? "AI 未配置 API Key" : "AI 总结失败";
-              if (contentEl) {
-                contentEl.innerHTML = `<span style="color: #ef4444;">${escapeHtml(msg.error || "生成失败，请在扩展配置中检查 API Key。")}</span>`;
-              }
-              showToast(msg.error || "AI 未返回总结，请在扩展控制台中检查配置。");
-              activePort = null;
-            }
-          });
-
-          port.onDisconnect.addListener(() => {
-            aiBtn.disabled = false;
-            activePort = null;
-          });
-
-          port.postMessage({
-            action: "AI_STREAM_START",
-            abstract: paperMeta.abstract || "",
-            title: paperMeta.title || "",
-            preset: activePreset
-          });
-        } catch (err) {
-          aiBtn.disabled = false;
-          if (btnLabel) btnLabel.textContent = "AI 连接异常";
-          if (contentEl) {
-            contentEl.innerHTML = `<span style="color: #ef4444;">${escapeHtml(err.message || "无法连接到后台 AI 服务")}</span>`;
-          }
-        }
+        status.textContent = "未检测到摘要，暂不能生成可靠分析。请在包含摘要的论文页面重试。";
       }
 
       aiBtn.onclick = () => {
-        startStreamingSummary();
+        if (!source.abstract.trim() || activePort) return;
+        stopRequest();
+        const id = requestId;
+        resultPreset = activePreset;
+        const presetName = labels[resultPreset];
+        lastGeneratedText = "";
+        complete = false;
+        aiBtn.disabled = true;
+        stopBtn.hidden = false;
+        status.textContent = "正在连接 AI 服务…";
+        btnLabel.textContent = "正在生成…";
+        aiBox.classList.add("pp-show");
+        aiBox.setAttribute("aria-busy", "true");
+        aiBox.innerHTML = `
+          <div class="pp-jc-ai-hdr">
+            <div class="pp-jc-ai-tags">
+              <span class="pp-jc-ai-badge" id="pp-jc-ai-provider-badge">正在连接</span>
+              <span class="pp-jc-ai-tag">${escapeHtml(presetName)} · 标题与摘要</span>
+            </div>
+            <button type="button" class="pp-jc-ai-copy-btn" id="pp-jc-ai-copy" hidden>复制</button>
+          </div>
+          <div class="pp-jc-ai-content" id="pp-jc-ai-content"><span class="pp-jc-ai-cursor">▌</span></div>`;
+        const content = aiBox.querySelector("#pp-jc-ai-content");
+        const badge = aiBox.querySelector("#pp-jc-ai-provider-badge");
+        const copy = aiBox.querySelector("#pp-jc-ai-copy");
+        copy.onclick = () => {
+          const note = `### AI 学术研读 [${presetName}]${complete ? "" : "（未完成）"}\n**文献**：${source.title}\n**依据**：标题与摘要；模型推断需核验原文。\n\n${lastGeneratedText}`;
+          robustCopyToClipboard(note).then(() => showToast("AI 分析已复制为 Markdown"))
+            .catch(() => showToast("复制失败，请选择分析内容手动复制"));
+        };
+        const fail = message => {
+          if (id !== requestId) return;
+          stopRequest();
+          badge.textContent = "未完成";
+          if (!lastGeneratedText) content.textContent = message;
+          status.textContent = message;
+        };
+        const resetIdle = () => {
+          clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => fail("AI 响应超时，请检查服务后重试。"), 45000);
+        };
+        try {
+          const port = chrome.runtime.connect({ name: "AI_STREAM" });
+          activePort = port;
+          resetIdle();
+          totalTimer = setTimeout(() => fail("生成时间过长，已停止。可缩短提示词后重试。"), 180000);
+          port.onMessage.addListener(msg => {
+            if (id !== requestId || activePort !== port) return;
+            resetIdle();
+            if (msg.type === "start") {
+              badge.textContent = `${msg.provider || "AI"} · ${msg.model || ""}`;
+              status.textContent = "正在根据标题与摘要生成分析…";
+            } else if (msg.type === "chunk") {
+              lastGeneratedText = msg.accumulated || (lastGeneratedText + (msg.chunk || ""));
+              content.textContent = lastGeneratedText;
+              copy.hidden = !lastGeneratedText;
+            } else if (msg.type === "done") {
+              lastGeneratedText = msg.fullText || lastGeneratedText;
+              if (!lastGeneratedText.trim()) { fail("AI 未返回有效内容，请重试。"); return; }
+              complete = true;
+              content.textContent = lastGeneratedText;
+              copy.hidden = false;
+              stopRequest();
+              status.textContent = "分析完成 · 请结合原文核验方法、数据与结论。";
+            } else if (msg.type === "error") {
+              fail(msg.errorCode === "AI_API_KEY_MISSING"
+                ? "尚未配置 API Key，请在扩展的全局配置中设置 AI 服务。"
+                : msg.error || "生成失败，请检查 AI 服务配置后重试。");
+            }
+          });
+          port.onDisconnect.addListener(() => {
+            const message = chrome.runtime.lastError?.message;
+            if (id === requestId && activePort === port) fail(message || "连接已中断，已保留接收内容，可重新生成。");
+          });
+          port.postMessage({ action: "AI_STREAM_START", ...source, preset: resultPreset });
+        } catch (error) {
+          fail(error.message || "无法连接 AI 服务，请重新加载扩展后重试。");
+        }
       };
     }
   }
@@ -2063,6 +2118,15 @@
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
     let isDragging = false;
     header.addEventListener("mousedown", dragMouseDown);
+    const constrainToViewport = () => {
+      if (card.classList.contains("pp-jc-pinned") || !card.style.top) return;
+      const top = Math.min(parseFloat(card.style.top) || 10, Math.max(10, window.innerHeight - 60));
+      const left = Math.min(parseFloat(card.style.left) || 10, Math.max(10, window.innerWidth - card.offsetWidth - 10));
+      card.style.setProperty("top", `${top}px`, "important");
+      card.style.setProperty("left", `${left}px`, "important");
+      card.style.setProperty("max-height", `${Math.max(48, window.innerHeight - top - 10)}px`, "important");
+    };
+    window.addEventListener("resize", constrainToViewport, { passive: true });
 
     function dragMouseDown(e) {
       if (e.target.closest?.(".pp-jc-hdr-btn")) return; // Don't trigger on close/min btns
@@ -2089,9 +2153,10 @@
       const targetTop = Math.max(10, Math.min(maxTop, card.offsetTop - pos2));
       const targetLeft = Math.max(10, Math.min(maxLeft, card.offsetLeft - pos1));
 
-      card.style.top = targetTop + "px";
-      card.style.left = targetLeft + "px";
-      card.style.right = "auto"; // Unlock right anchoring
+      card.style.setProperty("top", targetTop + "px", "important");
+      card.style.setProperty("left", targetLeft + "px", "important");
+      card.style.setProperty("right", "auto", "important");
+      card.style.setProperty("max-height", `${Math.max(48, window.innerHeight - targetTop - 10)}px`, "important");
     }
 
     function closeDragElement() {
@@ -2101,6 +2166,11 @@
       document.removeEventListener("mouseup", closeDragElement);
       window.removeEventListener("blur", closeDragElement);
     }
+    return () => {
+      closeDragElement();
+      header.removeEventListener("mousedown", dragMouseDown);
+      window.removeEventListener("resize", constrainToViewport);
+    };
   }
 
   // Match standard Nature Index Journals list
@@ -2231,8 +2301,7 @@
         lastPdfDownloadStatus = null;
         lastPdfDiscoveryDiagnostics = null;
         paperMeta = null;
-        cardEl?.remove();
-        cardEl = null;
+        removeMetacard();
         init();
       }, 350);
     };
@@ -2258,24 +2327,36 @@
       pollTimer = null;
     };
     startPolling();
-    document.addEventListener("visibilitychange", () => {
+    const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") stopPolling();
       else {
         checkRoute();
         startPolling();
         if (!paperMeta && !cardEl) init();
       }
-    }, { passive: true });
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange, { passive: true });
     window.addEventListener("popstate", checkRoute, { passive: true });
     window.addEventListener("hashchange", checkRoute, { passive: true });
     window.addEventListener("pagehide", () => {
       disposed = true;
       ++initGeneration;
+      removeMetacard();
       clearTimeout(timer);
       stopPolling();
       observer?.disconnect();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("popstate", checkRoute);
+      window.removeEventListener("hashchange", checkRoute);
+      globalThis.__PAPERPILOT_JOURNAL_ROUTE_WATCHER__ = false;
     }, { once: true });
   }
+
+  window.addEventListener("pageshow", event => {
+    if (!event.persisted) return;
+    init();
+    installPageLifecycleWatcher();
+  });
 
   // Run initialization
   if (document.readyState === "loading") {

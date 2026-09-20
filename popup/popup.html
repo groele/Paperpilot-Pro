@@ -24,7 +24,7 @@
       </div>
       <div class="pp-header-badges">
         <button class="pp-theme-toggle-btn" id="btn-quick-theme-toggle" type="button" title="一键切换深浅色主题">🌙</button>
-        <span class="pp-popup-version">v2.4.0</span>
+        <span class="pp-popup-version">v3.0.0</span>
       </div>
     </header>
 
@@ -33,7 +33,7 @@
       <div class="pp-popup-info-header">
         <div class="pp-info-title-group">
           <span class="pp-popup-info-title">Dashboard Overview</span>
-          <span class="pp-info-subtitle">核心引擎动态状态</span>
+          <span class="pp-info-subtitle">点击切换功能 · 设置即时保存</span>
         </div>
         <span class="pp-popup-info-status-pill" id="overview-status-pill">系统就绪</span>
       </div>
@@ -89,7 +89,18 @@
           </span>
           <span class="feature-state">ON</span>
         </div>
+        <div class="pp-popup-feature-status" id="status-academic" role="button" tabindex="0"
+          data-setting-target="setting-enable-ai-summary-btn" data-module="analysis" title="切换学术分析视角"
+          aria-describedby="overview-academic-hint">
+          <span class="status-dot"></span>
+          <span class="feature-copy">
+            <span class="feature-name">学术分析视角</span>
+            <span class="feature-domain">Academic AI</span>
+          </span>
+          <span class="feature-state">ON</span>
+        </div>
       </div>
+      <p class="pp-overview-hint" id="overview-academic-hint" role="status">在期刊详情元卡中按需启动分析</p>
 
       <!-- PDF Download Confirmation Control -->
       <div class="pp-popup-overview-control" id="overview-save-as-control" data-active="false">
@@ -138,16 +149,16 @@
     </div>
 
     <!-- Segmented Nav Tabs -->
-    <nav class="pp-popup-nav">
+    <nav class="pp-popup-nav" role="tablist" aria-label="控制台视图">
       <div class="pp-popup-nav-pill" id="nav-pill"></div>
-      <div class="pp-popup-nav-item active" id="tab-btn-foot">
+      <button type="button" class="pp-popup-nav-item active" id="tab-btn-foot" role="tab" aria-selected="true" aria-controls="panel-foot">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10"></circle>
           <polyline points="12 6 12 12 16 14"></polyline>
         </svg>
         <span>文过留痕</span>
-      </div>
-      <div class="pp-popup-nav-item" id="tab-btn-set">
+      </button>
+      <button type="button" class="pp-popup-nav-item" id="tab-btn-set" role="tab" aria-selected="false" aria-controls="panel-set">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"></circle>
           <path
@@ -155,13 +166,13 @@
           </path>
         </svg>
         <span>全局配置</span>
-      </div>
+      </button>
     </nav>
 
     <!-- Body Area -->
     <main class="pp-popup-body">
       <!-- Section 1: Footprints History -->
-      <section id="panel-foot" class="pp-popup-section active">
+      <section id="panel-foot" class="pp-popup-section active" role="tabpanel" aria-labelledby="tab-btn-foot">
         <!-- Footprints Stats Mini Widget -->
         <div class="pp-footprint-stats-bar" id="footprint-stats-bar">
           <div class="pp-stats-item">
@@ -312,7 +323,7 @@
       </section>
 
       <!-- Section 2: Global Configuration settings -->
-      <section id="panel-set" class="pp-popup-section">
+      <section id="panel-set" class="pp-popup-section" role="tabpanel" aria-labelledby="tab-btn-set" inert>
         <div class="pp-popup-settings-list">
 
           <!-- Card 1: 核心模块运行开关 -->
@@ -465,13 +476,13 @@
             <!-- Switch: Enable AI Summary Button -->
             <div class="pp-popup-setting-item">
               <div class="pp-popup-setting-row">
-                <span class="pp-popup-setting-lbl">AI 一键精简总结按钮</span>
+                <label class="pp-popup-setting-lbl" for="setting-enable-ai-summary-btn">学术分析视角</label>
                 <label class="pp-popup-switch">
                   <input type="checkbox" id="setting-enable-ai-summary-btn">
                   <span class="pp-popup-switch-slider"></span>
                 </label>
               </div>
-              <p class="pp-popup-setting-desc">在详情页元卡中渲染「AI 总结」按钮，提取高质量文献要点。</p>
+              <p class="pp-popup-setting-desc">与 Overview 开关同步。开启后在期刊详情元卡显示分析视角及生成按钮；关闭会停止当前生成。仅在点击生成时发送标题与摘要，使用前请配置 AI 服务。</p>
             </div>
           </div>
 
@@ -802,7 +813,7 @@
     </div>
 
     <!-- Global Toast Alert -->
-    <div class="pp-popup-toast" id="popup-toast">
+    <div class="pp-popup-toast" id="popup-toast" role="status" aria-live="polite">
       <span id="popup-toast-msg">保存成功</span>
     </div>
   </div>

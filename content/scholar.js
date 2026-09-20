@@ -1902,7 +1902,7 @@
     }
   }
 
-  function safeSendMessage(message, callback) {
+  function safeSendMessage(message, callback, retries = 2) {
     try {
       if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.id) {
         if (callback) callback({ success: false, error: "Extension context invalidated" });
@@ -1911,6 +1911,13 @@
       chrome.runtime.sendMessage(message, (response) => {
         const err = chrome.runtime.lastError;
         if (err) {
+          const isWakeupDelay = /could not establish connection|receiving end does not exist/i.test(err.message || "");
+          if (isWakeupDelay && retries > 0) {
+            setTimeout(() => {
+              safeSendMessage(message, callback, retries - 1);
+            }, (3 - retries) * 120);
+            return;
+          }
           if (callback) callback({ success: false, error: err.message });
         } else {
           if (callback) callback(response);

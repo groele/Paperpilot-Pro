@@ -41,12 +41,14 @@ const initPopup = () => {
       });
     } else {
       console.warn("chrome.storage.local is not available. Falling back to localStorage.");
-      Object.keys(data).forEach(k => {
-        try {
+      try {
+        Object.keys(data).forEach(k => {
           localStorage.setItem(k, JSON.stringify(data[k]));
-        } catch (e) { }
-      });
-      if (callback) callback(null);
+        });
+        if (callback) callback(null);
+      } catch (error) {
+        if (callback) callback(error);
+      }
     }
   };
 
@@ -64,7 +66,7 @@ const initPopup = () => {
   const robustCopyToClipboard = (text) => {
     if (!text) return Promise.reject(new Error("Empty text"));
     if (navigator.clipboard && (window.isSecureContext || location.protocol === 'https:')) {
-      return robustCopyToClipboard(text).catch(() => fallbackCopy(text));
+      return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
     }
     return fallbackCopy(text);
   };
@@ -196,8 +198,14 @@ const initPopup = () => {
     { card: statusDedup, control: configDedup, key: "enable_dedup", name: "预印本折叠去重" },
     { card: statusBadges, control: configBadges, key: "enable_badges", name: "学术状态徽章" },
     { card: statusMetacard, control: configMetacard, key: "enable_metacard", name: "期刊详情悬浮元卡" },
-    { card: statusMarkdown, control: configMarkdownNote, key: "enable_markdown_note", name: "Markdown 笔记复制" }
+    { card: statusMarkdown, control: configMarkdownNote, key: "enable_markdown_note", name: "Markdown 笔记复制" },
+    { card: document.getElementById("status-academic"), control: configAiSummaryBtn, key: "enable_ai_summary_btn", name: "学术分析视角" }
   ];
+  coreModules.forEach(module => {
+    module.pending = true;
+    module.control.disabled = true;
+    module.card?.setAttribute("aria-disabled", "true");
+  });
 
   // Theme update helper
   function updateTheme(mode) {
@@ -217,6 +225,10 @@ const initPopup = () => {
     if (tabFoot) tabFoot.classList.toggle("active", !showSettings);
     if (panelSet) panelSet.classList.toggle("active", showSettings);
     if (panelFoot) panelFoot.classList.toggle("active", !showSettings);
+    if (panelSet) panelSet.inert = !showSettings;
+    if (panelFoot) panelFoot.inert = showSettings;
+    tabSet?.setAttribute("aria-selected", String(showSettings));
+    tabFoot?.setAttribute("aria-selected", String(!showSettings));
 
     const navPill = document.getElementById("nav-pill");
     if (navPill) {
@@ -228,6 +240,18 @@ const initPopup = () => {
 
   if (tabFoot) tabFoot.onclick = () => switchPanel("footprints");
   if (tabSet) tabSet.onclick = () => switchPanel("settings");
+  [tabFoot, tabSet].forEach(tab => tab?.addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const target = event.key === "Home" ? tabFoot : event.key === "End" ? tabSet : tab === tabFoot ? tabSet : tabFoot;
+    target.click();
+    target.focus();
+  }));
+  document.querySelectorAll(".pp-popup-switch input").forEach(input => {
+    if (input.hasAttribute("aria-label")) return;
+    const label = input.closest(".pp-popup-setting-row")?.querySelector(".pp-popup-setting-lbl");
+    if (label) input.setAttribute("aria-label", label.textContent.trim());
+  });
 
   function clampNumber(value, min, max) {
     return Math.min(Math.max(value, min), max);
@@ -327,10 +351,8 @@ const initPopup = () => {
           setAiTestStatus(e?.message || "Connection test failed", "error");
         }
       } else {
-        setTimeout(() => {
-          testAiBtn.disabled = false;
-          setAiTestStatus("Connected: Mock Provider / local-preview-mode", "ok");
-        }, 1000);
+        testAiBtn.disabled = false;
+        setAiTestStatus("本地预览无法测试连接，请在已加载的扩展中测试。", "error");
       }
     });
   }
@@ -350,7 +372,7 @@ const initPopup = () => {
   }
 
   function toggleDashboardModule(module) {
-    if (!module?.control || !module.key) return;
+    if (!module?.control || !module.key || module.pending) return;
     module.control.checked = !module.control.checked;
     saveSetting(
       module.key,
@@ -450,9 +472,15 @@ const initPopup = () => {
     });
 
     if (overviewStatusPill) {
-      overviewStatusPill.textContent = `${activeCount}/${coreModules.length} 模块运行`;
-      overviewStatusPill.classList.toggle("pp-warning", activeCount < coreModules.length);
+      overviewStatusPill.textContent = `${activeCount}/${coreModules.length} 已开启`;
+      overviewStatusPill.classList.remove("pp-warning");
     }
+    const hint = document.getElementById("overview-academic-hint");
+    if (hint) hint.textContent = !configAiSummaryBtn.checked
+      ? "学术分析已关闭 · 期刊卡片中隐藏分析入口"
+      : !configMetacard.checked
+        ? "学术分析已开启 · 请同时开启「期刊详情元卡」以显示入口"
+        : "学术分析已开启 · 点击生成后才发送标题与摘要";
   }
 
   function syncPdfDownloadSaveAsControls(isEnabled) {
@@ -630,6 +658,7 @@ const initPopup = () => {
     "ai_base_url",
     "ai_api_key",
     "ai_prompt",
+    "ai_preset",
     "appearance_mode",
     "enable_ni",
     "enable_dedup",
@@ -715,14 +744,37 @@ const initPopup = () => {
     configJcrBadge.checked = config.enable_jcr_badge !== false;
     configCiteBadge.checked = config.enable_cite_badge !== false;
 
+    coreModules.forEach(module => {
+      module.savedValue = module.control.checked;
+      module.pending = false;
+      module.control.disabled = false;
+      module.card?.setAttribute("aria-disabled", "false");
+    });
+
     // Update the visual status grid
     updateFeatureStatusGrid();
   });
 
   const saveSetting = (key, value, successMsg = "设置已保存") => {
+    const module = coreModules.find(item => item.key === key);
+    if (module?.pending) return;
+    if (module) {
+      module.pending = true;
+      module.control.disabled = true;
+      module.card?.setAttribute("aria-disabled", "true");
+      updateFeatureStatusGrid();
+    }
     const data = {};
     data[key] = value;
     setStorage(data, (error) => {
+      if (module) {
+        module.pending = false;
+        module.control.disabled = false;
+        module.card?.setAttribute("aria-disabled", "false");
+        if (error) module.control.checked = module.savedValue;
+        else module.savedValue = value;
+        updateFeatureStatusGrid();
+      }
       if (error) {
         showToast("设置保存失败，请重试");
         return;
@@ -766,6 +818,18 @@ const initPopup = () => {
   }
   if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local") return;
+      coreModules.forEach(module => {
+        if (!changes[module.key]) return;
+        module.savedValue = changes[module.key].newValue !== false;
+        module.control.checked = module.savedValue;
+      });
+      updateFeatureStatusGrid();
+      if (changes.ai_preset && configAiPreset) configAiPreset.value = changes.ai_preset.newValue || "tldr";
+      if (changes.appearance_mode) {
+        configAppearanceMode.value = changes.appearance_mode.newValue || "system";
+        updateTheme(configAppearanceMode.value);
+      }
       if (areaName === "local" && changes.pdf_download_save_as) {
         syncPdfDownloadSaveAsControls(changes.pdf_download_save_as.newValue === true);
       }
@@ -791,25 +855,11 @@ const initPopup = () => {
   configAiPrompt.oninput = () => saveSettingDebounced("ai_prompt", configAiPrompt.value, "自定义提示词已更新", 700);
   configAiPrompt.onchange = () => flushSettingSave("ai_prompt", configAiPrompt.value, "自定义提示词已更新");
 
-    if (configAiPreset) {
-      configAiPreset.onchange = () => {
-        const selected = configAiPreset.value;
-        saveSetting("ai_preset", selected, "默认学术分析预设已更新");
-        if (selected !== "custom") {
-          const defaultPrompts = {
-            tldr: "请用中文以3行精简要点总结以下学术论文摘要，以TL;DR形式呈现，突出核心发现与研究结论：",
-            novelty: "请深入剖析以下论文的核心创新点（Novelty）与学术贡献（Contributions），分条列出其相较于前人工作的根本突破：",
-            methodology: "请简明扼要地拆解以下论文的技术路线、核心方法与算法架构（Methodology），说明其关键设计与运行逻辑：",
-            limitations: "请以审稿人（Reviewer）的批判性视角，客观审视以下论文中可能存在的假设限制、潜在局限性（Limitations）、应用边界或未来待验证方向：",
-            glossary: "请从以下学术论文标题和摘要中提取3-5个最核心的关键术语/技术名词，提供精准的【中文翻译】以及【学术概念简要通俗解析】："
-          };
-          if (defaultPrompts[selected] && configAiPrompt) {
-            configAiPrompt.value = defaultPrompts[selected];
-            flushSettingSave("ai_prompt", configAiPrompt.value, "提示词已同步场景预设");
-          }
-        }
-      };
-    }
+  if (configAiPreset) {
+    configAiPreset.onchange = () => {
+      saveSetting("ai_preset", configAiPreset.value, "默认学术分析预设已更新");
+    };
+  }
 
   if (testAiBtn) testAiBtn.onclick = testAiConnection;
   const THEME_CYCLE = ["system", "dark", "light", "violet", "cyan", "amber"];
@@ -936,7 +986,7 @@ const initPopup = () => {
   configScholarCopyDoiBtn.onchange = () => saveSetting("enable_scholar_copy_doi_btn", configScholarCopyDoiBtn.checked, "学术检索页复制 DOI 开关已同步");
   configJournalCopyDoiBtn.onchange = () => saveSetting("enable_journal_copy_doi_btn", configJournalCopyDoiBtn.checked, "悬浮详情卡复制 DOI 开关已同步");
   configPdfDownloadBtn.onchange = () => saveSetting("enable_pdf_download_btn", configPdfDownloadBtn.checked, "下载PDF按钮显示已同步");
-  configAiSummaryBtn.onchange = () => saveSetting("enable_ai_summary_btn", configAiSummaryBtn.checked, "AI总结按钮显示已同步");
+  configAiSummaryBtn.onchange = () => saveSetting("enable_ai_summary_btn", configAiSummaryBtn.checked, "学术分析视角开关已同步");
 
   // easyScholar & Academic badges toggles saves
   configCcfBadge.onchange = () => saveSetting("enable_ccf_badge", configCcfBadge.checked, "CCF 等级徽章显示已同步");

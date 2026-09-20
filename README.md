@@ -8,7 +8,7 @@
 ![Type](https://img.shields.io/badge/type-Chrome%20Extension-blue?style=flat-square)
 ![Workflow](https://img.shields.io/badge/workflow-literature%20engine-green?style=flat-square)
 ![Architecture](https://img.shields.io/badge/architecture-browser--native-purple?style=flat-square)
-![Version](https://img.shields.io/badge/version-2.4.0-6f42c1?style=flat-square)
+![Version](https://img.shields.io/badge/version-3.0.0-6f42c1?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
 
 Part of **ResearchFlow Lab** — a local-first research productivity ecosystem for literature, manuscripts, data, and scientific visualization.
@@ -186,3 +186,17 @@ PaperPilot Pro is designed as a browser-side literature enhancement tool. Readin
 MIT License.
 
 Developed by **Shikun Hou / groele**.
+
+
+## Dashboard 学术分析与回归验证
+
+在 **Dashboard Overview → 学术分析视角** 点击开启/关闭，与「全局配置」中的同名开关同步。
+入口依赖「期刊详情元卡」；关闭会停止正在进行的分析。视角选择本身不会发送请求，点击生成后才向所配置 AI 服务发送标题与摘要。
+支持极速速读、创新贡献、技术路线、局限批判、术语精讲和自定义视角。无摘要时禁用生成；结果仅用于辅助阅读，方法、定量数据与推断需回到原文核验。
+
+- `npm run verify`：语法检查、Node 回归和路由/性能夹具检查。
+- `npm run test:browser`：真实 Chromium + MV3 扩展回归，使用隔离配置和本地 SSE 测试服务，不使用个人 API Key。
+- 浏览器烟测需要环境中已有 Playwright 及带扩展支持的 Chromium。可通过 `PP_PLAYWRIGHT_MODULE` 指向现有 Playwright 模块目录、`PP_CHROMIUM_EXECUTABLE` 指定 Chromium 可执行文件；未指定时使用 `playwright` 模块及其 Chromium channel。
+- 截图和结果保存在 `output/playwright/`。第三方元数据请求在烟测中使用受控失败响应；它不等于真实出版商下载或远程 AI 服务验收。
+
+详细审查见 [优化审查报告](docs/optimization-audit-2026-09-20.md)。

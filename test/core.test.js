@@ -1039,3 +1039,61 @@ test("background script includes native download interceptor and pageUrl trackin
   assert.doesNotMatch(scholar, /chrome\.storage\.local/);
   assert.doesNotMatch(journal, /chrome\.storage\.local/);
 });
+
+test("BibTeX exports safely escape LaTeX special characters and handle structured author objects", () => {
+  const core = loadCore("core/messaging.js", "core/citation.js");
+
+  const entries = core.citation.buildBibtexEntries([
+    {
+      title: "Deep Learning & AI: A 95% Survey on GPT_4 & BERT #1 ($100M Scale)",
+      authors: [
+        { family: "Vaswani", given: "Ashish" },
+        { name: "Noam Shazeer" },
+        { literal: "The Attention Team" }
+      ],
+      journal: "IEEE Trans. Pattern Anal. & Mach. Intell.",
+      year: 2024,
+      doi: "10.1000/182_deep_ai",
+      url: "https://example.com/paper?id=123&test=1"
+    }
+  ]);
+
+  // Special LaTeX characters must be escaped in text fields:
+  assert.match(entries, /title=\{Deep Learning \\& AI: A 95\\% Survey on GPT\\_4 \\& BERT \\#1 \(\\\$100M Scale\)\}/);
+  assert.match(entries, /journal=\{IEEE Trans\. Pattern Anal\. \\& Mach\. Intell\.\}/);
+  assert.match(entries, /author=\{Ashish Vaswani and Noam Shazeer and The Attention Team\}/);
+
+  // Verbatim fields (DOI and URL) should NOT have backslashes:
+  assert.match(entries, /doi=\{10\.1000\/182_deep_ai\}/);
+  assert.match(entries, /url=\{https:\/\/example\.com\/paper\?id=123&test=1\}/);
+
+  // RIS generation handles structured authors and standard ER terminator:
+  const ris = core.citation.buildRisEntries([
+    {
+      title: "Attention Is All You Need",
+      authors: [{ family: "Vaswani", given: "Ashish" }],
+      year: 2017,
+      doi: "10.48550/arXiv.1706.03762"
+    }
+  ]);
+  assert.match(ris, /AU  - Vaswani, Ashish/);
+  assert.match(ris, /ER  - \n/);
+});
+
+test("site profiles and challenge detection intercept CARSI, Shibboleth and campus SSO gateways", () => {
+  const core = loadCore("core/site-profiles.js");
+  const signals = core.siteProfiles.COMMON_CHALLENGE_SIGNALS;
+
+  assert.equal(signals.includes("carsi"), true);
+  assert.equal(signals.includes("shibboleth"), true);
+  assert.equal(signals.includes("统一身份认证"), true);
+  assert.equal(signals.includes("单点登录"), true);
+
+  const backgroundSource = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
+  const journalSource = fs.readFileSync(path.join(__dirname, "..", "content/journal.js"), "utf8");
+
+  assert.match(backgroundSource, /scheduleMetadataCacheFlush/);
+  assert.match(backgroundSource, /getOrLoadMetadataCache/);
+  assert.match(journalSource, /carsi\.edu\.cn/);
+  assert.match(journalSource, /isWakeupDelay/);
+});

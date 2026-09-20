@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.0.0 - 2026-09-20
+
+### Added
+- Add an Academic Analysis switch to Dashboard Overview, synchronized with settings and open journal pages.
+- Add manual analysis generation, cancellation, custom perspectives, evidence-scope guidance, and partial-result labels.
+- Add isolated Chromium MV3 browser regression coverage for settings, streaming, failure recovery, and responsive layouts.
+
+### Improved
+- Make the popup and journal card usable in short and narrow viewports, with accessible controls and reduced-motion support.
+- Preserve analysis during metadata enrichment and restore page lifecycle handling after back navigation.
+- Improve structured-author citation exports, institutional authentication-page detection, and service-worker wake-up retries.
+
+### Fixed
+- Fix recursive clipboard calls, missing preset restoration, overwritten custom prompts, and misleading preview connection success.
+- Roll back failed core-setting saves and cancel in-flight analysis when its feature or card is disabled.
+- Handle stalled streams, empty responses, disconnections, late messages, and retryable provider errors.
+
+### Compatibility
+- This is a user-requested major product milestone; no intentional storage schema or public message API break is introduced.
+- Existing feature preferences and history remain compatible. Keep the same extension installation to retain local data.
+- Selecting a perspective no longer auto-generates; click Generate explicitly. Analysis requires a detected abstract.
+- See [release and migration notes](docs/releases/v3.0.0.md) for validation scope and known limitations.
+
 ## v2.4.0 - 2026-09-07
 
 ### Added & Enhanced
