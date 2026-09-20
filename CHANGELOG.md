@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.0.1 - 2026-09-20
+
+### Fixed
+- Fix popup window width collapse in Chromium toolbar caused by circular `100vw` layout evaluation.
+- Lock popup physical viewport to fixed 420x600 dimensions across `html`, `body`, and container.
+- Add collapsible toggle to Dashboard Overview card with state persistence (`overview_collapsed`), increasing footprint list visible height to 450px.
+- Hide Dashboard Overview card automatically in Settings mode (`display: none !important`) to maximize configuration space.
+- Eliminate nested scrollbar in literature footprint list to prevent scroll locking.
+- Synchronize quick theme toggle button icon immediately upon popup initialization based on active appearance mode.
+
 ## v3.0.0 - 2026-09-20
 
 ### Added

@@ -989,6 +989,36 @@ test("Dashboard Overview exposes and synchronizes the PDF save-as shortcut", () 
   assert.match(css, /\.pp-popup-overview-control/);
 });
 
+test("Popup action window keeps one fixed viewport and delegates scrolling to its panels", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "popup/popup.html"), "utf8");
+  const popup = fs.readFileSync(path.join(__dirname, "..", "popup/popup.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "..", "popup/popup.css"), "utf8");
+
+  assert.match(html, /class="pp-popup-container"/);
+  assert.match(html, /id="btn-toggle-overview"/);
+  assert.match(html, /class="pp-overview-collapsible-body"/);
+  assert.match(css, /html\s*\{[\s\S]*width:\s*420px;/);
+  assert.match(css, /html\s*\{[\s\S]*min-width:\s*420px;/);
+  assert.match(css, /body\s*\{[\s\S]*width:\s*420px;/);
+  assert.match(css, /body\s*\{[\s\S]*min-width:\s*420px;/);
+  assert.doesNotMatch(css, /body\s*\{[\s\S]*max-width:\s*100vw/);
+  assert.match(css, /\.pp-popup-container\s*\{[\s\S]*width:\s*420px;/);
+  assert.match(css, /\.pp-popup-container\s*\{[\s\S]*min-width:\s*420px;/);
+  assert.match(css, /\.pp-popup-container\s*\{[\s\S]*height:\s*600px;/);
+  assert.doesNotMatch(css, /\.pp-popup-container\s*\{[\s\S]*max-height:\s*100vh/);
+  assert.match(css, /backdrop-filter:\s*none/);
+  assert.match(css, /\.pp-popup-body\s*\{\s*flex:\s*1 1 auto;\s*min-height:\s*0;/);
+  assert.match(css, /\.pp-popup-section\s*\{[\s\S]*overflow-y:\s*auto;/);
+  assert.match(css, /\.pp-popup-container\.pp-settings-mode\s+\.pp-popup-info-card\s*\{[\s\S]*display:\s*none/);
+  assert.match(css, /\.pp-popup-info-card\.pp-collapsed\s+\.pp-overview-collapsible-body\s*\{[\s\S]*display:\s*none/);
+  assert.match(popup, /let popupInitialized = false/);
+  assert.match(popup, /if \(popupInitialized\) return/);
+  assert.match(popup, /DOMContentLoaded", initPopup, \{ once: true \}/);
+  assert.match(popup, /function setOverviewCollapsed/);
+  assert.match(popup, /overview_collapsed/);
+  assert.match(popup, /btnQuickThemeToggle\.textContent = THEME_ICONS/);
+});
+
 test("citation exports create unique stable keys and include provenance fields", () => {
   const core = loadCore("core/messaging.js", "core/citation.js");
 

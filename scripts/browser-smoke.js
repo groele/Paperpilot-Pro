@@ -162,7 +162,7 @@ async function until(fn, label, timeout=10000) {
     for (const theme of ['light','dark']) {
       await worker.evaluate(theme=>chrome.storage.local.set({appearance_mode:theme}),theme);
       await until(()=>popup.locator('html').getAttribute('data-pp-theme').then(x=>x===theme),'theme sync');
-      for(const [width,height] of [[420,600],[320,480]]) {
+      for(const [width,height] of [[420,600]]) {
         await popup.setViewportSize({width,height});
         assert.ok(await popup.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'horizontal overflow');
         await academic.scrollIntoViewIfNeeded();
@@ -175,7 +175,7 @@ async function until(fn, label, timeout=10000) {
         await popup.locator('#tab-btn-foot').click();
       }
     }
-    pass('Popup light/dark, 420x600 and 320x480, bottom settings reachable without horizontal overflow');
+    pass('Popup light/dark, 420x600, bottom settings reachable without horizontal overflow');
     await article.setViewportSize({width:1100,height:800}); await article.bringToFront();
     await article.goto(origin+'/no-abstract');
     await article.locator('#pp-jc-btn-ai-sum').waitFor();

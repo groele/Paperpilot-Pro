@@ -24,7 +24,7 @@
       </div>
       <div class="pp-header-badges">
         <button class="pp-theme-toggle-btn" id="btn-quick-theme-toggle" type="button" title="一键切换深浅色主题">🌙</button>
-        <span class="pp-popup-version">v3.0.0</span>
+        <span class="pp-popup-version">v3.0.1</span>
       </div>
     </header>
 
@@ -35,10 +35,16 @@
           <span class="pp-popup-info-title">Dashboard Overview</span>
           <span class="pp-info-subtitle">点击切换功能 · 设置即时保存</span>
         </div>
-        <span class="pp-popup-info-status-pill" id="overview-status-pill">系统就绪</span>
+        <div class="pp-info-header-actions">
+          <span class="pp-popup-info-status-pill" id="overview-status-pill">系统就绪</span>
+          <button type="button" class="pp-overview-toggle-btn" id="btn-toggle-overview" aria-expanded="true" title="折叠/展开概览面板">
+            <span class="pp-overview-toggle-icon" id="overview-toggle-icon">▲</span>
+          </button>
+        </div>
       </div>
 
-      <!-- Feature Power Grid -->
+      <div class="pp-overview-collapsible-body" id="overview-collapsible-body">
+        <!-- Feature Power Grid -->
       <div class="pp-popup-features-grid">
         <div class="pp-popup-feature-status" id="status-ni" role="button" tabindex="0"
           data-setting-target="setting-enable-ni" data-module="discovery" title="切换自然指数高亮">
@@ -145,8 +151,8 @@
           </button>
         </div>
       </div>
-
     </div>
+  </div>
 
     <!-- Segmented Nav Tabs -->
     <nav class="pp-popup-nav" role="tablist" aria-label="控制台视图">

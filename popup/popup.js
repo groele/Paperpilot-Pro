@@ -3,7 +3,11 @@
  * Manages configuration storage binds and footprints log lists.
  */
 
+let popupInitialized = false;
+
 const initPopup = () => {
+  if (popupInitialized) return;
+  popupInitialized = true;
   // Safe Storage wrappers to support both chrome.storage and localStorage fallback (for local previews)
   const getStorage = (keys, callback) => {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
@@ -104,6 +108,32 @@ const initPopup = () => {
   const exportAllBtn = document.getElementById("btn-export-all");
   const exportFormatSelect = document.getElementById("setting-export-format");
   const overviewStatusPill = document.getElementById("overview-status-pill");
+  const btnToggleOverview = document.getElementById("btn-toggle-overview");
+  const overviewToggleIcon = document.getElementById("overview-toggle-icon");
+  const infoCard = document.querySelector(".pp-popup-info-card");
+
+  function setOverviewCollapsed(isCollapsed, persist = true) {
+    if (!infoCard) return;
+    infoCard.classList.toggle("pp-collapsed", isCollapsed);
+    if (btnToggleOverview) {
+      btnToggleOverview.setAttribute("aria-expanded", String(!isCollapsed));
+      btnToggleOverview.title = isCollapsed ? "展开概览面板" : "折叠概览面板";
+    }
+    if (overviewToggleIcon) {
+      overviewToggleIcon.textContent = isCollapsed ? "▼" : "▲";
+    }
+    if (persist) {
+      setStorage({ overview_collapsed: isCollapsed });
+    }
+  }
+
+  if (btnToggleOverview) {
+    btnToggleOverview.onclick = (e) => {
+      e.stopPropagation();
+      const isCurrentlyCollapsed = infoCard?.classList.contains("pp-collapsed");
+      setOverviewCollapsed(!isCurrentlyCollapsed, true);
+    };
+  }
   const overviewSaveAsControl = document.getElementById("overview-save-as-control");
   const overviewPdfDownloadSaveAs = document.getElementById("overview-pdf-download-save-as");
   const overviewPdfDownloadSaveAsState = document.getElementById("overview-pdf-download-save-as-state");
@@ -208,8 +238,45 @@ const initPopup = () => {
   });
 
   // Theme update helper
+  const THEME_CYCLE = ["system", "dark", "light", "violet", "cyan", "amber"];
+  const THEME_ICONS = {
+    system: "🌓",
+    dark: "🌙",
+    light: "☀️",
+    violet: "💜",
+    cyan: "🌊",
+    amber: "🌅"
+  };
+  const THEME_LABELS = {
+    system: "跟随系统 Auto",
+    dark: "Obsidian 极客黑曜 (夜间)",
+    light: "Porcelain 极简瓷白 (白天)",
+    violet: "Cyber Violet 赛博紫罗兰",
+    cyan: "Oceanic Cyan 深海蔚蓝",
+    amber: "Sunset Amber 琥珀金辉"
+  };
+
+  const btnQuickThemeToggle = document.getElementById("btn-quick-theme-toggle");
+
   function updateTheme(mode) {
-    document.documentElement.setAttribute("data-pp-theme", mode || "system");
+    const theme = mode || "system";
+    document.documentElement.setAttribute("data-pp-theme", theme);
+    if (btnQuickThemeToggle) {
+      btnQuickThemeToggle.textContent = THEME_ICONS[theme] || "🌓";
+    }
+  }
+
+  if (btnQuickThemeToggle) {
+    btnQuickThemeToggle.onclick = () => {
+      const currentTheme = document.documentElement.getAttribute("data-pp-theme") || "system";
+      const currentIndex = THEME_CYCLE.indexOf(currentTheme);
+      const nextIndex = (currentIndex + 1) % THEME_CYCLE.length;
+      const nextTheme = THEME_CYCLE[nextIndex];
+
+      configAppearanceMode.value = nextTheme;
+      saveSetting("appearance_mode", nextTheme, `已切换为 ${THEME_LABELS[nextTheme] || nextTheme} 主题`);
+      updateTheme(nextTheme);
+    };
   }
 
   function switchPanel(panelName) {
@@ -551,8 +618,7 @@ const initPopup = () => {
       pageDiagnosticsText.textContent = "本地预览模式：无法读取浏览器标签页。";
       return;
     }
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tab = tabs && tabs[0];
+    const inspectTab = (tab) => {
       const result = classifyActiveUrl(tab?.url || "");
       pageDiagnosticsText.textContent = result.label;
       pageDiagnosticsText.dataset.pageType = result.type;
@@ -585,7 +651,20 @@ const initPopup = () => {
           openFirstPdfBtn.title = data.firstPdfUrl || "当前页没有 PDF 候选";
         }
       });
+    };
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs && tabs[0];
+      if (!tab && chrome.tabs?.query) {
+        chrome.tabs.query({ active: true, lastFocusedWindow: true }, (fallbackTabs) => {
+          inspectTab(fallbackTabs && fallbackTabs[0]);
+        });
+        return;
+      }
+      inspectTab(tab);
+      return; // end query
     });
+    return; // bypassed inline code
   }
 
   if (refreshPageDiagnosticsBtn) {
@@ -660,6 +739,7 @@ const initPopup = () => {
     "ai_prompt",
     "ai_preset",
     "appearance_mode",
+    "overview_collapsed",
     "enable_ni",
     "enable_dedup",
     "enable_badges",
@@ -698,6 +778,11 @@ const initPopup = () => {
     if (config.appearance_mode !== undefined) {
       configAppearanceMode.value = config.appearance_mode;
       updateTheme(config.appearance_mode);
+    } else {
+      updateTheme("system");
+    }
+    if (config.overview_collapsed !== undefined) {
+      setOverviewCollapsed(Boolean(config.overview_collapsed), false);
     }
 
     const easyScholarKeyInput = document.getElementById("setting-easyscholar-key");
@@ -830,6 +915,9 @@ const initPopup = () => {
         configAppearanceMode.value = changes.appearance_mode.newValue || "system";
         updateTheme(configAppearanceMode.value);
       }
+      if (changes.overview_collapsed && changes.overview_collapsed.newValue !== undefined) {
+        setOverviewCollapsed(Boolean(changes.overview_collapsed.newValue), false);
+      }
       if (areaName === "local" && changes.pdf_download_save_as) {
         syncPdfDownloadSaveAsControls(changes.pdf_download_save_as.newValue === true);
       }
@@ -862,38 +950,7 @@ const initPopup = () => {
   }
 
   if (testAiBtn) testAiBtn.onclick = testAiConnection;
-  const THEME_CYCLE = ["system", "dark", "light", "violet", "cyan", "amber"];
-  const THEME_ICONS = {
-    system: "🌓",
-    dark: "🌙",
-    light: "☀️",
-    violet: "💜",
-    cyan: "🌊",
-    amber: "🌅"
-  };
-  const THEME_LABELS = {
-    system: "跟随系统 Auto",
-    dark: "Obsidian 极客黑曜 (夜间)",
-    light: "Porcelain 极简瓷白 (白天)",
-    violet: "Cyber Violet 赛博紫罗兰",
-    cyan: "Oceanic Cyan 深海蔚蓝",
-    amber: "Sunset Amber 琥珀金辉"
-  };
 
-  const btnQuickThemeToggle = document.getElementById("btn-quick-theme-toggle");
-  if (btnQuickThemeToggle) {
-    btnQuickThemeToggle.onclick = () => {
-      const currentTheme = document.documentElement.getAttribute("data-pp-theme") || "system";
-      const currentIndex = THEME_CYCLE.indexOf(currentTheme);
-      const nextIndex = (currentIndex + 1) % THEME_CYCLE.length;
-      const nextTheme = THEME_CYCLE[nextIndex];
-
-      configAppearanceMode.value = nextTheme;
-      saveSetting("appearance_mode", nextTheme, `已切换为 ${THEME_LABELS[nextTheme] || nextTheme} 主题`);
-      updateTheme(nextTheme);
-      btnQuickThemeToggle.textContent = THEME_ICONS[nextTheme] || "🌓";
-    };
-  }
 
   configAppearanceMode.onchange = () => {
     const selectedTheme = configAppearanceMode.value || "system";
@@ -1863,7 +1920,7 @@ const initPopup = () => {
 };
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initPopup);
+  document.addEventListener("DOMContentLoaded", initPopup, { once: true });
 } else {
   initPopup();
 }

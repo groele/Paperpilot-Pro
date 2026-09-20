@@ -184,29 +184,44 @@
   -webkit-font-smoothing: antialiased;
 }
 
+html {
+  width: 420px;
+  min-width: 420px;
+  height: 600px;
+  min-height: 600px;
+  overflow: hidden;
+}
+
 body {
   background: var(--bg-gradient);
   color: var(--text-main);
   width: 420px;
-  max-width: 100vw;
-  min-height: 0;
+  min-width: 420px;
+  height: 600px;
+  min-height: 600px;
+  margin: 0;
+  padding: 0;
+  position: relative;
   overflow: hidden;
+  box-sizing: border-box;
   transition: background 0.3s ease, color 0.3s ease;
 }
 
 .pp-popup-container {
   display: flex;
   flex-direction: column;
+  width: 420px;
+  min-width: 420px;
   height: 600px;
-  max-height: 100vh;
-  overflow-y: auto;
   overflow: hidden;
   position: relative;
-  backdrop-filter: blur(16px);
+  /* Keep the browser action popup opaque. Cards retain their local glass treatment. */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .pp-popup-container.pp-settings-mode .pp-popup-info-card {
-  transition: all 0.3s ease;
+  display: none !important;
 }
 
 /* Header Section */
@@ -396,7 +411,7 @@ body {
 
 /* Dashboard Overview Card */
 .pp-popup-info-card {
-  margin: 8px 14px;
+  margin: 8px 14px 6px 14px;
   padding: 10px 12px;
   background: var(--glass-card);
   border: 1px solid var(--glass-border);
@@ -406,12 +421,70 @@ body {
   flex-direction: column;
   gap: 8px;
   backdrop-filter: blur(12px);
+  transition: all 0.25s ease;
+}
+
+.pp-popup-info-card.pp-collapsed {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  gap: 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.pp-popup-info-card.pp-collapsed .pp-overview-collapsible-body {
+  display: none;
+}
+
+.pp-overview-collapsible-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .pp-popup-info-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.pp-info-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pp-overview-toggle-btn {
+  background: var(--button-bg);
+  color: var(--button-text);
+  border: 1px solid var(--button-border);
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pp-overview-toggle-btn:hover {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+  transform: scale(1.1);
+}
+
+.pp-overview-toggle-icon {
+  display: inline-block;
+  transition: transform 0.25s ease;
+  font-size: 9px;
+}
+
+.pp-popup-info-card.pp-collapsed .pp-overview-toggle-icon {
+  transform: rotate(180deg);
 }
 
 .pp-info-title-group {
@@ -742,6 +815,19 @@ body {
 
 .pp-popup-section.active {
   display: flex;
+}
+
+.pp-popup-section::-webkit-scrollbar {
+  width: 5px;
+}
+
+.pp-popup-section::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 4px;
+}
+
+.pp-popup-section::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 #panel-foot {
@@ -1212,22 +1298,13 @@ body {
 }
 
 .pp-popup-footprint-list {
-  flex: 1;
-  min-height: 280px;
-  overflow-y: auto;
+  flex: none;
+  min-height: auto;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-right: 4px;
-}
-
-.pp-popup-footprint-list::-webkit-scrollbar {
-  width: 4px;
-}
-
-.pp-popup-footprint-list::-webkit-scrollbar-thumb {
-  background: var(--scroll-thumb);
-  border-radius: 4px;
+  padding-right: 0;
 }
 
 .pp-popup-empty-msg {
@@ -1822,9 +1899,9 @@ body {
 }
 
 /* Compact research console: reachable at browser popup and zoomed viewport sizes. */
-.pp-popup-container { overflow-y: auto; overscroll-behavior: contain; }
+.pp-popup-container { overflow: hidden; overscroll-behavior: contain; }
 .pp-popup-header, .pp-popup-info-card, .pp-popup-nav { flex-shrink: 0; }
-.pp-popup-body { flex: 1 0 190px; min-height: 190px; }
+.pp-popup-body { flex: 1 1 auto; min-height: 0; }
 .pp-popup-nav-item { border: 0; background: transparent; }
 .pp-overview-hint { margin: 0; color: var(--text-muted); font-size: 10px; line-height: 1.5; }
 .pp-popup-info-status-pill { white-space: nowrap; }
