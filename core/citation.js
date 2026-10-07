@@ -131,8 +131,14 @@
         if (formattedAuthor && !formattedAuthor.includes(",")) {
           const parts = formattedAuthor.split(/\s+/);
           if (parts.length > 1) {
-            const family = parts.pop();
-            formattedAuthor = `${family}, ${parts.join(" ")}`;
+            const restAreInitials = parts.slice(1).every(p => /^[A-Za-z]\.?$/i.test(p));
+            if (restAreInitials) {
+              const family = parts[0];
+              formattedAuthor = `${family}, ${parts.slice(1).join(" ")}`;
+            } else {
+              const family = parts.pop();
+              formattedAuthor = `${family}, ${parts.join(" ")}`;
+            }
           }
         }
         lines.push(`AU  - ${formattedAuthor}`);
@@ -163,6 +169,76 @@
     });
   }
 
+  function formatGbtAuthor(name) {
+    const cleaned = cleanText(name);
+    if (!cleaned) return "";
+    if (/[\u4e00-\u9fa5]/.test(cleaned)) {
+      return cleaned.replace(/\s+/g, "");
+    }
+    if (cleaned.includes(",")) {
+      const parts = cleaned.split(",").map(p => p.trim());
+      const family = parts[0].replace(/[.,;:]+$/, "");
+      const givens = parts[1] ? parts[1].split(/\s+/).filter(Boolean) : [];
+      const initials = givens.map(g => g.replace(/[^A-Za-z]/g, "")[0]?.toUpperCase()).filter(Boolean).join(" ");
+      return initials ? `${family} ${initials}` : family;
+    }
+    const parts = cleaned.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].replace(/[.,;:]+$/, "");
+
+    // Check if format is "Family I" or "Family I I" (PubMed / MEDLINE style)
+    const restAreInitials = parts.length > 1 && parts.slice(1).every(p => /^[A-Za-z]\.?$/i.test(p));
+    if (restAreInitials) {
+      const family = parts[0].replace(/[.,;:]+$/, "");
+      const initials = parts.slice(1).map(g => g.replace(/[^A-Za-z]/g, "")[0]?.toUpperCase()).filter(Boolean).join(" ");
+      return initials ? `${family} ${initials}` : family;
+    }
+
+    const family = parts.pop().replace(/[.,;:]+$/, "");
+    const initials = parts.map(g => g.replace(/[^A-Za-z]/g, "")[0]?.toUpperCase()).filter(Boolean).join(" ");
+    return initials ? `${family} ${initials}` : family;
+  }
+
+  function formatGbtAuthors(authors) {
+    const list = normalizeAuthors(authors);
+    if (!list.length) return "佚名";
+    const formatted = list.map(formatGbtAuthor).filter(Boolean);
+    if (!formatted.length) return "佚名";
+    const hasChinese = list.some(a => /[\u4e00-\u9fa5]/.test(String(a)));
+    const etAl = hasChinese ? "等" : "et al.";
+    if (formatted.length <= 3) {
+      return formatted.join(", ");
+    }
+    return `${formatted.slice(0, 3).join(", ")}, ${etAl}`;
+  }
+
+  function buildGbt7714Entries(papers, options = {}) {
+    const numbered = options.numbered !== false;
+    return (papers || []).map((paper, idx) => {
+      let authors = formatGbtAuthors(paper.authors);
+      if (authors.endsWith(".")) {
+        authors = authors.slice(0, -1);
+      }
+      const title = cleanText(paper.title || "Untitled paper").replace(/[.,;:]+$/, "");
+      const journal = cleanText(paper.journal || paper.venue || "");
+      const year = cleanText(paper.year || "");
+      const rawDoi = String(paper.doi || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
+      const prefix = numbered ? `[${idx + 1}] ` : "";
+
+      let entry = `${prefix}${authors}. ${title}[J]`;
+      if (journal) {
+        entry += `. ${journal}`;
+      }
+      if (year) {
+        entry += `, ${year}`;
+      }
+      entry += ".";
+      if (rawDoi) {
+        entry += ` DOI: ${rawDoi}.`;
+      }
+      return entry;
+    }).join("\n\n");
+  }
+
   root.citation = {
     stripTags,
     decodeHtmlEntities,
@@ -172,6 +248,9 @@
     buildBibtexEntries,
     buildRisEntries,
     buildCslJson,
+    buildGbt7714Entries,
+    formatGbtAuthors,
+    formatGbtAuthor,
     normalizeAuthors
   };
   global.PaperPilotCore = root;

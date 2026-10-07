@@ -24,7 +24,7 @@
       </div>
       <div class="pp-header-badges">
         <button class="pp-theme-toggle-btn" id="btn-quick-theme-toggle" type="button" title="一键切换深浅色主题">🌙</button>
-        <span class="pp-popup-version">v3.0.1</span>
+        <span class="pp-popup-version">v3.1.0</span>
       </div>
     </header>
 
@@ -231,6 +231,7 @@
           <span class="pp-footprint-quick-label">快捷查看</span>
           <button type="button" class="pp-quick-filter active" data-filter="all" aria-pressed="true">全部 (0)</button>
           <button type="button" class="pp-quick-filter" data-filter="starred" aria-pressed="false">⭐ 收藏 (0)</button>
+          <button type="button" class="pp-quick-filter" data-filter="notes" aria-pressed="false">📝 笔记 (0)</button>
         </div>
 
         <!-- Expandable Search & Date Filter Panel Card -->
@@ -264,7 +265,7 @@
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
               <input type="text" class="pp-popup-search-input" id="history-search"
-                placeholder="输入标题、作者、期刊或 DOI 实时过滤留痕...">
+                placeholder="输入标题、作者、期刊、DOI 或笔记内容实时过滤留痕...">
               <button type="button" class="pp-search-clear-btn" id="history-search-clear" title="清空搜索"
                 style="display: none;">×</button>
             </div>
@@ -283,8 +284,9 @@
               <div class="pp-footprint-chips" id="footprint-chips">
                 <button type="button" class="pp-chip active" data-filter="all">全部 (0)</button>
                 <button type="button" class="pp-chip" data-filter="starred">⭐ 精选</button>
+                <button type="button" class="pp-chip" data-filter="notes">📝 笔记</button>
                 <button type="button" class="pp-chip" data-filter="downloaded">📥 已下载</button>
-                <button type="button" class="pp-chip" data-filter="copied">📝 已复引用</button>
+                <button type="button" class="pp-chip" data-filter="copied">📋 已复制</button>
               </div>
             </div>
           </div>
@@ -300,6 +302,7 @@
         <footer class="pp-popup-footer">
           <select class="pp-popup-select" id="setting-export-format" title="选择导出格式">
             <option value="bibtex">BibTeX (.bib)</option>
+            <option value="gbt7714">GB/T 7714 国标 (.txt)</option>
             <option value="markdown">Markdown (.md)</option>
             <option value="ris">RIS (.ris)</option>
             <option value="csljson">CSL JSON (.json)</option>
@@ -809,6 +812,10 @@
             <span>作者</span>
             <textarea id="record-edit-authors-input" rows="2" placeholder="多位作者用分号或换行分隔"></textarea>
           </label>
+          <label class="pp-popup-edit-field">
+            <span>研读笔记 / AI 分析</span>
+            <textarea id="record-edit-notes-input" rows="3" placeholder="文献研读笔记或 AI 分析沉淀"></textarea>
+          </label>
           <div class="pp-popup-edit-actions">
             <button type="button" class="pp-popup-btn pp-popup-btn-danger" id="record-edit-delete">删除</button>
             <button type="button" class="pp-popup-btn pp-popup-btn-secondary" id="record-edit-cancel">取消</button>
@@ -824,6 +831,7 @@
     </div>
   </div>
   <script src="../core/messaging.js"></script>
+  <script src="../core/nature-index.js"></script>
   <script src="../core/citation.js"></script>
   <script src="../lib/svg-icons.js"></script>
   <script src="popup.js"></script>

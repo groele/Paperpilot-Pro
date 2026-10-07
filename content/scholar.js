@@ -35,6 +35,21 @@
   ]);
   const NATURE_INDEX_JOURNALS_LIST = Array.from(NATURE_INDEX_JOURNALS).sort((a, b) => b.length - a.length);
 
+  function resolveNiJournalMatch(venue) {
+    if (window.PaperPilotCore?.natureIndex?.getNatureIndexMatch) {
+      return window.PaperPilotCore.natureIndex.getNatureIndexMatch(venue);
+    }
+    const cleanNormVenue = String(venue || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    if (!cleanNormVenue) return null;
+    for (const niJournal of NATURE_INDEX_JOURNALS_LIST) {
+      const cleanNi = niJournal.replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+      if (cleanNormVenue === cleanNi) {
+        return { matched: true, canonicalName: niJournal };
+      }
+    }
+    return null;
+  }
+
   const STORAGE_PREFIX = 'paperpilot-pro:scholar:v1';
   const SETTINGS_KEYS = [
     "appearance_mode",
@@ -297,15 +312,8 @@
     const stats = new Map();
     getScholarArticles().forEach(article => {
       const venue = article.dataset.venue || 'Other';
-      
-      const normVenue = venue.toLowerCase();
-      let matchedNormName = "Other";
-      for (let niName of NATURE_INDEX_JOURNALS_LIST) {
-        if (normVenue.includes(niName)) {
-          matchedNormName = niName;
-          break;
-        }
-      }
+      const niMatch = resolveNiJournalMatch(venue);
+      const matchedNormName = niMatch ? niMatch.canonicalName : "Other";
       stats.set(matchedNormName, (stats.get(matchedNormName) || 0) + 1);
     });
     return stats;
@@ -475,14 +483,8 @@
         if (cite > maxCites) maxCites = cite;
         if (year < minYear && year > 1900) minYear = year;
 
-        const normVenue = venue.toLowerCase();
-        let matchedNormName = "Other";
-        for (let niName of NATURE_INDEX_JOURNALS_LIST) {
-          if (normVenue.includes(niName)) {
-            matchedNormName = niName;
-            break;
-          }
-        }
+        const niMatch = resolveNiJournalMatch(venue);
+        const matchedNormName = niMatch ? niMatch.canonicalName : "Other";
         venuesFound.set(matchedNormName, (venuesFound.get(matchedNormName) || 0) + 1);
       });
 
@@ -777,7 +779,7 @@
 
       panel.querySelector("#pp-preset-ni").onclick = () => {
         state.sourceFilterState.forEach((_, key) => {
-          const isNi = NATURE_INDEX_JOURNALS.has(key.toLowerCase());
+          const isNi = Boolean(resolveNiJournalMatch(key));
           state.sourceFilterState.set(key, isNi);
         });
         syncCheckboxesAndSlidersFromState();
@@ -866,7 +868,7 @@
         label.dataset.index = String(index);
         label.dataset.source = source;
 
-        const isNi = NATURE_INDEX_JOURNALS.has(source.toLowerCase());
+        const isNi = Boolean(resolveNiJournalMatch(source));
 
         label.innerHTML = `
           <span class="source-item-name">
@@ -943,14 +945,8 @@
       const year = parseInt(card._ppYear !== undefined ? card._ppYear : card.dataset.year || "0", 10);
       const venue = card._ppVenue !== undefined ? card._ppVenue : card.dataset.venue || "Other";
 
-      const normVenue = venue.toLowerCase();
-      let matchedNormName = "Other";
-      for (let niName of NATURE_INDEX_JOURNALS) {
-        if (normVenue.includes(niName)) {
-          matchedNormName = niName;
-          break;
-        }
-      }
+      const niMatch = resolveNiJournalMatch(venue);
+      const matchedNormName = niMatch ? niMatch.canonicalName : "Other";
 
       const matchCite = cite >= state.citeThreshold;
       const matchYear = year >= state.yearThreshold;
@@ -1258,15 +1254,7 @@
       card._ppTitle = titleText;
 
       // 6. Highlight Nature Index Papers
-      let isNatureIndex = false;
-      const cleanNormVenue = venue.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ");
-      for (const niJournal of NATURE_INDEX_JOURNALS_LIST) {
-        const cleanNiJournal = niJournal.replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ");
-        if (cleanNormVenue.includes(cleanNiJournal) || cleanNiJournal.includes(cleanNormVenue)) {
-          isNatureIndex = true;
-          break;
-        }
-      }
+      const isNatureIndex = Boolean(resolveNiJournalMatch(venue));
 
       // Inject Badges Container if enabled
       if (settings.enable_badges) {
@@ -1632,6 +1620,17 @@
           
         robustCopyToClipboard(mdContent).then(() => {
           showToast("Markdown 笔记模板已复制到您的剪贴板！");
+          safeSendMessage({
+            action: "ADD_FOOTPRINT",
+            footprint: {
+              title: paper.title,
+              authors: paper.authors,
+              journal: paper.venue,
+              year: paper.year,
+              pdfUrl: paper.pdfUrl,
+              status: "copied_markdown"
+            }
+          });
         });
       };
       actionBar.appendChild(mdBtn);

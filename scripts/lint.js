@@ -16,6 +16,7 @@ const files = [
   "core/sanitize.js",
   "core/metadata.js",
   "core/site-profiles.js",
+  "core/nature-index.js",
   "core/pdf.js",
   "core/pdf-verifier.js",
   "core/pdf-discovery.js",

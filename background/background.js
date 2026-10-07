@@ -5,6 +5,7 @@ try {
     "../core/sanitize.js",
     "../core/metadata.js",
     "../core/site-profiles.js",
+    "../core/nature-index.js",
     "../core/pdf.js",
     "../core/pdf-verifier.js",
     "../core/ai.js",
@@ -287,6 +288,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(result => sendResponse(result))
       .catch(err => {
         console.error("Add footprint failed:", err);
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
+  if (action === "SAVE_FOOTPRINT_NOTES" || action === "history.saveNotes") {
+    withMessageDuration("history-service", () => updateFootprintNotes(message.doi, message.title, message.notes))
+      .then(result => sendResponse(result))
+      .catch(err => {
+        console.error("Save footprint notes failed:", err);
         sendResponse({ success: false, error: err.message });
       });
     return true;
@@ -1680,10 +1691,23 @@ async function getHistorySnapshot() {
   };
 }
 
+function trimHistoryWithStarredProtection(records, maxLimit = 500) {
+  if (!Array.isArray(records) || records.length <= maxLimit) return records;
+  const starred = [];
+  const unstarred = [];
+  for (const item of records) {
+    if (item.starred) starred.push(item);
+    else unstarred.push(item);
+  }
+  // Allow as many unstarred items as remaining capacity
+  const unstarredAllowance = Math.max(0, maxLimit - starred.length);
+  const keptUnstarred = new Set(unstarred.slice(0, unstarredAllowance));
+  return records.filter(item => item.starred || keptUnstarred.has(item)).slice(0, maxLimit);
+}
+
 function normalizeHistoryRecords(records) {
-  return (Array.isArray(records) ? records : [])
+  const normalized = (Array.isArray(records) ? records : [])
     .filter(item => item && typeof item === "object" && (String(item.title || "").trim() || String(item.doi || "").trim()))
-    .slice(0, 500)
     .map(item => ({
       title: String(item.title || "Unknown Title").trim(),
       authors: Array.isArray(item.authors) ? item.authors.map(author => String(author || "").trim()).filter(Boolean).slice(0, 30) : [],
@@ -1692,9 +1716,11 @@ function normalizeHistoryRecords(records) {
       doi: String(item.doi || "").trim(),
       pdfUrl: /^https?:\/\//i.test(String(item.pdfUrl || "")) ? String(item.pdfUrl) : "",
       starred: item.starred === true,
+      notes: typeof item.notes === "string" ? String(item.notes).slice(0, 8000) : "",
       status: ["visited", "downloaded", "copied_bibtex", "copied_doi", "copied_citation", "copied_markdown"].includes(item.status) ? item.status : "visited",
       time: Number.isFinite(Number(item.time || item.updatedAt || item.timestamp)) ? Number(item.time || item.updatedAt || item.timestamp) : Date.now()
     }));
+  return trimHistoryWithStarredProtection(normalized, 500);
 }
 
 function enqueueHistoryMutation(mutator) {
@@ -1739,9 +1765,11 @@ async function addFootprint(footprint) {
     const newItem = normalizeHistoryRecords([{
       ...footprint,
       starred: typeof footprint.starred === "boolean" ? footprint.starred : Boolean(existing?.starred),
+      notes: typeof footprint.notes === "string" ? footprint.notes : (existing?.notes || ""),
       time: Date.now()
     }])[0];
-    history = [newItem, ...history.filter(item => !sameFootprint(item))].slice(0, 500);
+    const rawMerged = [newItem, ...history.filter(item => !sameFootprint(item))];
+    history = trimHistoryWithStarredProtection(rawMerged, 500);
     const revision = snapshot.revision + 1;
     await chrome.storage.local.set({ history, history_revision: revision });
     return {
@@ -1751,6 +1779,51 @@ async function addFootprint(footprint) {
       revision,
       historyLength: history.length,
       starred: newItem.starred,
+      source: "chrome.storage.local"
+    };
+  });
+}
+
+async function updateFootprintNotes(doi, title, notes) {
+  return enqueueHistoryMutation(async snapshot => {
+    let history = snapshot.history;
+    const sameFootprint = item => {
+      const matchDoi = doi && item.doi && String(doi).toLowerCase() === String(item.doi).toLowerCase();
+      const matchTitle = title && item.title && String(title).toLowerCase().trim() === String(item.title).toLowerCase().trim();
+      return Boolean(matchDoi || matchTitle);
+    };
+    const existing = history.find(sameFootprint) || null;
+    if (!existing) {
+      const newItem = normalizeHistoryRecords([{
+        doi,
+        title,
+        notes: String(notes || "").slice(0, 8000),
+        status: "copied_citation",
+        time: Date.now()
+      }])[0];
+      const rawMerged = [newItem, ...history];
+      history = trimHistoryWithStarredProtection(rawMerged, 500);
+      const revision = snapshot.revision + 1;
+      await chrome.storage.local.set({ history, history_revision: revision });
+      return {
+        success: true,
+        ok: true,
+        history,
+        revision,
+        historyLength: history.length,
+        source: "chrome.storage.local"
+      };
+    }
+    existing.notes = String(notes || "").slice(0, 8000);
+    existing.time = Date.now();
+    const revision = snapshot.revision + 1;
+    await chrome.storage.local.set({ history, history_revision: revision });
+    return {
+      success: true,
+      ok: true,
+      history,
+      revision,
+      historyLength: history.length,
       source: "chrome.storage.local"
     };
   });

@@ -153,6 +153,7 @@ const initPopup = () => {
   const recordEditDoiInput = document.getElementById("record-edit-doi-input");
   const recordEditPdfInput = document.getElementById("record-edit-pdf-input");
   const recordEditAuthorsInput = document.getElementById("record-edit-authors-input");
+  const recordEditNotesInput = document.getElementById("record-edit-notes-input");
 
 
   const configRedirect = document.getElementById("setting-auto-redirect");
@@ -460,6 +461,7 @@ const initPopup = () => {
     recordEditDoiInput.value = item.doi || "";
     recordEditPdfInput.value = item.pdfUrl || "";
     recordEditAuthorsInput.value = Array.isArray(item.authors) ? item.authors.join("; ") : "";
+    if (recordEditNotesInput) recordEditNotesInput.value = item.notes || "";
 
     positionRecordEditorNearAnchor(anchor);
     recordEditOverlay.classList.add("pp-open");
@@ -488,6 +490,7 @@ const initPopup = () => {
       doi: recordEditDoiInput.value.trim(),
       pdfUrl: recordEditPdfInput.value.trim(),
       authors: parseAuthorsInput(recordEditAuthorsInput.value),
+      notes: recordEditNotesInput ? recordEditNotesInput.value.trim() : (historyData[activeEditIndex].notes || ""),
       updatedAt: Date.now()
     };
     closeRecordEditor();
@@ -1109,6 +1112,8 @@ const initPopup = () => {
 
     if (currentChipFilter === "starred") {
       result = result.filter(item => item.starred === true);
+    } else if (currentChipFilter === "notes") {
+      result = result.filter(item => Boolean(item.notes && item.notes.trim()));
     } else if (currentChipFilter === "downloaded") {
       result = result.filter(item => item.status === "downloaded");
     } else if (currentChipFilter === "copied") {
@@ -1122,7 +1127,8 @@ const initPopup = () => {
       const doi = (item.doi || "").toLowerCase();
       const authors = Array.isArray(item.authors) ? item.authors.join(" ").toLowerCase() : String(item.authors || "").toLowerCase();
       const year = String(item.year || "");
-      return title.includes(q) || journal.includes(q) || doi.includes(q) || authors.includes(q) || year.includes(q);
+      const notes = (item.notes || "").toLowerCase();
+      return title.includes(q) || journal.includes(q) || doi.includes(q) || authors.includes(q) || year.includes(q) || notes.includes(q);
     });
   }
 
@@ -1132,9 +1138,10 @@ const initPopup = () => {
   }
 
   function refreshHistoryStats() {
-    const next = { all: historyData.length, starred: 0, downloaded: 0, copied: 0 };
+    const next = { all: historyData.length, starred: 0, notes: 0, downloaded: 0, copied: 0 };
     historyData.forEach(item => {
       if (item.starred === true) next.starred++;
+      if (item.notes && item.notes.trim()) next.notes++;
       if (item.status === "downloaded") next.downloaded++;
       if ((item.status || "").startsWith("copied")) next.copied++;
     });
@@ -1351,8 +1358,9 @@ const initPopup = () => {
     const labels = {
       all: `全部 (${counts.all})`,
       starred: `⭐ 收藏 (${counts.starred})`,
+      notes: `📝 笔记 (${counts.notes || 0})`,
       downloaded: `📥 已下载 (${counts.downloaded})`,
-      copied: `📝 已复引用 (${counts.copied})`
+      copied: `📋 已复制 (${counts.copied})`
     };
     document.querySelectorAll("#footprint-chips [data-filter], #footprint-quick-filters [data-filter]").forEach(button => {
       const filter = button.dataset.filter || "all";
@@ -1576,6 +1584,26 @@ const initPopup = () => {
         });
       };
 
+      // 1-Click Copy GB/T 7714 button
+      const gbBtn = document.createElement("button");
+      gbBtn.type = "button";
+      gbBtn.className = "pp-foot-copy-btn";
+      gbBtn.textContent = "GB";
+      gbBtn.title = "一键复制该文献的 GB/T 7714 国标引用";
+      gbBtn.onclick = (event) => {
+        event.stopPropagation();
+        const citation = window.PaperPilotCore?.citation;
+        const text = citation?.buildGbt7714Entries
+          ? citation.buildGbt7714Entries([item], { numbered: false })
+          : `${item.authors?.join(", ") || "佚名"}. ${item.title || "Untitled"}[J]. ${item.journal || ""}, ${item.year || ""}.`;
+        robustCopyToClipboard(text).then(() => {
+          item.status = "copied_citation";
+          persistHistory("已将 GB/T 7714 引用写入剪贴板");
+        }).catch(() => {
+          showToast("剪贴板写入失败，请检查浏览器权限");
+        });
+      };
+
       // 1-Click Copy Markdown button
       const mdBtn = document.createElement("button");
       mdBtn.type = "button";
@@ -1589,7 +1617,10 @@ const initPopup = () => {
         const journalStr = item.journal ? `*${item.journal}*` : "";
         const yearStr = item.year ? `(${item.year})` : "";
         const authorsStr = Array.isArray(item.authors) ? item.authors.join(", ") : (item.authors || "");
-        const mdText = `${link} - ${journalStr} ${yearStr}${authorsStr ? ` - ${authorsStr}` : ""}`.trim();
+        let mdText = `${link} - ${journalStr} ${yearStr}${authorsStr ? ` - ${authorsStr}` : ""}`.trim();
+        if (item.notes) {
+          mdText += `\n\n> **研读笔记**：\n> ${item.notes.replace(/\n/g, "\n> ")}`;
+        }
         robustCopyToClipboard(mdText).then(() => {
           item.status = "copied_citation";
           persistHistory("已将 Markdown 笔记写入剪贴板");
@@ -1600,6 +1631,7 @@ const initPopup = () => {
 
       tools.appendChild(starBtn);
       tools.appendChild(bibBtn);
+      tools.appendChild(gbBtn);
       tools.appendChild(mdBtn);
 
       // 1-Click Copy DOI button
@@ -1657,6 +1689,18 @@ const initPopup = () => {
         const displayed = authorList.slice(0, 2).join(", ") + (authorList.length > 2 ? " 等" : "");
         authorsEl.textContent = displayed;
         metaRow.appendChild(authorsEl);
+      }
+
+      if (item.notes) {
+        const noteBadge = document.createElement("span");
+        noteBadge.className = "pp-foot-note-badge";
+        noteBadge.textContent = "📝 笔记";
+        noteBadge.title = item.notes.slice(0, 100) + (item.notes.length > 100 ? "..." : "");
+        noteBadge.onclick = (event) => {
+          event.stopPropagation();
+          openRecordEditor(recordIndex, noteBadge);
+        };
+        metaRow.appendChild(noteBadge);
       }
 
       const statusBadge = document.createElement("span");
@@ -1803,8 +1847,12 @@ const initPopup = () => {
         const doi = paper.doi ? `[${paper.doi}](https://doi.org/${paper.doi})` : "N/A";
         const url = paper.pdfUrl ? `[PDF 全文](${paper.pdfUrl})` : "";
         const authors = Array.isArray(paper.authors) ? paper.authors.join(", ") : (paper.authors || "");
-        return `${idx + 1}. **${title}**\n   - 期刊年份: ${journal} ${year}\n   - 作者: ${authors || "N/A"}\n   - DOI/直链: ${doi} ${url}`.trim();
+        const notesStr = paper.notes ? `\n   - 研读笔记: ${paper.notes.replace(/\n+/g, " ")}` : "";
+        return `${idx + 1}. **${title}**\n   - 期刊年份: ${journal} ${year}\n   - 作者: ${authors || "N/A"}\n   - DOI/直链: ${doi} ${url}${notesStr}`.trim();
       }).join("\n\n");
+    } else if (citation && format === "gbt7714") {
+      exported = citation.buildGbt7714Entries(normalized);
+      label = "GB/T 7714 国标引用";
     } else if (citation && format === "ris") {
       exported = citation.buildRisEntries(normalized);
       label = "RIS";

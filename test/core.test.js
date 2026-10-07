@@ -1127,3 +1127,214 @@ test("site profiles and challenge detection intercept CARSI, Shibboleth and camp
   assert.match(journalSource, /carsi\.edu\.cn/);
   assert.match(journalSource, /isWakeupDelay/);
 });
+
+test("Nature Index matching accurately identifies top journals and strictly rejects false-positive compound names", () => {
+  const core = loadCore("core/nature-index.js");
+  const { isNatureIndex, getNatureIndexMatch } = core.natureIndex;
+
+  // 1. Positive matches
+  const truePositives = [
+    "Nature",
+    "nature",
+    "Nature Communications",
+    "Nat. Commun.",
+    "Science",
+    "Science Advances",
+    "Cell",
+    "Molecular Cell",
+    "Physical Review Letters",
+    "Phys. Rev. Lett.",
+    "PRL",
+    "Journal of the American Chemical Society",
+    "JACS",
+    "Advanced Materials",
+    "Adv. Mater.",
+    "Angewandte Chemie International Edition",
+    "Angew. Chem. Int. Ed.",
+    "PNAS",
+    "Proceedings of the National Academy of Sciences",
+    "Geology",
+    "Neuron",
+    "The Lancet"
+  ];
+  for (const journal of truePositives) {
+    assert.equal(isNatureIndex(journal), true, `Expected "${journal}" to match Nature Index`);
+  }
+
+  // 2. Strict False-Positive rejections
+  const trueNegatives = [
+    "Science of The Total Environment",
+    "Computational Materials Science",
+    "Materials Science and Engineering: A",
+    "Journal of Materials Science",
+    "Frontiers in Plant Science",
+    "Scientific Reports",
+    "Cellular Oncology",
+    "Cellular and Molecular Life Sciences",
+    "Cell Biology International",
+    "Engineering Geology",
+    "Marine Geology",
+    "Economic Geology",
+    "Water Science and Technology",
+    "Computer Science Review",
+    "Information Sciences",
+    "Breast Cancer Research and Treatment",
+    "PLOS ONE",
+    "Nature and Science"
+  ];
+  for (const journal of trueNegatives) {
+    assert.equal(isNatureIndex(journal), false, `Expected "${journal}" to NOT match Nature Index`);
+  }
+});
+
+test("History eviction strictly preserves starred records when capacity exceeds 500", async () => {
+  const harness = loadBackgroundHarness();
+  const { sandbox, listeners } = harness;
+
+  // Pre-seed 495 unstarred records and 5 starred records
+  const initialRecords = [];
+  for (let i = 0; i < 500; i++) {
+    initialRecords.push({
+      title: `Old Paper ${i}`,
+      doi: `10.1000/old-${i}`,
+      journal: "Test Journal",
+      year: 2020,
+      starred: i < 5, // First 5 are starred
+      time: 1000 + i
+    });
+  }
+
+  await sandbox.chrome.storage.local.set({ history: initialRecords, history_revision: 1 });
+
+  // Add 20 new unstarred footprints
+  for (let j = 0; j < 20; j++) {
+    const res = await new Promise(resolve => {
+      listeners.message({
+        action: "ADD_FOOTPRINT",
+        footprint: {
+          title: `New Paper ${j}`,
+          doi: `10.1000/new-${j}`,
+          journal: "New Journal",
+          year: 2026,
+          starred: false
+        }
+      }, {}, resolve);
+    });
+    assert.equal(res.success, true);
+  }
+
+  const storage = await sandbox.chrome.storage.local.get("history");
+  const finalHistory = storage.history;
+  assert.equal(finalHistory.length, 500);
+
+  // All 5 original starred papers MUST still exist
+  for (let i = 0; i < 5; i++) {
+    const found = finalHistory.find(item => item.doi === `10.1000/old-${i}`);
+    assert.ok(found, `Starred paper 10.1000/old-${i} must NOT be evicted`);
+    assert.equal(found.starred, true);
+  }
+});
+
+test("GB/T 7714-2015 citation generation conforms to Chinese and Western author standards", () => {
+  const core = loadCore("core/citation.js");
+  const { buildGbt7714Entries, formatGbtAuthors } = core.citation;
+
+  // 1. Author formatting tests
+  assert.equal(formatGbtAuthors(["Ashish Vaswani", "Noam Shazeer", "Niki Parmar", "Jakob Uszkoreit"]), "Vaswani A, Shazeer N, Parmar N, et al.");
+  assert.equal(formatGbtAuthors(["李德毅", "杜圉"]), "李德毅, 杜圉");
+  assert.equal(formatGbtAuthors(["张三", "李四", "王五", "赵六"]), "张三, 李四, 王五, 等");
+
+  // 2. Journal paper entries
+  const papers = [
+    {
+      authors: ["Ashish Vaswani", "Noam Shazeer", "Niki Parmar", "Jakob Uszkoreit"],
+      title: "Attention Is All You Need",
+      journal: "Advances in Neural Information Processing Systems",
+      year: 2017,
+      doi: "10.48550/arXiv.1706.03762"
+    },
+    {
+      authors: ["李德毅", "杜圉"],
+      title: "不确定性人工智能",
+      journal: "软件学报",
+      year: 2004,
+      doi: "10.1360/jos151583"
+    }
+  ];
+
+  const formattedNumbered = buildGbt7714Entries(papers, { numbered: true });
+  assert.match(formattedNumbered, /\[1\] Vaswani A, Shazeer N, Parmar N, et al\. Attention Is All You Need\[J\]\. Advances in Neural Information Processing Systems, 2017\. DOI: 10\.48550\/arXiv\.1706\.03762\./);
+  assert.match(formattedNumbered, /\[2\] 李德毅, 杜圉\. 不确定性人工智能\[J\]\. 软件学报, 2004\. DOI: 10\.1360\/jos151583\./);
+
+  const formattedUnnumbered = buildGbt7714Entries([papers[0]], { numbered: false });
+  assert.equal(formattedUnnumbered.startsWith("[1]"), false);
+  assert.match(formattedUnnumbered, /^Vaswani A, Shazeer N, Parmar N, et al\. Attention Is All You Need\[J\]/);
+});
+
+test("Footprint notes persist through background mutation and update actions", async () => {
+  const harness = loadBackgroundHarness();
+  const { sandbox, listeners } = harness;
+
+  const addRes = await new Promise(resolve => {
+    listeners.message({
+      action: "ADD_FOOTPRINT",
+      footprint: {
+        title: "Deep Residual Learning for Image Recognition",
+        doi: "10.1109/CVPR.2016.90",
+        journal: "CVPR",
+        year: 2016,
+        notes: "### AI 研读\n提出残差学习架构（ResNet），解决梯度消失与退化问题。"
+      }
+    }, {}, resolve);
+  });
+  assert.equal(addRes.success, true);
+
+  let storage = await sandbox.chrome.storage.local.get("history");
+  assert.equal(storage.history[0].notes, "### AI 研读\n提出残差学习架构（ResNet），解决梯度消失与退化问题。");
+
+  // Update existing notes via SAVE_FOOTPRINT_NOTES
+  const updateRes = await new Promise(resolve => {
+    listeners.message({
+      action: "SAVE_FOOTPRINT_NOTES",
+      doi: "10.1109/CVPR.2016.90",
+      title: "Deep Residual Learning for Image Recognition",
+      notes: "更新后的笔记内容：ResNet-152 达到 3.57% top-5 错误率。"
+    }, {}, resolve);
+  });
+  assert.equal(updateRes.success, true);
+
+  storage = await sandbox.chrome.storage.local.get("history");
+  assert.equal(storage.history[0].notes, "更新后的笔记内容：ResNet-152 达到 3.57% top-5 错误率。");
+
+  // Save notes directly on a paper that doesn't exist yet in history (must not deadlock!)
+  const newPaperRes = await new Promise(resolve => {
+    listeners.message({
+      action: "SAVE_FOOTPRINT_NOTES",
+      doi: "10.1038/s41586-021-03819-2",
+      title: "Highly accurate protein structure prediction with AlphaFold",
+      notes: "### AI 研读\nAlphaFold 2 实现了近原子分辨率的蛋白质结构预测。"
+    }, {}, resolve);
+  });
+  assert.equal(newPaperRes.success, true);
+  storage = await sandbox.chrome.storage.local.get("history");
+  const alphaFoldRecord = storage.history.find(item => item.doi === "10.1038/s41586-021-03819-2");
+  assert.ok(alphaFoldRecord);
+  assert.equal(alphaFoldRecord.notes, "### AI 研读\nAlphaFold 2 实现了近原子分辨率的蛋白质结构预测。");
+});
+
+test("Popup UI and citation parser support notes search, chips, and PubMed/NLM author styles", () => {
+  const core = loadCore("core/citation.js");
+  const { formatGbtAuthors, formatGbtAuthor } = core.citation;
+
+  // PubMed / MEDLINE author styles without commas should preserve surname first
+  assert.equal(formatGbtAuthor("Vaswani A"), "Vaswani A");
+  assert.equal(formatGbtAuthor("Smith J."), "Smith J");
+  assert.equal(formatGbtAuthor("Doe J R"), "Doe J R");
+  assert.equal(formatGbtAuthors(["Vaswani A", "Shazeer N"]), "Vaswani A, Shazeer N");
+
+  // Verify popup HTML markup contains notes quick filter and notes search placeholder
+  const html = fs.readFileSync(path.resolve(__dirname, "../popup/popup.html"), "utf8");
+  assert.match(html, /data-filter="notes"/);
+  assert.match(html, /placeholder=".*笔记内容.*"/);
+});
+

@@ -1586,19 +1586,29 @@
             <span>${paperMeta.pdfUrl ? '已搜寻到正文 PDF 直链 · 支持一键校验下载' : '当前无免费 OA 直链 · 可一键复制 DOI 或网页版'}</span>
           </div>
 
-          <!-- Metadata DOI Field -->
+          <!-- Metadata DOI & Citation Field -->
           <div class="pp-jc-meta-field">
             <div class="pp-jc-meta-hdr">
-              <span class="pp-jc-meta-lbl">DOI 数字对象标识符</span>
+              <span class="pp-jc-meta-lbl">DOI 与学术引用</span>
               <span class="pp-jc-in-place-badge" id="pp-jc-doi-badge">✓ 已成功复制到剪贴板</span>
             </div>
             <div class="pp-jc-meta-val-box" id="pp-jc-doi-val-box">
               <span class="pp-jc-meta-val">${display.doi}</span>
-              ${paperMeta.doi ? `
-                <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-doi" title="一键复制 DOI 标识符">
-                  ${window.PP_ICONS.copy} 复制
-                </button>
-              ` : ''}
+              <div class="pp-jc-meta-actions" style="display:inline-flex;gap:4px;flex-shrink:0;">
+                ${paperMeta.doi ? `
+                  <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-doi" title="一键复制 DOI 标识符">
+                    ${window.PP_ICONS.copy} DOI
+                  </button>
+                ` : ''}
+                ${paperMeta.title ? `
+                  <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-gb" title="一键复制 GB/T 7714-2015 国标引用" style="background:#0284c7;">
+                    GB
+                  </button>
+                  <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-bib" title="一键复制 BibTeX 引用" style="background:#7c3aed;">
+                    Bib
+                  </button>
+                ` : ''}
+              </div>
             </div>
           </div>
 
@@ -1835,7 +1845,10 @@
       };
     }
 
-    // DOI copy
+    // DOI & Citation copy
+    const copyGbBtn = cardEl.querySelector("#pp-jc-btn-copy-gb");
+    const copyBibBtn = cardEl.querySelector("#pp-jc-btn-copy-bib");
+
     if (copyDoiBtn) {
       copyDoiBtn.onclick = () => {
         robustCopyToClipboard(paperMeta.doi).then(() => {
@@ -1849,11 +1862,94 @@
           copyDoiBtn.innerHTML = `${getIcon("check", "✓")} 已复制`;
           copyDoiBtn.classList.add("pp-copied-success");
 
+          safeSendMessage({
+            action: "ADD_FOOTPRINT",
+            footprint: {
+              title: paperMeta.title,
+              authors: paperMeta.authors,
+              journal: paperMeta.journal,
+              year: paperMeta.year,
+              doi: paperMeta.doi,
+              pdfUrl: paperMeta.pdfUrl,
+              status: "copied_doi"
+            }
+          });
+
           setTimeout(() => {
             if (valBox) valBox.classList.remove("pp-copied-active");
             if (badge) badge.classList.remove("pp-show");
             copyDoiBtn.innerHTML = origHTML;
             copyDoiBtn.classList.remove("pp-copied-success");
+          }, 2200);
+        });
+      };
+    }
+
+    if (copyGbBtn) {
+      copyGbBtn.onclick = () => {
+        const text = window.PaperPilotCore?.citation?.buildGbt7714Entries
+          ? window.PaperPilotCore.citation.buildGbt7714Entries([paperMeta], { numbered: false })
+          : `${paperMeta.authors?.join(", ") || ""}. ${paperMeta.title}[J]. ${paperMeta.journal || ""}, ${paperMeta.year || ""}.`;
+        robustCopyToClipboard(text).then(() => {
+          showToast("✓ GB/T 7714 国标引用已写入剪贴板！");
+          const valBox = cardEl.querySelector("#pp-jc-doi-val-box");
+          const origHTML = copyGbBtn.innerHTML;
+          if (valBox) valBox.classList.add("pp-copied-active");
+          copyGbBtn.innerHTML = `${getIcon("check", "✓")} 已复制`;
+          copyGbBtn.classList.add("pp-copied-success");
+
+          safeSendMessage({
+            action: "ADD_FOOTPRINT",
+            footprint: {
+              title: paperMeta.title,
+              authors: paperMeta.authors,
+              journal: paperMeta.journal,
+              year: paperMeta.year,
+              doi: paperMeta.doi,
+              pdfUrl: paperMeta.pdfUrl,
+              status: "copied_citation"
+            }
+          });
+
+          setTimeout(() => {
+            if (valBox) valBox.classList.remove("pp-copied-active");
+            copyGbBtn.innerHTML = origHTML;
+            copyGbBtn.classList.remove("pp-copied-success");
+          }, 2200);
+        });
+      };
+    }
+
+    if (copyBibBtn) {
+      copyBibBtn.onclick = () => {
+        const text = window.PaperPilotCore?.citation?.buildBibtexEntries
+          ? window.PaperPilotCore.citation.buildBibtexEntries([paperMeta])
+          : `@article{paper,\n  title={${paperMeta.title}},\n  author={${(paperMeta.authors || []).join(" and ")}}\n}`;
+        robustCopyToClipboard(text).then(() => {
+          showToast("✓ BibTeX 引用已写入剪贴板！");
+          const valBox = cardEl.querySelector("#pp-jc-doi-val-box");
+          const origHTML = copyBibBtn.innerHTML;
+          if (valBox) valBox.classList.add("pp-copied-active");
+          copyBibBtn.innerHTML = `${getIcon("check", "✓")} 已复制`;
+          copyBibBtn.classList.add("pp-copied-success");
+
+          safeSendMessage({
+            action: "ADD_FOOTPRINT",
+            footprint: {
+              title: paperMeta.title,
+              authors: paperMeta.authors,
+              journal: paperMeta.journal,
+              year: paperMeta.year,
+              doi: paperMeta.doi,
+              pdfUrl: paperMeta.pdfUrl,
+              status: "copied_bibtex"
+            }
+          });
+
+          setTimeout(() => {
+            if (valBox) valBox.classList.remove("pp-copied-active");
+            copyBibBtn.innerHTML = origHTML;
+            copyBibBtn.classList.remove("pp-copied-success");
           }, 2200);
         });
       };
@@ -2050,16 +2146,36 @@
               <span class="pp-jc-ai-badge" id="pp-jc-ai-provider-badge">正在连接</span>
               <span class="pp-jc-ai-tag">${escapeHtml(presetName)} · 标题与摘要</span>
             </div>
-            <button type="button" class="pp-jc-ai-copy-btn" id="pp-jc-ai-copy" hidden>复制</button>
+            <div class="pp-jc-ai-actions" style="display:flex;gap:4px;">
+              <button type="button" class="pp-jc-ai-copy-btn" id="pp-jc-ai-save-note" hidden title="将本次 AI 研读分析存入文过留痕笔记">📌 存入留痕</button>
+              <button type="button" class="pp-jc-ai-copy-btn" id="pp-jc-ai-copy" hidden>复制</button>
+            </div>
           </div>
           <div class="pp-jc-ai-content" id="pp-jc-ai-content"><span class="pp-jc-ai-cursor">▌</span></div>`;
         const content = aiBox.querySelector("#pp-jc-ai-content");
         const badge = aiBox.querySelector("#pp-jc-ai-provider-badge");
         const copy = aiBox.querySelector("#pp-jc-ai-copy");
+        const saveNote = aiBox.querySelector("#pp-jc-ai-save-note");
         copy.onclick = () => {
           const note = `### AI 学术研读 [${presetName}]${complete ? "" : "（未完成）"}\n**文献**：${source.title}\n**依据**：标题与摘要；模型推断需核验原文。\n\n${lastGeneratedText}`;
           robustCopyToClipboard(note).then(() => showToast("AI 分析已复制为 Markdown"))
             .catch(() => showToast("复制失败，请选择分析内容手动复制"));
+        };
+        saveNote.onclick = () => {
+          const note = `### AI 学术研读 [${presetName}]${complete ? "" : "（未完成）"}\n**文献**：${source.title}\n**依据**：标题与摘要；模型推断需核验原文。\n\n${lastGeneratedText}`;
+          safeSendMessage({
+            action: "SAVE_FOOTPRINT_NOTES",
+            doi: paperMeta.doi,
+            title: paperMeta.title,
+            notes: note
+          }, response => {
+            if (response?.success) {
+              showToast("已将 AI 分析存入文过留痕笔记");
+              saveNote.textContent = "已存入 ✓";
+            } else {
+              showToast("存入笔记失败，请手动复制");
+            }
+          });
         };
         const fail = message => {
           if (id !== requestId) return;
@@ -2087,12 +2203,14 @@
               lastGeneratedText = msg.accumulated || (lastGeneratedText + (msg.chunk || ""));
               content.textContent = lastGeneratedText;
               copy.hidden = !lastGeneratedText;
+              saveNote.hidden = !lastGeneratedText;
             } else if (msg.type === "done") {
               lastGeneratedText = msg.fullText || lastGeneratedText;
               if (!lastGeneratedText.trim()) { fail("AI 未返回有效内容，请重试。"); return; }
               complete = true;
               content.textContent = lastGeneratedText;
               copy.hidden = false;
+              saveNote.hidden = false;
               stopRequest();
               status.textContent = "分析完成 · 请结合原文核验方法、数据与结论。";
             } else if (msg.type === "error") {
@@ -2175,6 +2293,9 @@
 
   // Match standard Nature Index Journals list
   function checkNatureIndexMatch(journalName) {
+    if (window.PaperPilotCore?.natureIndex?.isNatureIndex) {
+      return window.PaperPilotCore.natureIndex.isNatureIndex(journalName);
+    }
     const list = [
       "nature", "science", "cell", "american chemical society", "angewandte", "advanced materials",
       "physical review", "pnas", "cancer research", "neuron", "plos biology"
