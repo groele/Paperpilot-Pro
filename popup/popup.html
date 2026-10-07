@@ -437,13 +437,25 @@
             <!-- Switch: Enable BibTeX Button -->
             <div class="pp-popup-setting-item">
               <div class="pp-popup-setting-row">
-                <span class="pp-popup-setting-lbl">一键 BibTeX 复制按钮</span>
+                <span class="pp-popup-setting-lbl">谷歌学术一键 BibTeX 按钮</span>
                 <label class="pp-popup-switch">
                   <input type="checkbox" id="setting-enable-bibtex-btn">
                   <span class="pp-popup-switch-slider"></span>
                 </label>
               </div>
               <p class="pp-popup-setting-desc">在谷歌学术搜索结果条目旁渲染「一键 BibTeX」快捷复制按钮。</p>
+            </div>
+
+            <!-- Switch: Enable Scholar Copy GBT Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">谷歌学术一键 GB/T 7714 按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-scholar-copy-gbt-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在谷歌学术搜索结果条目旁渲染「国标 GB」快捷复制引用按钮。</p>
             </div>
 
             <!-- Switch: Enable Scholar Copy DOI Button -->
@@ -458,6 +470,18 @@
               <p class="pp-popup-setting-desc">在谷歌学术搜索结果条目旁渲染「复制 DOI」快捷功能按钮。</p>
             </div>
 
+            <!-- Switch: Enable Scholar Star Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">谷歌学术一键 ⭐ 收藏按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-scholar-star-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在谷歌学术搜索结果条目旁渲染「⭐ 收藏」按键，一键存入精选文献。</p>
+            </div>
+
             <!-- Switch: Enable Journal Copy DOI Button -->
             <div class="pp-popup-setting-item">
               <div class="pp-popup-setting-row">
@@ -468,6 +492,42 @@
                 </label>
               </div>
               <p class="pp-popup-setting-desc">在期刊详情页悬浮卡中保留 DOI 字段复制与无 PDF 时的一键 DOI 复制入口。</p>
+            </div>
+
+            <!-- Switch: Enable Journal Copy GBT Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">详情悬浮卡复制 GB/T 7714 按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-journal-copy-gbt-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在期刊详情页悬浮卡元数据栏渲染「GB」一键复制国标引文按钮。</p>
+            </div>
+
+            <!-- Switch: Enable Journal Copy Bib Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">详情悬浮卡复制 BibTeX 按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-journal-copy-bib-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在期刊详情页悬浮卡元数据栏渲染「Bib」一键复制 BibTeX 引用按钮。</p>
+            </div>
+
+            <!-- Switch: Enable Journal Open Landing Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">详情悬浮卡打开网页端按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-journal-open-landing-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在期刊悬浮卡主操作栏中渲染「打开论文网页端」直达链接按钮。</p>
             </div>
 
             <!-- Switch: Enable PDF Download Button -->
@@ -495,7 +555,99 @@
             </div>
           </div>
 
-          <!-- Card 3: 学术数据集成 (easyScholar) -->
+          <!-- Card 3: 弹窗面板与留痕视图定制 -->
+          <div class="pp-popup-settings-card">
+            <div class="pp-popup-card-hdr">
+              <span class="card-hdr-icon">📊</span>
+              <span class="card-hdr-title">弹窗面板与留痕视图定制</span>
+            </div>
+
+            <!-- Switch: Enable Heatmap -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">学术研读打卡日历</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-footprint-heatmap">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">控制「文过留痕」中 28 天打卡轨迹日历的显示。关闭后可节省面板高度，让文献列表直接上移呈现。</p>
+            </div>
+
+            <!-- Switch: Enable Stats Bar -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">研读统计概览栏</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-footprint-stats">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">控制总阅读留痕、PDF 下载数与复制引用数的顶部统计横条显示。</p>
+            </div>
+
+            <!-- Switch: Enable Page Diagnostics -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">当前页面诊断 Scanner</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-page-diagnostics">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">控制概览面板中当前活动页面探测诊断雷达与 PDF 诊断分析模块的显示。</p>
+            </div>
+
+            <!-- Switch: Enable Quick Filters -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">留痕快捷筛选栏</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-footprint-quick-filters">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">控制「全部 / ⭐ 收藏 / 📝 笔记」快捷筛选药丸栏的展示。</p>
+            </div>
+
+            <!-- Switch: Enable Footprint GB/T 7714 Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">留痕卡片 GB/T 7714 复制按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-footprint-gbt-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在留痕卡片右上工具栏中显示「GB」一键复制国标引文按钮。</p>
+            </div>
+
+            <!-- Switch: Enable Footprint BibTeX Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">留痕卡片 BibTeX 复制按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-footprint-bib-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在留痕卡片右上工具栏中显示「Bib」一键复制 BibTeX 按钮。</p>
+            </div>
+
+            <!-- Switch: Enable Footprint Star Button -->
+            <div class="pp-popup-setting-item">
+              <div class="pp-popup-setting-row">
+                <span class="pp-popup-setting-lbl">留痕卡片 ⭐ 收藏切换按钮</span>
+                <label class="pp-popup-switch">
+                  <input type="checkbox" id="setting-enable-footprint-star-btn">
+                  <span class="pp-popup-switch-slider"></span>
+                </label>
+              </div>
+              <p class="pp-popup-setting-desc">在留痕卡片右上工具栏中显示五角星收藏切换图标。</p>
+            </div>
+          </div>
+
+          <!-- Card 4: 学术数据集成 (easyScholar) -->
           <div class="pp-popup-settings-card">
             <div class="pp-popup-card-hdr">
               <span class="card-hdr-icon">🎓</span>
@@ -627,7 +779,7 @@
             </div>
           </div>
 
-          <!-- Card 4: 直链与文件规范配置 -->
+          <!-- Card 5: 直链与文件规范配置 -->
           <div class="pp-popup-settings-card">
             <div class="pp-popup-card-hdr">
               <span class="card-hdr-icon">📁</span>
@@ -691,7 +843,7 @@
             </div>
           </div>
 
-          <!-- Card 5: 本地学者AI极速引擎配置 -->
+          <!-- Card 6: 本地学者 AI 极速引擎配置 -->
           <div class="pp-popup-settings-card">
             <div class="pp-popup-card-hdr">
               <span class="card-hdr-icon">🤖</span>

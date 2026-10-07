@@ -28,10 +28,15 @@ const PUBLIC_SETTING_KEYS = new Set([
   "appearance_mode", "enable_ni", "enable_dedup",
   "enable_badges", "enable_metacard", "enable_markdown_note", "enable_metrics_display",
   "enable_metrics_auto_detect", "enable_bibtex_btn", "enable_scholar_copy_doi_btn",
-  "enable_journal_copy_doi_btn", "pdf_landing_cache", "enable_pdf_download_btn",
+  "enable_scholar_copy_gbt_btn", "enable_scholar_star_btn",
+  "enable_journal_copy_doi_btn", "enable_journal_copy_gbt_btn", "enable_journal_copy_bib_btn",
+  "enable_journal_open_landing_btn", "pdf_landing_cache", "enable_pdf_download_btn",
   "enable_ai_summary_btn", "enable_ccf_badge", "enable_core_badge", "enable_warn_badge",
   "enable_if_badge", "enable_cas_badge", "enable_jcr_badge", "enable_cite_badge",
-  "enable_pdf_badge", "metacard_pinned", "ai_preset"
+  "enable_pdf_badge", "metacard_pinned", "ai_preset",
+  "enable_footprint_heatmap", "enable_footprint_stats", "enable_page_diagnostics",
+  "enable_footprint_quick_filters", "enable_footprint_gbt_btn", "enable_footprint_bib_btn",
+  "enable_footprint_star_btn"
 ]);
 const MAX_PDF_LANDING_CACHE_ENTRIES = 100;
 let historyMutationQueue = Promise.resolve();
@@ -192,7 +197,12 @@ chrome.runtime.onInstalled.addListener(() => {
         enable_metrics_auto_detect: true,
         enable_bibtex_btn: true,
         enable_scholar_copy_doi_btn: true,
+        enable_scholar_copy_gbt_btn: true,
+        enable_scholar_star_btn: true,
         enable_journal_copy_doi_btn: true,
+        enable_journal_copy_gbt_btn: true,
+        enable_journal_copy_bib_btn: true,
+        enable_journal_open_landing_btn: true,
         pdf_landing_cache: {},
         enable_pdf_download_btn: true,
         enable_ai_summary_btn: true,
@@ -209,7 +219,14 @@ chrome.runtime.onInstalled.addListener(() => {
         enable_jcr_badge: true,
         enable_cite_badge: true,
         enable_pdf_badge: true,
-        metacard_pinned: false
+        metacard_pinned: false,
+        enable_footprint_heatmap: true,
+        enable_footprint_stats: true,
+        enable_page_diagnostics: true,
+        enable_footprint_quick_filters: true,
+        enable_footprint_gbt_btn: true,
+        enable_footprint_bib_btn: true,
+        enable_footprint_star_btn: true
       };
 
     const updates = {};

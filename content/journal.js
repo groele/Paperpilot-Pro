@@ -1595,15 +1595,17 @@
             <div class="pp-jc-meta-val-box" id="pp-jc-doi-val-box">
               <span class="pp-jc-meta-val">${display.doi}</span>
               <div class="pp-jc-meta-actions" style="display:inline-flex;gap:4px;flex-shrink:0;">
-                ${paperMeta.doi ? `
+                ${(paperMeta.doi && config.enable_journal_copy_doi_btn !== false) ? `
                   <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-doi" title="一键复制 DOI 标识符">
                     ${window.PP_ICONS.copy} DOI
                   </button>
                 ` : ''}
-                ${paperMeta.title ? `
+                ${(paperMeta.title && config.enable_journal_copy_gbt_btn !== false) ? `
                   <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-gb" title="一键复制 GB/T 7714-2015 国标引用" style="background:#0284c7;">
                     GB
                   </button>
+                ` : ''}
+                ${(paperMeta.title && config.enable_journal_copy_bib_btn !== false) ? `
                   <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-bib" title="一键复制 BibTeX 引用" style="background:#7c3aed;">
                     Bib
                   </button>
@@ -1689,7 +1691,7 @@
 
           <!-- Primary Actions -->
           <div class="pp-jc-actions-grid">
-            ${showLandingBtn ? `
+            ${(showLandingBtn && config.enable_journal_open_landing_btn !== false) ? `
               <button type="button" class="pp-jc-action-btn pp-jc-btn-web" id="pp-jc-btn-open-landing">
                 ${window.PP_ICONS.webpage} 打开论文网页端
               </button>

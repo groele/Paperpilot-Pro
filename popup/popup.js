@@ -186,6 +186,19 @@ const initPopup = () => {
   const configPdfDownloadBtn = document.getElementById("setting-enable-pdf-download-btn");
   const configAiSummaryBtn = document.getElementById("setting-enable-ai-summary-btn");
 
+  const configScholarCopyGbtBtn = document.getElementById("setting-enable-scholar-copy-gbt-btn");
+  const configScholarStarBtn = document.getElementById("setting-enable-scholar-star-btn");
+  const configJournalCopyGbtBtn = document.getElementById("setting-enable-journal-copy-gbt-btn");
+  const configJournalCopyBibBtn = document.getElementById("setting-enable-journal-copy-bib-btn");
+  const configJournalOpenLandingBtn = document.getElementById("setting-enable-journal-open-landing-btn");
+  const configFootprintHeatmap = document.getElementById("setting-enable-footprint-heatmap");
+  const configFootprintStats = document.getElementById("setting-enable-footprint-stats");
+  const configPageDiagnostics = document.getElementById("setting-enable-page-diagnostics");
+  const configFootprintQuickFilters = document.getElementById("setting-enable-footprint-quick-filters");
+  const configFootprintGbtBtn = document.getElementById("setting-enable-footprint-gbt-btn");
+  const configFootprintBibBtn = document.getElementById("setting-enable-footprint-bib-btn");
+  const configFootprintStarBtn = document.getElementById("setting-enable-footprint-star-btn");
+
   // easyScholar & Academic badges toggles
   const configCcfBadge = document.getElementById("setting-enable-ccf-badge");
   const configCoreBadge = document.getElementById("setting-enable-core-badge");
@@ -766,7 +779,19 @@ const initPopup = () => {
     "enable_if_badge",
     "enable_cas_badge",
     "enable_jcr_badge",
-    "enable_cite_badge"
+    "enable_cite_badge",
+    "enable_scholar_copy_gbt_btn",
+    "enable_scholar_star_btn",
+    "enable_journal_copy_gbt_btn",
+    "enable_journal_copy_bib_btn",
+    "enable_journal_open_landing_btn",
+    "enable_footprint_heatmap",
+    "enable_footprint_stats",
+    "enable_page_diagnostics",
+    "enable_footprint_quick_filters",
+    "enable_footprint_gbt_btn",
+    "enable_footprint_bib_btn",
+    "enable_footprint_star_btn"
   ], (config) => {
     if (config.auto_redirect !== undefined) configRedirect.checked = config.auto_redirect;
     syncPdfDownloadSaveAsControls(config.pdf_download_save_as === true);
@@ -831,6 +856,26 @@ const initPopup = () => {
     configCasBadge.checked = config.enable_cas_badge !== false;
     configJcrBadge.checked = config.enable_jcr_badge !== false;
     configCiteBadge.checked = config.enable_cite_badge !== false;
+
+    if (configScholarCopyGbtBtn) configScholarCopyGbtBtn.checked = config.enable_scholar_copy_gbt_btn !== false;
+    if (configScholarStarBtn) configScholarStarBtn.checked = config.enable_scholar_star_btn !== false;
+    if (configJournalCopyGbtBtn) configJournalCopyGbtBtn.checked = config.enable_journal_copy_gbt_btn !== false;
+    if (configJournalCopyBibBtn) configJournalCopyBibBtn.checked = config.enable_journal_copy_bib_btn !== false;
+    if (configJournalOpenLandingBtn) configJournalOpenLandingBtn.checked = config.enable_journal_open_landing_btn !== false;
+    if (configFootprintHeatmap) configFootprintHeatmap.checked = config.enable_footprint_heatmap !== false;
+    if (configFootprintStats) configFootprintStats.checked = config.enable_footprint_stats !== false;
+    if (configPageDiagnostics) configPageDiagnostics.checked = config.enable_page_diagnostics !== false;
+    if (configFootprintQuickFilters) configFootprintQuickFilters.checked = config.enable_footprint_quick_filters !== false;
+    if (configFootprintGbtBtn) configFootprintGbtBtn.checked = config.enable_footprint_gbt_btn !== false;
+    if (configFootprintBibBtn) configFootprintBibBtn.checked = config.enable_footprint_bib_btn !== false;
+    if (configFootprintStarBtn) configFootprintStarBtn.checked = config.enable_footprint_star_btn !== false;
+
+    applyPopupCustomLayout({
+      enable_footprint_heatmap: config.enable_footprint_heatmap !== false,
+      enable_footprint_stats: config.enable_footprint_stats !== false,
+      enable_page_diagnostics: config.enable_page_diagnostics !== false,
+      enable_footprint_quick_filters: config.enable_footprint_quick_filters !== false
+    });
 
     coreModules.forEach(module => {
       module.savedValue = module.control.checked;
@@ -1056,6 +1101,60 @@ const initPopup = () => {
   configCasBadge.onchange = () => saveSetting("enable_cas_badge", configCasBadge.checked, "中科院分区徽章显示已同步");
   configJcrBadge.onchange = () => saveSetting("enable_jcr_badge", configJcrBadge.checked, "JCR 分区指标显示已同步");
   configCiteBadge.onchange = () => saveSetting("enable_cite_badge", configCiteBadge.checked, "被引量徽章显示已同步");
+
+  function applyPopupCustomLayout(settings = {}) {
+    const heatmapCard = document.getElementById("footprint-heatmap-card");
+    const statsBar = document.getElementById("footprint-stats-bar");
+    const pageDiagnostics = document.getElementById("page-diagnostics");
+    const quickFilters = document.getElementById("footprint-quick-filters");
+    if (heatmapCard && settings.enable_footprint_heatmap !== undefined) {
+      heatmapCard.style.display = settings.enable_footprint_heatmap ? "" : "none";
+    }
+    if (statsBar && settings.enable_footprint_stats !== undefined) {
+      statsBar.style.display = settings.enable_footprint_stats ? "" : "none";
+    }
+    if (pageDiagnostics && settings.enable_page_diagnostics !== undefined) {
+      pageDiagnostics.style.display = settings.enable_page_diagnostics ? "" : "none";
+    }
+    if (quickFilters && settings.enable_footprint_quick_filters !== undefined) {
+      quickFilters.style.display = settings.enable_footprint_quick_filters ? "" : "none";
+    }
+  }
+
+  // Scholar & Journal & Footprint custom toggles saves
+  if (configScholarCopyGbtBtn) configScholarCopyGbtBtn.onchange = () => saveSetting("enable_scholar_copy_gbt_btn", configScholarCopyGbtBtn.checked, "谷歌学术 GB/T 7714 按钮开关已同步");
+  if (configScholarStarBtn) configScholarStarBtn.onchange = () => saveSetting("enable_scholar_star_btn", configScholarStarBtn.checked, "谷歌学术收藏按钮开关已同步");
+  if (configJournalCopyGbtBtn) configJournalCopyGbtBtn.onchange = () => saveSetting("enable_journal_copy_gbt_btn", configJournalCopyGbtBtn.checked, "悬浮卡 GB/T 7714 按钮开关已同步");
+  if (configJournalCopyBibBtn) configJournalCopyBibBtn.onchange = () => saveSetting("enable_journal_copy_bib_btn", configJournalCopyBibBtn.checked, "悬浮卡 BibTeX 按钮开关已同步");
+  if (configJournalOpenLandingBtn) configJournalOpenLandingBtn.onchange = () => saveSetting("enable_journal_open_landing_btn", configJournalOpenLandingBtn.checked, "悬浮卡网页端入口开关已同步");
+  if (configFootprintHeatmap) configFootprintHeatmap.onchange = () => {
+    saveSetting("enable_footprint_heatmap", configFootprintHeatmap.checked, "学术打卡日历显示已同步");
+    applyPopupCustomLayout({ enable_footprint_heatmap: configFootprintHeatmap.checked });
+  };
+  if (configFootprintStats) configFootprintStats.onchange = () => {
+    saveSetting("enable_footprint_stats", configFootprintStats.checked, "研读统计概览栏显示已同步");
+    applyPopupCustomLayout({ enable_footprint_stats: configFootprintStats.checked });
+  };
+  if (configPageDiagnostics) configPageDiagnostics.onchange = () => {
+    saveSetting("enable_page_diagnostics", configPageDiagnostics.checked, "当前页面诊断 Scanner 显示已同步");
+    applyPopupCustomLayout({ enable_page_diagnostics: configPageDiagnostics.checked });
+  };
+  if (configFootprintQuickFilters) configFootprintQuickFilters.onchange = () => {
+    saveSetting("enable_footprint_quick_filters", configFootprintQuickFilters.checked, "留痕快捷筛选栏显示已同步");
+    applyPopupCustomLayout({ enable_footprint_quick_filters: configFootprintQuickFilters.checked });
+  };
+  if (configFootprintGbtBtn) configFootprintGbtBtn.onchange = () => {
+    saveSetting("enable_footprint_gbt_btn", configFootprintGbtBtn.checked, "留痕卡片 GB/T 7714 复制按钮已同步");
+    renderCurrentFootprints();
+  };
+  if (configFootprintBibBtn) configFootprintBibBtn.onchange = () => {
+    saveSetting("enable_footprint_bib_btn", configFootprintBibBtn.checked, "留痕卡片 BibTeX 复制按钮已同步");
+    renderCurrentFootprints();
+  };
+  if (configFootprintStarBtn) configFootprintStarBtn.onchange = () => {
+    saveSetting("enable_footprint_star_btn", configFootprintStarBtn.checked, "留痕卡片收藏按钮已同步");
+    renderCurrentFootprints();
+  };
 
   let currentChipFilter = "all";
   let currentDateFilter = null;
@@ -1629,13 +1728,13 @@ const initPopup = () => {
         });
       };
 
-      tools.appendChild(starBtn);
-      tools.appendChild(bibBtn);
-      tools.appendChild(gbBtn);
-      tools.appendChild(mdBtn);
+      if (configFootprintStarBtn ? configFootprintStarBtn.checked : true) tools.appendChild(starBtn);
+      if (configFootprintBibBtn ? configFootprintBibBtn.checked : true) tools.appendChild(bibBtn);
+      if (configFootprintGbtBtn ? configFootprintGbtBtn.checked : true) tools.appendChild(gbBtn);
+      if (configMarkdownNote ? configMarkdownNote.checked : true) tools.appendChild(mdBtn);
 
       // 1-Click Copy DOI button
-      if (item.doi) {
+      if (item.doi && (configJournalCopyDoiBtn ? configJournalCopyDoiBtn.checked : true)) {
         const doiBtn = document.createElement("button");
         doiBtn.type = "button";
         doiBtn.className = "pp-foot-copy-btn";

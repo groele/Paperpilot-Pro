@@ -1338,3 +1338,55 @@ test("Popup UI and citation parser support notes search, chips, and PubMed/NLM a
   assert.match(html, /placeholder=".*笔记内容.*"/);
 });
 
+test("Modular feature switches provide granular toggles across Scholar, Metacard, and Footprint UI", async () => {
+  const { sandbox, storageData } = loadBackgroundHarness();
+  const html = fs.readFileSync(path.resolve(__dirname, "../popup/popup.html"), "utf8");
+
+  // All new toggle controls must exist in popup.html
+  const requiredSwitchIds = [
+    "setting-enable-scholar-copy-gbt-btn",
+    "setting-enable-scholar-star-btn",
+    "setting-enable-journal-copy-gbt-btn",
+    "setting-enable-journal-copy-bib-btn",
+    "setting-enable-journal-open-landing-btn",
+    "setting-enable-footprint-heatmap",
+    "setting-enable-footprint-stats",
+    "setting-enable-page-diagnostics",
+    "setting-enable-footprint-quick-filters",
+    "setting-enable-footprint-gbt-btn",
+    "setting-enable-footprint-bib-btn",
+    "setting-enable-footprint-star-btn"
+  ];
+
+  for (const id of requiredSwitchIds) {
+    assert.match(html, new RegExp(`id="${id}"`), `Missing switch ${id} in popup.html`);
+  }
+
+  // Ensure public settings broker allows querying these new feature settings
+  const publicKeys = [
+    "enable_scholar_copy_gbt_btn",
+    "enable_scholar_star_btn",
+    "enable_journal_copy_gbt_btn",
+    "enable_journal_copy_bib_btn",
+    "enable_journal_open_landing_btn",
+    "enable_footprint_heatmap",
+    "enable_footprint_stats",
+    "enable_page_diagnostics",
+    "enable_footprint_quick_filters",
+    "enable_footprint_gbt_btn",
+    "enable_footprint_bib_btn",
+    "enable_footprint_star_btn"
+  ];
+  for (const key of publicKeys) {
+    storageData[key] = true;
+  }
+  storageData.ai_api_key = "sk-leak-secret";
+
+  const result = await sandbox.getPublicSettings([...publicKeys, "ai_api_key"]);
+  assert.equal(result.success, true);
+  for (const key of publicKeys) {
+    assert.equal(result.settings[key], true, `Public setting ${key} should match stored value`);
+  }
+  assert.equal(result.settings.ai_api_key, undefined, "Private secret must not be exposed by getPublicSettings");
+});
+

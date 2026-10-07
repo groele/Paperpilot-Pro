@@ -1603,6 +1603,44 @@
       actionBar.appendChild(doiBtn);
     }
 
+    // 2.5 GB/T 7714 National Standard Citation
+    if (settings.enable_scholar_copy_gbt_btn !== false) {
+      const gbtBtn = document.createElement("button");
+      gbtBtn.className = "pp-scholar-action-btn";
+      gbtBtn.innerHTML = `国标 GB`;
+      gbtBtn.title = "一键复制 GB/T 7714-2015 中文国标引文";
+      gbtBtn.onclick = () => {
+        const citation = window.PaperPilotCore?.citation;
+        const text = citation?.buildGbt7714Entries
+          ? citation.buildGbt7714Entries([paper], { numbered: false })
+          : `${paper.authors?.join(", ") || "佚名"}. ${paper.title || "Untitled"}[J]. ${paper.venue || ""}, ${paper.year || ""}.`;
+        robustCopyToClipboard(text).then(() => {
+          showToast("GB/T 7714 国标引用已写入剪贴板！");
+          const origHTML = gbtBtn.innerHTML;
+          gbtBtn.innerHTML = `${window.PP_ICONS.check} 已复制`;
+          gbtBtn.style.color = "#0284c7";
+          safeSendMessage({
+            action: "ADD_FOOTPRINT",
+            footprint: {
+              title: paper.title,
+              authors: paper.authors,
+              journal: paper.venue,
+              year: paper.year,
+              pdfUrl: paper.pdfUrl,
+              status: "copied_citation"
+            }
+          });
+          setTimeout(() => {
+            gbtBtn.innerHTML = origHTML;
+            gbtBtn.style.color = "";
+          }, 1800);
+        }).catch(() => {
+          showToast("复制失败，请手动选择复制！");
+        });
+      };
+      actionBar.appendChild(gbtBtn);
+    }
+
     // 3. Markdown Note
     if (settings.enable_markdown_note) {
       const mdBtn = document.createElement("button");
@@ -1637,33 +1675,35 @@
     }
 
     // 4. Star / Favorite Button directly in Scholar search results
-    const starBtn = document.createElement("button");
-    starBtn.className = "pp-scholar-action-btn pp-scholar-star-btn";
-    starBtn.innerHTML = `⭐ 收藏`;
-    starBtn.title = "将此论文加入精选文献收藏";
-    starBtn.onclick = () => {
-      safeSendMessage({
-        action: "ADD_FOOTPRINT",
-        footprint: {
-          title: paper.title,
-          authors: paper.authors,
-          journal: paper.venue,
-          year: paper.year,
-          pdfUrl: paper.pdfUrl,
-          starred: true,
-          status: "visited"
-        }
-      }, (response) => {
-        if (response?.success) {
-          showToast("已成功将该文献加入精选收藏！可在扩展弹窗的“文过留痕 → ⭐ 收藏”中查看。");
-          starBtn.innerHTML = `⭐ 已收藏`;
-          starBtn.style.color = "#f59e0b";
-        } else {
-          showToast(`收藏失败：${response?.error || "未能写入文过留痕"}`);
-        }
-      });
-    };
-    actionBar.appendChild(starBtn);
+    if (settings.enable_scholar_star_btn !== false) {
+      const starBtn = document.createElement("button");
+      starBtn.className = "pp-scholar-action-btn pp-scholar-star-btn";
+      starBtn.innerHTML = `⭐ 收藏`;
+      starBtn.title = "将此论文加入精选文献收藏";
+      starBtn.onclick = () => {
+        safeSendMessage({
+          action: "ADD_FOOTPRINT",
+          footprint: {
+            title: paper.title,
+            authors: paper.authors,
+            journal: paper.venue,
+            year: paper.year,
+            pdfUrl: paper.pdfUrl,
+            starred: true,
+            status: "visited"
+          }
+        }, (response) => {
+          if (response?.success) {
+            showToast("已成功将该文献加入精选收藏！可在扩展弹窗的“文过留痕 → ⭐ 收藏”中查看。");
+            starBtn.innerHTML = `⭐ 已收藏`;
+            starBtn.style.color = "#f59e0b";
+          } else {
+            showToast(`收藏失败：${response?.error || "未能写入文过留痕"}`);
+          }
+        });
+      };
+      actionBar.appendChild(starBtn);
+    }
 
     if (actionBar.children.length > 0) {
       card.appendChild(actionBar);
