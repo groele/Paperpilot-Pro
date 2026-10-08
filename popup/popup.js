@@ -443,8 +443,34 @@ const initPopup = () => {
     if (!control) return;
 
     switchPanel("settings");
+
+    // Reset search and category filter if active so control is visible
+    const searchInput = document.getElementById("setting-search-input");
+    if (searchInput && searchInput.value) {
+      searchInput.value = "";
+      const clearBtn = document.getElementById("btn-clear-settings-search");
+      if (clearBtn) clearBtn.style.display = "none";
+    }
+    const allChip = document.querySelector('.pp-category-chip[data-category="all"]');
+    if (allChip && !allChip.classList.contains("active")) {
+      document.querySelectorAll(".pp-category-chip").forEach(c => c.classList.toggle("active", c === allChip));
+      document.querySelectorAll(".pp-popup-settings-card").forEach(c => c.style.display = "");
+    }
+    document.querySelectorAll(".pp-popup-setting-item").forEach(item => item.style.display = "");
+    document.querySelectorAll(".pp-settings-subgroup").forEach(sg => sg.style.display = "");
+    const emptyState = document.getElementById("settings-empty-state");
+    if (emptyState) emptyState.style.display = "none";
+
     const settingItem = control.closest(".pp-popup-setting-item");
     if (settingItem) {
+      const parentCard = settingItem.closest(".pp-popup-settings-card");
+      if (parentCard) {
+        parentCard.style.display = "";
+        if (parentCard.classList.contains("pp-card-collapsed")) {
+          parentCard.classList.remove("pp-card-collapsed");
+          parentCard.querySelector(".pp-accordion-hdr")?.setAttribute("aria-expanded", "true");
+        }
+      }
       settingItem.scrollIntoView({ behavior: "smooth", block: "center" });
       settingItem.classList.add("pp-popup-setting-item-focus");
       setTimeout(() => settingItem.classList.remove("pp-popup-setting-item-focus"), 1300);
@@ -564,6 +590,10 @@ const initPopup = () => {
       : !configMetacard.checked
         ? "学术分析已开启 · 请同时开启「期刊详情元卡」以显示入口"
         : "学术分析已开启 · 点击生成后才发送标题与摘要";
+
+    if (typeof updateCardStatusBadges === "function") {
+      updateCardStatusBadges();
+    }
   }
 
   function syncPdfDownloadSaveAsControls(isEnabled) {
@@ -1155,6 +1185,222 @@ const initPopup = () => {
     saveSetting("enable_footprint_star_btn", configFootprintStarBtn.checked, "留痕卡片收藏按钮已同步");
     renderCurrentFootprints();
   };
+
+  function updateCardStatusBadges() {
+    const cards = [
+      { id: "card-settings-core", pillId: "badge-count-core" },
+      { id: "card-settings-buttons", pillId: "badge-count-buttons" },
+      { id: "card-settings-views", pillId: "badge-count-views" },
+      { id: "card-settings-scholar", pillId: "badge-count-scholar" }
+    ];
+
+    cards.forEach(({ id, pillId }) => {
+      const card = document.getElementById(id);
+      const pill = document.getElementById(pillId);
+      if (!card || !pill) return;
+      const checkboxes = card.querySelectorAll('.pp-popup-card-body input[type="checkbox"]');
+      const total = checkboxes.length;
+      let checked = 0;
+      checkboxes.forEach(cb => {
+        if (cb.checked) checked += 1;
+      });
+      pill.textContent = `${checked}/${total} 开启`;
+      if (checked === total && total > 0) {
+        pill.classList.add("all-on");
+      } else {
+        pill.classList.remove("all-on");
+      }
+    });
+  }
+
+  function initSettingsUiEnhancements() {
+    // 1. Accordion Card Folding
+    const accordionHeaders = document.querySelectorAll(".pp-accordion-hdr");
+    accordionHeaders.forEach(hdr => {
+      hdr.addEventListener("click", () => {
+        const card = hdr.closest(".pp-popup-settings-card");
+        if (!card) return;
+        const isCollapsed = card.classList.toggle("pp-card-collapsed");
+        hdr.setAttribute("aria-expanded", String(!isCollapsed));
+        updateToggleAllButtonText();
+      });
+      hdr.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          hdr.click();
+        }
+      });
+    });
+
+    const btnToggleAll = document.getElementById("btn-toggle-all-cards");
+    function updateToggleAllButtonText() {
+      if (!btnToggleAll) return;
+      const allCards = Array.from(document.querySelectorAll(".pp-popup-settings-card"));
+      const allCollapsed = allCards.length > 0 && allCards.every(c => c.classList.contains("pp-card-collapsed"));
+      btnToggleAll.textContent = allCollapsed ? "展开全部" : "折叠全部";
+    }
+
+    if (btnToggleAll) {
+      btnToggleAll.onclick = () => {
+        const allCards = Array.from(document.querySelectorAll(".pp-popup-settings-card"));
+        const allCollapsed = allCards.length > 0 && allCards.every(c => c.classList.contains("pp-card-collapsed"));
+        allCards.forEach(card => {
+          card.classList.toggle("pp-card-collapsed", !allCollapsed);
+          card.querySelector(".pp-accordion-hdr")?.setAttribute("aria-expanded", String(allCollapsed));
+        });
+        btnToggleAll.textContent = allCollapsed ? "折叠全部" : "展开全部";
+      };
+    }
+
+    // 2. Category Tab Filter
+    const categoryChips = document.querySelectorAll(".pp-category-chip");
+    categoryChips.forEach(chip => {
+      chip.addEventListener("click", () => {
+        const category = chip.dataset.category || "all";
+        categoryChips.forEach(c => c.classList.toggle("active", c === chip));
+
+        const cards = document.querySelectorAll(".pp-popup-settings-card");
+        cards.forEach(card => {
+          const match = category === "all" || card.dataset.category === category;
+          card.style.display = match ? "" : "none";
+          if (match && category !== "all") {
+            card.classList.remove("pp-card-collapsed");
+            card.querySelector(".pp-accordion-hdr")?.setAttribute("aria-expanded", "true");
+          }
+        });
+        updateToggleAllButtonText();
+
+        const searchInput = document.getElementById("setting-search-input");
+        if (searchInput && searchInput.value.trim()) {
+          applySettingsSearch(searchInput.value.trim());
+        }
+      });
+    });
+
+    // 3. Search and Filter
+    const searchInput = document.getElementById("setting-search-input");
+    const clearBtn = document.getElementById("btn-clear-settings-search");
+    const emptyState = document.getElementById("settings-empty-state");
+    const resetSearchBtn = document.getElementById("btn-reset-settings-search");
+
+    function applySettingsSearch(query) {
+      const q = (query || "").toLowerCase().trim();
+      const allCards = document.querySelectorAll(".pp-popup-settings-card");
+      let totalVisibleCards = 0;
+
+      const activeChip = document.querySelector(".pp-category-chip.active");
+      const currentCategory = activeChip ? activeChip.dataset.category : "all";
+
+      allCards.forEach(card => {
+        const categoryMatch = currentCategory === "all" || card.dataset.category === currentCategory;
+        if (!categoryMatch) {
+          card.style.display = "none";
+          return;
+        }
+
+        if (!q) {
+          card.style.display = "";
+          card.querySelectorAll(".pp-popup-setting-item").forEach(item => item.style.display = "");
+          card.querySelectorAll(".pp-settings-subgroup").forEach(sg => sg.style.display = "");
+          totalVisibleCards++;
+          return;
+        }
+
+        const items = card.querySelectorAll(".pp-popup-setting-item");
+        let cardHasVisibleItems = false;
+
+        items.forEach(item => {
+          const lbl = item.querySelector(".pp-popup-setting-lbl")?.textContent?.toLowerCase() || "";
+          const desc = item.querySelector(".pp-popup-setting-desc")?.textContent?.toLowerCase() || "";
+          const kw = item.dataset.keywords?.toLowerCase() || "";
+          const isMatch = lbl.includes(q) || desc.includes(q) || kw.includes(q);
+
+          item.style.display = isMatch ? "" : "none";
+          if (isMatch) cardHasVisibleItems = true;
+        });
+
+        // Hide empty subgroups
+        card.querySelectorAll(".pp-settings-subgroup").forEach(sg => {
+          const hasVisibleInSubgroup = Array.from(sg.querySelectorAll(".pp-popup-setting-item")).some(i => i.style.display !== "none");
+          sg.style.display = hasVisibleInSubgroup ? "" : "none";
+        });
+
+        if (cardHasVisibleItems) {
+          card.style.display = "";
+          card.classList.remove("pp-card-collapsed");
+          card.querySelector(".pp-accordion-hdr")?.setAttribute("aria-expanded", "true");
+          totalVisibleCards++;
+        } else {
+          card.style.display = "none";
+        }
+      });
+
+      if (emptyState) {
+        emptyState.style.display = (totalVisibleCards === 0 && q) ? "flex" : "none";
+      }
+      if (clearBtn) {
+        clearBtn.style.display = q ? "block" : "none";
+      }
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        applySettingsSearch(e.target.value);
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.onclick = () => {
+        if (searchInput) {
+          searchInput.value = "";
+          applySettingsSearch("");
+          searchInput.focus();
+        }
+      };
+    }
+
+    if (resetSearchBtn) {
+      resetSearchBtn.onclick = () => {
+        if (searchInput) {
+          searchInput.value = "";
+          const allChip = document.querySelector('.pp-category-chip[data-category="all"]');
+          if (allChip) allChip.click();
+          else applySettingsSearch("");
+        }
+      };
+    }
+
+    // 4. Batch Subgroup Action Buttons
+    const batchButtons = document.querySelectorAll(".pp-subgroup-action-btn");
+    batchButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const groupName = btn.dataset.batchGroup;
+        const action = btn.dataset.action; // "all" or "none"
+        if (!groupName || !action) return;
+
+        const isEnable = action === "all";
+        const items = document.querySelectorAll(`.pp-popup-setting-item[data-batch="${groupName}"]`);
+        items.forEach(item => {
+          const checkbox = item.querySelector('input[type="checkbox"]');
+          if (checkbox && checkbox.checked !== isEnable) {
+            checkbox.checked = isEnable;
+            checkbox.dispatchEvent(new Event("change"));
+          }
+        });
+        updateCardStatusBadges();
+      });
+    });
+
+    // Also update badges whenever any setting checkbox changes
+    document.querySelectorAll('#panel-set input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener("change", () => {
+        updateCardStatusBadges();
+      });
+    });
+
+    // Initial update of badges
+    updateCardStatusBadges();
+  }
 
   let currentChipFilter = "all";
   let currentDateFilter = null;
@@ -2061,9 +2307,10 @@ const initPopup = () => {
     }, 2200);
   }
 
-  // Load footprints on initial popup show
+  // Load footprints and settings enhancements on initial popup show
   loadFootprints();
   updateCurrentPageDiagnostics();
+  initSettingsUiEnhancements();
 };
 
 if (document.readyState === "loading") {
