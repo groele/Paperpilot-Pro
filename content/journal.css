@@ -588,8 +588,12 @@
   font-size: 11px !important;
   color: var(--pp-text-main) !important;
   font-weight: 600 !important;
-  word-break: break-all !important;
   letter-spacing: 0.1px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  flex: 1 !important;
+  min-width: 0 !important;
 }
 
 .pp-jc-meta-copy-btn {
@@ -621,6 +625,109 @@
   font-weight: 800 !important;
   box-shadow: 0 0 15px rgba(16, 185, 129, 0.6) !important;
   transform: scale(1.08) !important;
+}
+
+/* Academic Citation Export Area (Moved out of DOI box) */
+.pp-jc-citation-field {
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.04) 100%) !important;
+  border: 1px solid var(--pp-border) !important;
+  border-radius: 12px !important;
+  padding: 10px 12px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 7px !important;
+  transition: all 0.25s ease !important;
+}
+
+[data-pp-theme="dark"] .pp-jc-citation-field {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0.25) 100%) !important;
+}
+
+.pp-jc-citation-field:hover {
+  border-color: rgba(2, 132, 199, 0.4) !important;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.08) !important;
+}
+
+.pp-jc-citation-hdr {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+.pp-jc-citation-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.pp-jc-cite-btn {
+  flex: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  padding: 6px 10px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  border: 1px solid transparent !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
+}
+
+.pp-jc-cite-btn svg {
+  width: 13px !important;
+  height: 13px !important;
+  flex-shrink: 0 !important;
+}
+
+.pp-jc-cite-btn-gb {
+  background: rgba(2, 132, 199, 0.09) !important;
+  color: #0284c7 !important;
+  border-color: rgba(2, 132, 199, 0.25) !important;
+}
+
+[data-pp-theme="dark"] .pp-jc-cite-btn-gb {
+  background: rgba(2, 132, 199, 0.18) !important;
+  color: #38bdf8 !important;
+  border-color: rgba(56, 189, 248, 0.35) !important;
+}
+
+.pp-jc-cite-btn-gb:hover {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35) !important;
+}
+
+.pp-jc-cite-btn-bib {
+  background: rgba(124, 58, 237, 0.09) !important;
+  color: #7c3aed !important;
+  border-color: rgba(124, 58, 237, 0.25) !important;
+}
+
+[data-pp-theme="dark"] .pp-jc-cite-btn-bib {
+  background: rgba(124, 58, 237, 0.18) !important;
+  color: #c084fc !important;
+  border-color: rgba(192, 132, 252, 0.35) !important;
+}
+
+.pp-jc-cite-btn-bib:hover {
+  background: #7c3aed !important;
+  color: #ffffff !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35) !important;
+}
+
+.pp-jc-cite-btn.pp-copied-success {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+  color: #ffffff !important;
+  border-color: #059669 !important;
+  font-weight: 800 !important;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.5) !important;
+  transform: scale(1.03) !important;
 }
 
 /* Actions Grid */
