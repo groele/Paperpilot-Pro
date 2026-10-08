@@ -1211,10 +1211,19 @@ const initPopup = () => {
         pill.classList.remove("all-on");
       }
     });
+
+    syncBadgeCardActiveStates();
+  }
+
+  function syncBadgeCardActiveStates() {
+    document.querySelectorAll(".pp-badge-toggle-card").forEach(card => {
+      const cb = card.querySelector('input[type="checkbox"]');
+      card.classList.toggle("pp-badge-active", !!cb?.checked);
+    });
   }
 
   function initSettingsUiEnhancements() {
-    // 1. Accordion Card Folding
+    // 1. Accordion Card Folding with state persistence
     const accordionHeaders = document.querySelectorAll(".pp-accordion-hdr");
     accordionHeaders.forEach(hdr => {
       hdr.addEventListener("click", () => {
@@ -1223,6 +1232,7 @@ const initPopup = () => {
         const isCollapsed = card.classList.toggle("pp-card-collapsed");
         hdr.setAttribute("aria-expanded", String(!isCollapsed));
         updateToggleAllButtonText();
+        saveCollapsedCardsPreference();
       });
       hdr.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -1240,6 +1250,13 @@ const initPopup = () => {
       btnToggleAll.textContent = allCollapsed ? "展开全部" : "折叠全部";
     }
 
+    function saveCollapsedCardsPreference() {
+      try {
+        const collapsedIds = Array.from(document.querySelectorAll(".pp-popup-settings-card.pp-card-collapsed")).map(c => c.id);
+        localStorage.setItem("pp_pref_collapsed_cards", JSON.stringify(collapsedIds));
+      } catch (_) {}
+    }
+
     if (btnToggleAll) {
       btnToggleAll.onclick = () => {
         const allCards = Array.from(document.querySelectorAll(".pp-popup-settings-card"));
@@ -1249,15 +1266,29 @@ const initPopup = () => {
           card.querySelector(".pp-accordion-hdr")?.setAttribute("aria-expanded", String(allCollapsed));
         });
         btnToggleAll.textContent = allCollapsed ? "折叠全部" : "展开全部";
+        saveCollapsedCardsPreference();
       };
     }
 
-    // 2. Category Tab Filter
+    // 2. Category Tab Filter & Mouse Wheel Horizontal Scroll
+    const categoryTabs = document.getElementById("settings-category-tabs");
+    if (categoryTabs) {
+      categoryTabs.addEventListener("wheel", (e) => {
+        if (e.deltaY !== 0) {
+          e.preventDefault();
+          categoryTabs.scrollLeft += e.deltaY;
+        }
+      }, { passive: false });
+    }
+
     const categoryChips = document.querySelectorAll(".pp-category-chip");
     categoryChips.forEach(chip => {
       chip.addEventListener("click", () => {
         const category = chip.dataset.category || "all";
         categoryChips.forEach(c => c.classList.toggle("active", c === chip));
+        try {
+          localStorage.setItem("pp_pref_settings_category", category);
+        } catch (_) {}
 
         const cards = document.querySelectorAll(".pp-popup-settings-card");
         cards.forEach(card => {
@@ -1277,15 +1308,21 @@ const initPopup = () => {
       });
     });
 
-    // 3. Search and Filter
+    // 3. Search, Count Pill, and Keyword Highlight
     const searchInput = document.getElementById("setting-search-input");
     const clearBtn = document.getElementById("btn-clear-settings-search");
+    const searchCountPill = document.getElementById("search-count-pill");
     const emptyState = document.getElementById("settings-empty-state");
     const resetSearchBtn = document.getElementById("btn-reset-settings-search");
+
+    function escapeRegex(text) {
+      return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+    }
 
     function applySettingsSearch(query) {
       const q = (query || "").toLowerCase().trim();
       const allCards = document.querySelectorAll(".pp-popup-settings-card");
+      let totalMatchingItems = 0;
       let totalVisibleCards = 0;
 
       const activeChip = document.querySelector(".pp-category-chip.active");
@@ -1300,7 +1337,14 @@ const initPopup = () => {
 
         if (!q) {
           card.style.display = "";
-          card.querySelectorAll(".pp-popup-setting-item").forEach(item => item.style.display = "");
+          card.querySelectorAll(".pp-popup-setting-item").forEach(item => {
+            item.style.display = "";
+            const lbl = item.querySelector(".pp-popup-setting-lbl");
+            if (lbl && lbl.dataset.origText) {
+              lbl.textContent = lbl.dataset.origText;
+              delete lbl.dataset.origText;
+            }
+          });
           card.querySelectorAll(".pp-settings-subgroup").forEach(sg => sg.style.display = "");
           totalVisibleCards++;
           return;
@@ -1308,15 +1352,27 @@ const initPopup = () => {
 
         const items = card.querySelectorAll(".pp-popup-setting-item");
         let cardHasVisibleItems = false;
+        const re = new RegExp(`(${escapeRegex(q)})`, "gi");
 
         items.forEach(item => {
-          const lbl = item.querySelector(".pp-popup-setting-lbl")?.textContent?.toLowerCase() || "";
+          const lbl = item.querySelector(".pp-popup-setting-lbl");
+          const rawLbl = lbl ? (lbl.dataset.origText || lbl.textContent) : "";
+          if (lbl && !lbl.dataset.origText) lbl.dataset.origText = rawLbl;
+
           const desc = item.querySelector(".pp-popup-setting-desc")?.textContent?.toLowerCase() || "";
           const kw = item.dataset.keywords?.toLowerCase() || "";
-          const isMatch = lbl.includes(q) || desc.includes(q) || kw.includes(q);
+          const isMatch = rawLbl.toLowerCase().includes(q) || desc.includes(q) || kw.includes(q);
 
           item.style.display = isMatch ? "" : "none";
-          if (isMatch) cardHasVisibleItems = true;
+          if (isMatch) {
+            cardHasVisibleItems = true;
+            totalMatchingItems++;
+            if (lbl && rawLbl.toLowerCase().includes(q)) {
+              lbl.innerHTML = rawLbl.replace(re, '<mark class="pp-search-highlight">$1</mark>');
+            } else if (lbl && lbl.dataset.origText) {
+              lbl.textContent = lbl.dataset.origText;
+            }
+          }
         });
 
         // Hide empty subgroups
@@ -1340,6 +1396,14 @@ const initPopup = () => {
       }
       if (clearBtn) {
         clearBtn.style.display = q ? "block" : "none";
+      }
+      if (searchCountPill) {
+        if (q) {
+          searchCountPill.style.display = "inline-block";
+          searchCountPill.textContent = `${totalMatchingItems} 项`;
+        } else {
+          searchCountPill.style.display = "none";
+        }
       }
     }
 
@@ -1370,7 +1434,237 @@ const initPopup = () => {
       };
     }
 
-    // 4. Batch Subgroup Action Buttons
+    // 4. Keyboard Shortcuts for quick search navigation
+    document.addEventListener("keydown", (e) => {
+      if (
+        (e.key === "/" || ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F"))) &&
+        !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)
+      ) {
+        e.preventDefault();
+        switchPanel("settings");
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
+      } else if (e.key === "Escape" && document.activeElement?.id === "setting-search-input") {
+        if (searchInput && searchInput.value) {
+          searchInput.value = "";
+          applySettingsSearch("");
+        }
+        searchInput?.blur();
+      }
+    });
+
+    // 5. Scenario Presets
+    const presetButtons = document.querySelectorAll(".pp-preset-btn");
+    presetButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const preset = btn.dataset.preset;
+        applyPresetConfiguration(preset);
+      });
+    });
+
+    function applyPresetConfiguration(preset) {
+      if (!preset) return;
+
+      const presetMaps = {
+        recommended: {
+          enable_ni: true,
+          enable_dedup: true,
+          enable_badges: true,
+          enable_metacard: true,
+          enable_markdown_note: true,
+          enable_metrics_display: true,
+          enable_metrics_auto_detect: true,
+          enable_bibtex_btn: true,
+          enable_scholar_copy_gbt_btn: true,
+          enable_scholar_copy_doi_btn: true,
+          enable_scholar_star_btn: true,
+          enable_journal_copy_doi_btn: true,
+          enable_journal_copy_gbt_btn: true,
+          enable_journal_copy_bib_btn: true,
+          enable_journal_open_landing_btn: true,
+          enable_pdf_download_btn: true,
+          enable_ai_summary_btn: true,
+          enable_footprint_heatmap: true,
+          enable_footprint_stats: true,
+          enable_page_diagnostics: true,
+          enable_footprint_quick_filters: true,
+          enable_footprint_gbt_btn: true,
+          enable_footprint_bib_btn: true,
+          enable_footprint_star_btn: true,
+          enable_ccf_badge: true,
+          enable_core_badge: true,
+          enable_warn_badge: true,
+          enable_if_badge: true,
+          enable_cas_badge: true,
+          enable_jcr_badge: true,
+          enable_cite_badge: true
+        },
+        minimal: {
+          enable_ni: true,
+          enable_dedup: true,
+          enable_badges: true,
+          enable_metacard: true,
+          enable_markdown_note: false,
+          enable_metrics_display: true,
+          enable_metrics_auto_detect: true,
+          enable_bibtex_btn: true,
+          enable_scholar_copy_gbt_btn: true,
+          enable_scholar_copy_doi_btn: false,
+          enable_scholar_star_btn: false,
+          enable_journal_copy_doi_btn: false,
+          enable_journal_copy_gbt_btn: true,
+          enable_journal_copy_bib_btn: true,
+          enable_journal_open_landing_btn: false,
+          enable_pdf_download_btn: true,
+          enable_ai_summary_btn: false,
+          enable_footprint_heatmap: false,
+          enable_footprint_stats: false,
+          enable_page_diagnostics: false,
+          enable_footprint_quick_filters: true,
+          enable_footprint_gbt_btn: true,
+          enable_footprint_bib_btn: true,
+          enable_footprint_star_btn: false,
+          enable_ccf_badge: true,
+          enable_core_badge: true,
+          enable_warn_badge: true,
+          enable_if_badge: true,
+          enable_cas_badge: true,
+          enable_jcr_badge: false,
+          enable_cite_badge: false
+        },
+        expert: {
+          enable_ni: true,
+          enable_dedup: true,
+          enable_badges: true,
+          enable_metacard: true,
+          enable_markdown_note: true,
+          enable_metrics_display: true,
+          enable_metrics_auto_detect: true,
+          enable_bibtex_btn: true,
+          enable_scholar_copy_gbt_btn: true,
+          enable_scholar_copy_doi_btn: true,
+          enable_scholar_star_btn: true,
+          enable_journal_copy_doi_btn: true,
+          enable_journal_copy_gbt_btn: true,
+          enable_journal_copy_bib_btn: true,
+          enable_journal_open_landing_btn: true,
+          enable_pdf_download_btn: true,
+          enable_ai_summary_btn: true,
+          enable_footprint_heatmap: true,
+          enable_footprint_stats: true,
+          enable_page_diagnostics: true,
+          enable_footprint_quick_filters: true,
+          enable_footprint_gbt_btn: true,
+          enable_footprint_bib_btn: true,
+          enable_footprint_star_btn: true,
+          enable_ccf_badge: true,
+          enable_core_badge: true,
+          enable_warn_badge: true,
+          enable_if_badge: true,
+          enable_cas_badge: true,
+          enable_jcr_badge: true,
+          enable_cite_badge: true
+        },
+        reset: {
+          enable_ni: true,
+          enable_dedup: true,
+          enable_badges: true,
+          enable_metacard: true,
+          enable_markdown_note: true,
+          enable_metrics_display: true,
+          enable_metrics_auto_detect: true,
+          enable_bibtex_btn: true,
+          enable_scholar_copy_gbt_btn: true,
+          enable_scholar_copy_doi_btn: true,
+          enable_scholar_star_btn: true,
+          enable_journal_copy_doi_btn: true,
+          enable_journal_copy_gbt_btn: true,
+          enable_journal_copy_bib_btn: true,
+          enable_journal_open_landing_btn: true,
+          enable_pdf_download_btn: true,
+          enable_ai_summary_btn: true,
+          enable_footprint_heatmap: true,
+          enable_footprint_stats: true,
+          enable_page_diagnostics: true,
+          enable_footprint_quick_filters: true,
+          enable_footprint_gbt_btn: true,
+          enable_footprint_bib_btn: true,
+          enable_footprint_star_btn: true,
+          enable_ccf_badge: true,
+          enable_core_badge: true,
+          enable_warn_badge: true,
+          enable_if_badge: true,
+          enable_cas_badge: true,
+          enable_jcr_badge: true,
+          enable_cite_badge: true,
+          auto_redirect: false,
+          pdf_download_save_as: false
+        }
+      };
+
+      const target = presetMaps[preset];
+      if (!target) return;
+
+      const keyToInput = {
+        enable_ni: configNi,
+        enable_dedup: configDedup,
+        enable_badges: configBadges,
+        enable_metacard: configMetacard,
+        enable_markdown_note: configMarkdownNote,
+        enable_metrics_display: configMetricsDisplay,
+        enable_metrics_auto_detect: configMetricsAutoDetect,
+        enable_bibtex_btn: configBibtexBtn,
+        enable_scholar_copy_gbt_btn: configScholarCopyGbtBtn,
+        enable_scholar_copy_doi_btn: configScholarCopyDoiBtn,
+        enable_scholar_star_btn: configScholarStarBtn,
+        enable_journal_copy_doi_btn: configJournalCopyDoiBtn,
+        enable_journal_copy_gbt_btn: configJournalCopyGbtBtn,
+        enable_journal_copy_bib_btn: configJournalCopyBibBtn,
+        enable_journal_open_landing_btn: configJournalOpenLandingBtn,
+        enable_pdf_download_btn: configPdfDownloadBtn,
+        enable_ai_summary_btn: configAiSummaryBtn,
+        enable_footprint_heatmap: configFootprintHeatmap,
+        enable_footprint_stats: configFootprintStats,
+        enable_page_diagnostics: configPageDiagnostics,
+        enable_footprint_quick_filters: configFootprintQuickFilters,
+        enable_footprint_gbt_btn: configFootprintGbtBtn,
+        enable_footprint_bib_btn: configFootprintBibBtn,
+        enable_footprint_star_btn: configFootprintStarBtn,
+        enable_ccf_badge: configCcfBadge,
+        enable_core_badge: configCoreBadge,
+        enable_warn_badge: configWarnBadge,
+        enable_if_badge: configIfBadge,
+        enable_cas_badge: configCasBadge,
+        enable_jcr_badge: configJcrBadge,
+        enable_cite_badge: configCiteBadge,
+        auto_redirect: configRedirect,
+        pdf_download_save_as: configPdfDownloadSaveAs
+      };
+
+      for (const [key, val] of Object.entries(target)) {
+        const input = keyToInput[key];
+        if (input) {
+          input.checked = val;
+        }
+      }
+
+      const toastMsgs = {
+        recommended: "已应用「常用推荐」配置 · 核心能力全面开启",
+        minimal: "已切换为「极简专注」模式 · 界面极致清爽",
+        expert: "已开启「专家全能」模式 · 启用全部学术工具与徽章",
+        reset: "已恢复出厂默认初始配置"
+      };
+
+      saveSettings(target, toastMsgs[preset] || "配置预设已应用");
+      applyPopupCustomLayout(target);
+      renderCurrentFootprints();
+      syncBadgeCardActiveStates();
+      updateCardStatusBadges();
+    }
+
+    // 6. Batch Subgroup Action Buttons
     const batchButtons = document.querySelectorAll(".pp-subgroup-action-btn");
     batchButtons.forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1398,7 +1692,27 @@ const initPopup = () => {
       });
     });
 
-    // Initial update of badges
+    // Restore saved category & collapsed preferences
+    try {
+      const savedCategory = localStorage.getItem("pp_pref_settings_category");
+      if (savedCategory && savedCategory !== "all") {
+        const chip = document.querySelector(`.pp-category-chip[data-category="${savedCategory}"]`);
+        if (chip) chip.click();
+      }
+      const savedCollapsed = JSON.parse(localStorage.getItem("pp_pref_collapsed_cards") || "[]");
+      if (Array.isArray(savedCollapsed) && savedCollapsed.length > 0) {
+        savedCollapsed.forEach(id => {
+          const card = document.getElementById(id);
+          if (card) {
+            card.classList.add("pp-card-collapsed");
+            card.querySelector(".pp-accordion-hdr")?.setAttribute("aria-expanded", "false");
+          }
+        });
+        updateToggleAllButtonText();
+      }
+    } catch (_) {}
+
+    // Initial update of badges & active cards
     updateCardStatusBadges();
   }
 

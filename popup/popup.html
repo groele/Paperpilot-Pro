@@ -342,19 +342,30 @@
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
               <input type="text" id="setting-search-input" class="pp-settings-search-input" placeholder="搜索配置项 (如: BibTeX, 徽章, DOI, PDF)..." autocomplete="off" spellcheck="false">
-              <button type="button" id="btn-clear-settings-search" class="pp-settings-clear-btn" title="清空搜索" aria-label="清空搜索" style="display: none;">✕</button>
+              <span class="pp-search-count-pill" id="search-count-pill" style="display: none;">0 项</span>
+              <button type="button" id="btn-clear-settings-search" class="pp-settings-clear-btn" title="清空搜索 (Esc)" aria-label="清空搜索" style="display: none;">✕</button>
             </div>
             <button type="button" id="btn-toggle-all-cards" class="pp-settings-toggle-all-btn" title="一键折叠或展开全部卡片">折叠全部</button>
           </div>
           <!-- Category Quick Filter Chips -->
           <div class="pp-settings-category-tabs" id="settings-category-tabs" role="tablist" aria-label="配置分类导航">
-            <button type="button" class="pp-category-chip active" data-category="all">全部</button>
-            <button type="button" class="pp-category-chip" data-category="core">核心模块</button>
-            <button type="button" class="pp-category-chip" data-category="buttons">界面按钮</button>
-            <button type="button" class="pp-category-chip" data-category="views">留痕定制</button>
-            <button type="button" class="pp-category-chip" data-category="scholar">学术指标</button>
-            <button type="button" class="pp-category-chip" data-category="download">下载外观</button>
-            <button type="button" class="pp-category-chip" data-category="ai">AI 引擎</button>
+            <button type="button" class="pp-category-chip active" data-category="all">✨ 全部</button>
+            <button type="button" class="pp-category-chip" data-category="core">⚡ 核心模块</button>
+            <button type="button" class="pp-category-chip" data-category="buttons">🔘 界面按钮</button>
+            <button type="button" class="pp-category-chip" data-category="views">📊 留痕定制</button>
+            <button type="button" class="pp-category-chip" data-category="scholar">🎓 学术指标</button>
+            <button type="button" class="pp-category-chip" data-category="download">📁 下载外观</button>
+            <button type="button" class="pp-category-chip" data-category="ai">🤖 AI 引擎</button>
+          </div>
+          <!-- Scenario Presets Bar -->
+          <div class="pp-settings-presets-bar">
+            <span class="pp-presets-lbl">场景预设</span>
+            <div class="pp-presets-btns">
+              <button type="button" class="pp-preset-btn" data-preset="recommended" title="开启常用推荐功能与主流引用按钮">🌟 常用推荐</button>
+              <button type="button" class="pp-preset-btn" data-preset="minimal" title="关闭冗余按钮与统计卡，极致清爽轻量">🍃 极简专注</button>
+              <button type="button" class="pp-preset-btn" data-preset="expert" title="开启所有学术徽章、工具栏与研读分析">🚀 专家全能</button>
+              <button type="button" class="pp-preset-btn pp-preset-btn-reset" data-preset="reset" title="恢复为默认出厂配置">🔄 恢复默认</button>
+            </div>
           </div>
         </div>
 
