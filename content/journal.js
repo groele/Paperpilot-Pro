@@ -1586,33 +1586,43 @@
             <span>${paperMeta.pdfUrl ? '已搜寻到正文 PDF 直链 · 支持一键校验下载' : '当前无免费 OA 直链 · 可一键复制 DOI 或网页版'}</span>
           </div>
 
-          <!-- Metadata DOI & Citation Field -->
+          <!-- Metadata DOI Field -->
           <div class="pp-jc-meta-field">
             <div class="pp-jc-meta-hdr">
-              <span class="pp-jc-meta-lbl">DOI 与学术引用</span>
-              <span class="pp-jc-in-place-badge" id="pp-jc-doi-badge">✓ 已成功复制到剪贴板</span>
+              <span class="pp-jc-meta-lbl">DOI 标识码</span>
+              <span class="pp-jc-in-place-badge" id="pp-jc-doi-badge">✓ 已复制 DOI</span>
             </div>
             <div class="pp-jc-meta-val-box" id="pp-jc-doi-val-box">
-              <span class="pp-jc-meta-val">${display.doi}</span>
-              <div class="pp-jc-meta-actions" style="display:inline-flex;gap:4px;flex-shrink:0;">
-                ${(paperMeta.doi && config.enable_journal_copy_doi_btn !== false) ? `
-                  <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-doi" title="一键复制 DOI 标识符">
-                    ${window.PP_ICONS.copy} DOI
-                  </button>
-                ` : ''}
-                ${(paperMeta.title && config.enable_journal_copy_gbt_btn !== false) ? `
-                  <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-gb" title="一键复制 GB/T 7714-2015 国标引用" style="background:#0284c7;">
-                    GB
-                  </button>
-                ` : ''}
-                ${(paperMeta.title && config.enable_journal_copy_bib_btn !== false) ? `
-                  <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-bib" title="一键复制 BibTeX 引用" style="background:#7c3aed;">
-                    Bib
-                  </button>
-                ` : ''}
-              </div>
+              <span class="pp-jc-meta-val" title="${display.doi}">${display.doi}</span>
+              ${(paperMeta.doi && config.enable_journal_copy_doi_btn !== false) ? `
+                <button type="button" class="pp-jc-meta-copy-btn" id="pp-jc-btn-copy-doi" title="一键复制 DOI 标识符">
+                  ${window.PP_ICONS.copy} DOI
+                </button>
+              ` : ''}
             </div>
           </div>
+
+          <!-- Academic Citation Field (Moved out of DOI box) -->
+          ${(paperMeta.title && (config.enable_journal_copy_gbt_btn !== false || config.enable_journal_copy_bib_btn !== false)) ? `
+          <div class="pp-jc-citation-field">
+            <div class="pp-jc-citation-hdr">
+              <span class="pp-jc-meta-lbl">学术引用格式</span>
+              <span class="pp-jc-in-place-badge" id="pp-jc-cite-badge">✓ 已复制引用</span>
+            </div>
+            <div class="pp-jc-citation-actions">
+              ${(config.enable_journal_copy_gbt_btn !== false) ? `
+                <button type="button" class="pp-jc-cite-btn pp-jc-cite-btn-gb" id="pp-jc-btn-copy-gb" title="一键复制 GB/T 7714-2015 国标引用">
+                  ${window.PP_ICONS.cite || window.PP_ICONS.copy} GB/T 7714
+                </button>
+              ` : ''}
+              ${(config.enable_journal_copy_bib_btn !== false) ? `
+                <button type="button" class="pp-jc-cite-btn pp-jc-cite-btn-bib" id="pp-jc-btn-copy-bib" title="一键复制 BibTeX 引用格式">
+                  ${window.PP_ICONS.cite || window.PP_ICONS.copy} BibTeX
+                </button>
+              ` : ''}
+            </div>
+          </div>
+          ` : ''}
 
           <!-- Metrics Drawer -->
           ${(enable_metrics_display && (
@@ -1894,9 +1904,12 @@
           : `${paperMeta.authors?.join(", ") || ""}. ${paperMeta.title}[J]. ${paperMeta.journal || ""}, ${paperMeta.year || ""}.`;
         robustCopyToClipboard(text).then(() => {
           showToast("✓ GB/T 7714 国标引用已写入剪贴板！");
-          const valBox = cardEl.querySelector("#pp-jc-doi-val-box");
+          const badge = cardEl.querySelector("#pp-jc-cite-badge");
           const origHTML = copyGbBtn.innerHTML;
-          if (valBox) valBox.classList.add("pp-copied-active");
+          if (badge) {
+            badge.innerText = "✓ 已复制 GB/T 7714";
+            badge.classList.add("pp-show");
+          }
           copyGbBtn.innerHTML = `${getIcon("check", "✓")} 已复制`;
           copyGbBtn.classList.add("pp-copied-success");
 
@@ -1914,7 +1927,7 @@
           });
 
           setTimeout(() => {
-            if (valBox) valBox.classList.remove("pp-copied-active");
+            if (badge) badge.classList.remove("pp-show");
             copyGbBtn.innerHTML = origHTML;
             copyGbBtn.classList.remove("pp-copied-success");
           }, 2200);
@@ -1929,9 +1942,12 @@
           : `@article{paper,\n  title={${paperMeta.title}},\n  author={${(paperMeta.authors || []).join(" and ")}}\n}`;
         robustCopyToClipboard(text).then(() => {
           showToast("✓ BibTeX 引用已写入剪贴板！");
-          const valBox = cardEl.querySelector("#pp-jc-doi-val-box");
+          const badge = cardEl.querySelector("#pp-jc-cite-badge");
           const origHTML = copyBibBtn.innerHTML;
-          if (valBox) valBox.classList.add("pp-copied-active");
+          if (badge) {
+            badge.innerText = "✓ 已复制 BibTeX";
+            badge.classList.add("pp-show");
+          }
           copyBibBtn.innerHTML = `${getIcon("check", "✓")} 已复制`;
           copyBibBtn.classList.add("pp-copied-success");
 
@@ -1949,7 +1965,7 @@
           });
 
           setTimeout(() => {
-            if (valBox) valBox.classList.remove("pp-copied-active");
+            if (badge) badge.classList.remove("pp-show");
             copyBibBtn.innerHTML = origHTML;
             copyBibBtn.classList.remove("pp-copied-success");
           }, 2200);
