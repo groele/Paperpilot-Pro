@@ -9,7 +9,7 @@
 
   let paperMeta = null;
   let cardEl = null;
-  let currentTheme = "system";
+  let currentTheme = window.PaperPilotCore.settings.DEFAULTS.appearance_mode;
   let pdfUrlCandidateCache = null;
   let siteProfileCache = null;
   let lastPdfDownloadStatus = null;
@@ -96,7 +96,7 @@
   }
 
   function getPublicSettings(keys, callback) {
-    safeSendMessage({ action: "GET_PUBLIC_SETTINGS", keys }, response => callback(response?.settings || {}));
+    safeSendMessage({ action: "GET_PUBLIC_SETTINGS", keys }, response => callback(window.PaperPilotCore.settings.withDefaults(response?.settings || {})));
   }
 
   function setPublicSettings(settings, callback = () => {}) {
@@ -815,7 +815,7 @@
     try {
       const url = new URL(urlString);
       let host = url.hostname.toLowerCase();
-      
+
       // 1. Strip EZproxy patterns
       const proxyPatterns = [
         /\.ezp\./i,
@@ -830,7 +830,7 @@
           break;
         }
       }
-      
+
       // 2. Strip VPN patterns
       if (host.includes(".vpn.") || host.includes("-vpn-") || host.includes("-s.vpn.")) {
         const parts = host.split(/\.vpn\.|-s\.vpn\.|-vpn-/i);
@@ -838,7 +838,7 @@
           host = parts[0];
         }
       }
-      
+
       // 3. General flattened domain normalization (convert link-springer-com to link.springer.com)
       if (host.includes("-com") || host.includes("-org") || host.includes("-net") || host.includes("-edu") || host.includes("-gov") || host.includes("-co-uk")) {
         host = host.replace(/-com\b/g, ".com")
@@ -850,14 +850,14 @@
                    .replace(/-gov-cn\b/g, ".gov.cn");
         host = host.replace(/-/g, ".");
       }
-      
+
       if (url.searchParams.has("url")) {
         const targetUrl = url.searchParams.get("url");
         if (targetUrl.startsWith("http://") || targetUrl.startsWith("https://")) {
           return cleanProxyUrl(targetUrl);
         }
       }
-      
+
       url.hostname = host;
       return url.href;
     } catch (e) {
@@ -1017,8 +1017,11 @@
     for (const block of Array.from(blocks).slice(0, 256)) {
       if (budget <= 0) break;
       if (excludedNode(block)) continue;
-      const text = (block.textContent || "").slice(0, Math.min(budget, 2000));
+      const rawText = block.textContent || "";
+      const limit = Math.min(budget, 2000);
+      let text = rawText.slice(0, limit);
       budget -= text.length;
+      if (rawText.length > limit && /\S/.test(rawText[limit - 1]) && /\S/.test(rawText[limit])) text = text.replace(/\S+$/, "");
       const structured = !block.matches("p");
       const label = structured ? /(?:\bdoi\s*[:：]|https?:\/\/(?:dx\.)?doi\.org\/)/i : /^\s*(?:doi\s*[:：]|https?:\/\/(?:dx\.)?doi\.org\/)/i;
       if (label.test(text)) textValues.push(text);
@@ -1057,11 +1060,11 @@
     if (path === "/" || path === "/index.html" || path === "/index.htm" || path === "/index.php") {
       return false;
     }
-    
+
     // Ignore search, collections, browse, login, help pages, etc.
     const nonArticlePatterns = [
-      /\/search\b/, /\/browse\b/, /\/explore\b/, /\/collections\b/, 
-      /\/subjects\b/, /\/about\b/, /\/help\b/, /\/terms\b/, 
+      /\/search\b/, /\/browse\b/, /\/explore\b/, /\/collections\b/,
+      /\/subjects\b/, /\/about\b/, /\/help\b/, /\/terms\b/,
       /\/privacy\b/, /\/contact\b/, /\/login\b/, /\/register\b/
     ];
     if (nonArticlePatterns.some(pat => pat.test(path))) {
@@ -1119,7 +1122,7 @@
 
     // Must have at least one article-related URL path segment, DOI pattern, or DOM abstract container
     const articleKeywords = [
-      "/article", "/doi", "/abs", "/pdf", "/content", "/document", 
+      "/article", "/doi", "/abs", "/pdf", "/content", "/document",
       "/pubmed", "/pmc", "/journal", "/pii/", "/fulltext", "/download", "/pdf/", "/epdf/",
       "/reader", "/view", "/record", "/chapter", "/proceedings", "/paper", "/preprint",
       "/articles/", "/article-pdf/", "/stamp/", "/stable/", "/core/journals/"
@@ -1164,7 +1167,7 @@
       if (response && response.success && response.data) {
         const enriched = response.data;
         console.log("PaperPilot Pro: Metadata enriched successfully:", enriched);
-        
+
         // Merge enriched data (including DOI)
         paperMeta.doi = enriched.doi || paperMeta.doi;
         paperMeta.pdfUrl = enriched.pdfUrl || paperMeta.pdfUrl;
@@ -1229,7 +1232,7 @@
       });
     }
     const redrawKeys = [
-      "enable_metacard", "enable_metrics_display", "enable_metrics_auto_detect",
+      "enable_ni", "enable_metacard", "enable_metrics_display", "enable_metrics_auto_detect",
       "enable_journal_copy_doi_btn", "enable_pdf_download_btn", "enable_ai_summary_btn",
       "enable_journal_citation_tools", "enable_journal_copy_gbt_btn",
       "enable_journal_copy_bib_btn", "enable_journal_open_landing_btn",
@@ -1357,14 +1360,14 @@
     }
 
     // Year
-    let year = new Date().getFullYear();
+    let year = null;
     const dateStr = getMeta([
       "citation_publication_date", "citation_date", "prism.coverDate", "dc.date",
-      "article:published_time", "article:modified_time", "date", "bepress_citation_publication_date",
+      "article:published_time", "date", "bepress_citation_publication_date",
       "eprints.date", "DC.Date", "dc.Date", "prism.publicationDate", "epubdate", "pubdate"
-    ]) || normalizeJsonLdText(jsonLdArticle?.datePublished || jsonLdArticle?.dateCreated);
+    ]) || normalizeJsonLdText(jsonLdArticle?.datePublished);
     if (dateStr) {
-      const yrMatch = dateStr.match(/\b(19|20)\d{2}\b/);
+      const yrMatch = dateStr.match(/\b[12]\d{3}\b/);
       if (yrMatch) year = parseInt(yrMatch[0]);
     }
 
@@ -1527,6 +1530,7 @@
     const renderGeneration = ++cardRenderGeneration;
     const pageGeneration = initGeneration;
     getPublicSettings([
+      "enable_ni",
       "enable_metacard",
       "enable_metrics_display",
       "enable_metrics_auto_detect",
@@ -1569,13 +1573,12 @@
       }
 
       // Set minimized layout
-      const isNi = checkNatureIndexMatch(paperMeta.journal);
+      const isNi = config.enable_ni !== false && checkNatureIndexMatch(paperMeta.journal);
 
       const enable_metrics_display = config.enable_metrics_display !== false;
       const enable_pdf_download_btn = config.enable_pdf_download_btn !== false;
       const enable_ai_summary_btn = config.enable_ai_summary_btn !== false;
 
-      const enable_journal_copy_doi_btn = config.enable_journal_copy_doi_btn !== false;
 
       // Deduce original landing page URL
       const currentUrl = window.location.href;
@@ -1596,7 +1599,7 @@
       const pdfDiagnostics = getPdfCandidateDiagnostics();
       const display = {
         journal: escapeHtml(paperMeta.journal || "学术期刊"),
-        year: escapeHtml(paperMeta.year || "N/A"),
+        year: escapeHtml(paperMeta.year ? `${paperMeta.year} 年` : "年份未标注"),
         title: escapeHtml(paperMeta.title || ""),
         doi: escapeHtml(paperMeta.doi || "暂无 DOI"),
         impactFactor: escapeHtml(paperMeta.impactFactor || "N/A"),
@@ -1646,7 +1649,7 @@
               <span class="pp-jc-journal-badge ${isNi ? 'pp-ni-badge' : ''}">
                 ${isNi ? "Nature Index 顶刊" : display.journal}
               </span>
-              <span class="pp-jc-year-tag">${display.year} 年</span>
+              <span class="pp-jc-year-tag">${display.year}</span>
             </div>
             <div class="pp-jc-hero-title-box" id="pp-jc-title-box" title="点击复制完整文献标题">
               <h2 class="pp-jc-paper-title">${display.title}</h2>
@@ -1719,21 +1722,21 @@
                 <span class="pp-jc-metric-val pp-val-if">${display.impactFactor}</span>
               </div>
               ` : ''}
-              
+
               ${(config.enable_cas_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">中科院分区</span>
                 <span class="pp-jc-metric-val pp-val-cas">${display.casPartition}</span>
               </div>
               ` : ''}
-              
+
               ${(config.enable_jcr_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">JCR 分区</span>
                 <span class="pp-jc-metric-val">${display.jcrQuartile}</span>
               </div>
               ` : ''}
-              
+
               ${(config.enable_cite_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">CiteScore</span>
@@ -1745,14 +1748,14 @@
                 <span class="pp-jc-metric-lbl">数据来源</span>
                 <span class="pp-jc-metric-val">${display.dataSource}</span>
               </div>
-              
+
               ${(paperMeta.ccfRank && config.enable_ccf_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">CCF 等级</span>
                 <span class="pp-jc-metric-val pp-jc-metric-ccf">${display.ccfRank}</span>
               </div>
               ` : ''}
-              
+
               ${((paperMeta.isCssci || paperMeta.isPku) && config.enable_core_badge !== false) ? `
               <div class="pp-jc-metric-row">
                 <span class="pp-jc-metric-lbl">国内核心收录</span>
@@ -1761,7 +1764,7 @@
                 </span>
               </div>
               ` : ''}
-              
+
               ${(paperMeta.sciWarn && config.enable_warn_badge !== false) ? `
               <div class="pp-jc-metric-row pp-jc-warn-row">
                 <span class="pp-jc-metric-lbl" style="color: #ef4444; font-weight: bold;">中科院预警</span>
@@ -1784,12 +1787,8 @@
               <button type="button" class="pp-jc-action-btn pp-jc-btn-download" id="pp-jc-btn-download">
                 ${window.PP_ICONS.download} 一键下载 PDF 全文
               </button>
-            ` : (!paperMeta.pdfUrl && enable_journal_copy_doi_btn) ? `
-              <button type="button" class="pp-jc-action-btn pp-jc-btn-doi" id="pp-jc-btn-copy-doi-action">
-                ${window.PP_ICONS.copy} 一键复制 DOI
-              </button>
             ` : ''}
-            
+
             ${enable_ai_summary_btn ? `
             <div class="pp-jc-ai-section">
               <div class="pp-jc-ai-chips-hdr">
@@ -1836,29 +1835,30 @@
 
   // Bind interactive actions in Metacard float dashboard
   function bindMetacardEvents(resolvedLandingUrl) {
-    const pinBtn = cardEl.querySelector("#pp-jc-btn-pin");
-    const minBtn = cardEl.querySelector("#pp-jc-btn-min");
-    const pill = cardEl.querySelector("#pp-jc-min-pill");
-    const drawerHdr = cardEl.querySelector("#pp-jc-drawer-hdr");
-    const copyDoiBtn = cardEl.querySelector("#pp-jc-btn-copy-doi");
-    const downloadBtn = cardEl.querySelector("#pp-jc-btn-download");
-    const copyDoiActionBtn = cardEl.querySelector("#pp-jc-btn-copy-doi-action");
-    const aiBtn = cardEl.querySelector("#pp-jc-btn-ai-sum");
-    const helpBtn = cardEl.querySelector("#pp-jc-btn-help");
-    const openLandingBtn = cardEl.querySelector("#pp-jc-btn-open-landing");
-    const titleBox = cardEl.querySelector("#pp-jc-title-box");
+    const boundCard = cardEl;
+    const cardMeta = {...paperMeta, authors:[...(paperMeta.authors || [])], pageUrl:window.location.href};
+    const pinBtn = boundCard.querySelector("#pp-jc-btn-pin");
+    const minBtn = boundCard.querySelector("#pp-jc-btn-min");
+    const pill = boundCard.querySelector("#pp-jc-min-pill");
+    const drawerHdr = boundCard.querySelector("#pp-jc-drawer-hdr");
+    const copyDoiBtn = boundCard.querySelector("#pp-jc-btn-copy-doi");
+    const downloadBtn = boundCard.querySelector("#pp-jc-btn-download");
+    const aiBtn = boundCard.querySelector("#pp-jc-btn-ai-sum");
+    const helpBtn = boundCard.querySelector("#pp-jc-btn-help");
+    const openLandingBtn = boundCard.querySelector("#pp-jc-btn-open-landing");
+    const titleBox = boundCard.querySelector("#pp-jc-title-box");
 
-    if (titleBox && paperMeta.title) {
+    if (titleBox && cardMeta.title) {
       titleBox.onclick = () => {
-        robustCopyToClipboard(paperMeta.title).then(() => {
+        robustCopyToClipboard(cardMeta.title).then(() => {
           showToast("已将完整论文标题复制到剪贴板！");
-        });
+        }).catch(() => showToast("复制失败，请手动选择复制"));
       };
     }
 
     const setPinnedState = (pinned) => {
-      ["top", "left", "right", "max-height"].forEach(property => cardEl.style.removeProperty(property));
-      cardEl.classList.toggle("pp-jc-pinned", pinned);
+      ["top", "left", "right", "max-height"].forEach(property => boundCard.style.removeProperty(property));
+      boundCard.classList.toggle("pp-jc-pinned", pinned);
       if (pinBtn) {
         pinBtn.classList.toggle("pp-jc-active", pinned);
         pinBtn.title = pinned ? "取消固定侧边栏" : "固定侧边栏";
@@ -1869,9 +1869,20 @@
     if (pinBtn) {
       pinBtn.onclick = (event) => {
         event.stopPropagation();
-        const pinned = !cardEl.classList.contains("pp-jc-pinned");
+        const previous = boundCard.classList.contains("pp-jc-pinned");
+        const previousStyle = boundCard.getAttribute("style");
+        const pinned = !previous;
+        pinBtn.disabled = true;
         setPinnedState(pinned);
-        setPublicSettings({ metacard_pinned: pinned }, () => {
+        setPublicSettings({ metacard_pinned: pinned }, response => {
+          pinBtn.disabled = false;
+          if (!response?.success) {
+            setPinnedState(previous);
+            if (previousStyle === null) boundCard.removeAttribute("style");
+            else boundCard.setAttribute("style", previousStyle);
+            showToast("固定状态保存失败，已恢复原状态");
+            return;
+          }
           showToast(pinned ? "侧边栏已固定" : "侧边栏已恢复可拖动");
         });
       };
@@ -1887,7 +1898,7 @@
     // Help box
     if (helpBtn) {
       helpBtn.onclick = () => {
-        showToast("快捷键: Alt+P (展开/折叠面板), Alt+D (下载PDF), Alt+C (复制DOI)");
+        showToast(["Alt+P：展开/折叠面板", downloadBtn ? "Alt+D：下载 PDF" : "", copyDoiBtn ? "Alt+C：复制 DOI" : ""].filter(Boolean).join(" · "));
       };
     }
 
@@ -1895,29 +1906,27 @@
     if (minBtn) {
       minBtn.onclick = (e) => {
         e.stopPropagation();
-        cardEl.classList.add("pp-jc-minimized");
+        boundCard.classList.add("pp-jc-minimized");
       };
     }
 
     // Keyboard Shortcuts Handler (Alt+P, Alt+D, Alt+C)
     const onGlobalKeydown = (e) => {
       if (e.target?.closest?.("input, textarea, select, [contenteditable='true']")) return;
-      if (e.altKey && !e.ctrlKey && !e.metaKey && cardEl?.isConnected) {
+      if (e.altKey && !e.ctrlKey && !e.metaKey && boundCard?.isConnected) {
         const key = e.key.toLowerCase();
         if (key === 'p') {
           e.preventDefault();
-          cardEl.classList.toggle("pp-jc-minimized");
-          showToast(cardEl.classList.contains("pp-jc-minimized") ? "已折叠面板 (Alt+P)" : "已展开面板 (Alt+P)");
+          boundCard.classList.toggle("pp-jc-minimized");
+          showToast(boundCard.classList.contains("pp-jc-minimized") ? "已折叠面板 (Alt+P)" : "已展开面板 (Alt+P)");
         } else if (key === 'd') {
           e.preventDefault();
           if (downloadBtn) downloadBtn.click();
-          else showToast("当前页面未检测到可直接下载的 PDF");
+          else showToast(cardMeta.pdfUrl ? "PDF 下载按钮已关闭，可在设置中开启" : "当前页面未检测到可直接下载的 PDF");
         } else if (key === 'c') {
           e.preventDefault();
           if (copyDoiBtn) copyDoiBtn.click();
-          else if (paperMeta.doi) {
-            robustCopyToClipboard(paperMeta.doi).then(() => showToast("DOI 已复制到剪贴板 (Alt+C)"));
-          }
+          else showToast("DOI 复制功能未开启或没有可用 DOI");
         }
       }
     };
@@ -1927,20 +1936,20 @@
 
     if (pill) {
       pill.onclick = () => {
-        cardEl.classList.remove("pp-jc-minimized");
+        boundCard.classList.remove("pp-jc-minimized");
       };
     }
 
     // DOI & Citation copy
-    const copyGbBtn = cardEl.querySelector("#pp-jc-btn-copy-gb");
-    const copyBibBtn = cardEl.querySelector("#pp-jc-btn-copy-bib");
+    const copyGbBtn = boundCard.querySelector("#pp-jc-btn-copy-gb");
+    const copyBibBtn = boundCard.querySelector("#pp-jc-btn-copy-bib");
 
     if (copyDoiBtn) {
       copyDoiBtn.onclick = () => {
-        robustCopyToClipboard(paperMeta.doi).then(() => {
+        robustCopyToClipboard(cardMeta.doi).then(() => {
           showToast("✓ DOI 已成功写入剪贴板！");
-          const valBox = cardEl.querySelector("#pp-jc-doi-val-box");
-          const badge = cardEl.querySelector("#pp-jc-doi-badge");
+          const valBox = boundCard.querySelector("#pp-jc-doi-val-box");
+          const badge = boundCard.querySelector("#pp-jc-doi-badge");
           const origHTML = copyDoiBtn.innerHTML;
 
           if (valBox) valBox.classList.add("pp-copied-active");
@@ -1951,12 +1960,12 @@
           safeSendMessage({
             action: "ADD_FOOTPRINT",
             footprint: {
-              title: paperMeta.title,
-              authors: paperMeta.authors,
-              journal: paperMeta.journal,
-              year: paperMeta.year,
-              doi: paperMeta.doi,
-              pdfUrl: paperMeta.pdfUrl,
+              title: cardMeta.title,
+              authors: cardMeta.authors,
+              journal: cardMeta.journal,
+              year: cardMeta.year,
+              doi: cardMeta.doi,
+              pdfUrl: cardMeta.pdfUrl,
               status: "copied_doi"
             }
           });
@@ -1967,18 +1976,18 @@
             copyDoiBtn.innerHTML = origHTML;
             copyDoiBtn.classList.remove("pp-copied-success");
           }, 2200);
-        });
+        }).catch(() => showToast("复制失败，请手动选择复制"));
       };
     }
 
     if (copyGbBtn) {
       copyGbBtn.onclick = () => {
         const text = window.PaperPilotCore?.citation?.buildGbt7714Entries
-          ? window.PaperPilotCore.citation.buildGbt7714Entries([paperMeta], { numbered: false })
-          : `${paperMeta.authors?.join(", ") || ""}. ${paperMeta.title}[J]. ${paperMeta.journal || ""}, ${paperMeta.year || ""}.`;
+          ? window.PaperPilotCore.citation.buildGbt7714Entries([cardMeta], { numbered: false })
+          : `${cardMeta.authors?.join(", ") || ""}. ${cardMeta.title}[J]. ${cardMeta.journal || ""}, ${cardMeta.year || ""}.`;
         robustCopyToClipboard(text).then(() => {
           showToast("✓ GB/T 7714 国标引用已写入剪贴板！");
-          const badge = cardEl.querySelector("#pp-jc-cite-badge");
+          const badge = boundCard.querySelector("#pp-jc-cite-badge");
           const origHTML = copyGbBtn.innerHTML;
           if (badge) {
             badge.innerText = "✓ 已复制 GB/T 7714";
@@ -1990,12 +1999,12 @@
           safeSendMessage({
             action: "ADD_FOOTPRINT",
             footprint: {
-              title: paperMeta.title,
-              authors: paperMeta.authors,
-              journal: paperMeta.journal,
-              year: paperMeta.year,
-              doi: paperMeta.doi,
-              pdfUrl: paperMeta.pdfUrl,
+              title: cardMeta.title,
+              authors: cardMeta.authors,
+              journal: cardMeta.journal,
+              year: cardMeta.year,
+              doi: cardMeta.doi,
+              pdfUrl: cardMeta.pdfUrl,
               status: "copied_citation"
             }
           });
@@ -2005,18 +2014,18 @@
             copyGbBtn.innerHTML = origHTML;
             copyGbBtn.classList.remove("pp-copied-success");
           }, 2200);
-        });
+        }).catch(() => showToast("复制失败，请手动选择复制"));
       };
     }
 
     if (copyBibBtn) {
       copyBibBtn.onclick = () => {
         const text = window.PaperPilotCore?.citation?.buildBibtexEntries
-          ? window.PaperPilotCore.citation.buildBibtexEntries([paperMeta])
-          : `@article{paper,\n  title={${paperMeta.title}},\n  author={${(paperMeta.authors || []).join(" and ")}}\n}`;
+          ? window.PaperPilotCore.citation.buildBibtexEntries([cardMeta])
+          : `@article{paper,\n  title={${cardMeta.title}},\n  author={${(cardMeta.authors || []).join(" and ")}}\n}`;
         robustCopyToClipboard(text).then(() => {
           showToast("✓ BibTeX 引用已写入剪贴板！");
-          const badge = cardEl.querySelector("#pp-jc-cite-badge");
+          const badge = boundCard.querySelector("#pp-jc-cite-badge");
           const origHTML = copyBibBtn.innerHTML;
           if (badge) {
             badge.innerText = "✓ 已复制 BibTeX";
@@ -2028,12 +2037,12 @@
           safeSendMessage({
             action: "ADD_FOOTPRINT",
             footprint: {
-              title: paperMeta.title,
-              authors: paperMeta.authors,
-              journal: paperMeta.journal,
-              year: paperMeta.year,
-              doi: paperMeta.doi,
-              pdfUrl: paperMeta.pdfUrl,
+              title: cardMeta.title,
+              authors: cardMeta.authors,
+              journal: cardMeta.journal,
+              year: cardMeta.year,
+              doi: cardMeta.doi,
+              pdfUrl: cardMeta.pdfUrl,
               status: "copied_bibtex"
             }
           });
@@ -2043,15 +2052,15 @@
             copyBibBtn.innerHTML = origHTML;
             copyBibBtn.classList.remove("pp-copied-success");
           }, 2200);
-        });
+        }).catch(() => showToast("复制失败，请手动选择复制"));
       };
     }
 
     // Toggle drawers
     if (drawerHdr) {
       drawerHdr.onclick = () => {
-        const body = cardEl.querySelector("#pp-jc-drawer-body");
-        const arrow = cardEl.querySelector("#pp-jc-drawer-arrow");
+        const body = boundCard.querySelector("#pp-jc-drawer-body");
+        const arrow = boundCard.querySelector("#pp-jc-drawer-arrow");
         if (body) {
           const isCollapsed = body.classList.toggle("pp-jc-collapsed");
           if (arrow) {
@@ -2066,24 +2075,24 @@
       downloadBtn.onclick = () => {
         getPublicSettings(["pdf_naming"], (config) => {
           const pattern = config.pdf_naming || "1";
-          const firstAuthor = paperMeta.authors.length > 0 ? paperMeta.authors[0] : "Unknown";
-          
-          let name = `[${paperMeta.journal}] ${firstAuthor} - ${paperMeta.title}`;
+          const firstAuthor = cardMeta.authors.length > 0 ? cardMeta.authors[0] : "Unknown";
+
+          let name = `[${cardMeta.journal}] ${firstAuthor} - ${cardMeta.title}`;
           if (pattern === "2") {
-            name = `[${paperMeta.year}] ${paperMeta.title}`;
-          } else if (pattern === "3" && paperMeta.doi) {
-            name = paperMeta.doi.replace(/\//g, "_");
+            name = `[${cardMeta.year}] ${cardMeta.title}`;
+          } else if (pattern === "3" && cardMeta.doi) {
+            name = cardMeta.doi.replace(/\//g, "_");
           } else if (pattern === "4") {
-            name = `${paperMeta.title} (${paperMeta.year})`;
+            name = `${cardMeta.title} (${cardMeta.year})`;
           }
 
           // Clean characters invalid in filename
           const cleanName = name.replace(/[\/\\:*?"<>|]/g, "_").substring(0, 100) + ".pdf";
-          
+
           showToast("正在请求下载并自动批量规范重命名...");
           safeSendMessage({
             action: "DOWNLOAD_PDF",
-            url: paperMeta.pdfUrl,
+            url: cardMeta.pdfUrl,
             urls: buildDownloadUrlCandidates(),
             filename: cleanName,
             pageUrl: window.location.href
@@ -2092,7 +2101,7 @@
               const savedPath = response.filename ? `：${response.filename}` : "";
               updatePdfDiagnostics(response);
               showToast(`PDF 下载任务已创建${savedPath}`);
-              logFootprint("downloaded");
+              logFootprint("downloaded", cardMeta);
             } else {
               updatePdfDiagnostics(response);
               const error = formatPdfDownloadError(response);
@@ -2104,53 +2113,6 @@
       };
     }
 
-    // Copy DOI handler with interactive feedback
-    const handleCopyDoi = (btn) => {
-      if (!btn) return;
-      if (!paperMeta.doi) {
-        // Fallback: copy structured academic citation when no DOI is available
-        const authorsStr = (paperMeta.authors && paperMeta.authors.length > 0) ? paperMeta.authors.join(", ") : "Unknown Author";
-        const fallbackCitation = `${authorsStr}. ${paperMeta.title} (${paperMeta.year}).`;
-        robustCopyToClipboard(fallbackCitation).then(() => {
-          showToast("未匹配到该文献的 DOI，已将标题与引用复制到剪贴板！");
-          logFootprint("copied_citation");
-          // Button feedback
-          const originalText = btn.innerHTML;
-          btn.innerHTML = `${window.PP_ICONS.check} 已复制引用`;
-          btn.style.color = "#2dd4bf";
-          setTimeout(() => {
-            btn.innerHTML = originalText;
-            btn.style.color = "";
-          }, 1800);
-        }).catch(() => {
-          showToast("复制失败，请手动选择复制！");
-        });
-        return;
-      }
-      robustCopyToClipboard(paperMeta.doi).then(() => {
-        showToast("DOI 已成功复制到剪贴板！");
-        logFootprint("copied_doi");
-
-        // Button feedback
-        const originalText = btn.innerHTML;
-        btn.innerHTML = `${window.PP_ICONS.check} 已复制`;
-        const originalBg = btn.style.background;
-        const originalColor = btn.style.color;
-        
-        btn.style.color = "#2dd4bf"; // Success teal color
-        
-        setTimeout(() => {
-          btn.innerHTML = originalText;
-          btn.style.background = originalBg;
-          btn.style.color = originalColor;
-        }, 1800);
-      }).catch(() => {
-        showToast("复制失败，请手动选择复制！");
-      });
-    };
-
-    if (copyDoiActionBtn) copyDoiActionBtn.onclick = () => handleCopyDoi(copyDoiActionBtn);
-
     // One active request per analysis section; late messages cannot mutate newer runs.
     if (aiBtn && !aiBtn.dataset.bound) {
       aiBtn.dataset.bound = "true";
@@ -2160,12 +2122,12 @@
       const btnLabel = section.querySelector("#pp-jc-ai-btn-label");
       const stopBtn = section.querySelector("#pp-jc-ai-stop");
       const status = section.querySelector("#pp-jc-ai-status");
-      const source = { title: paperMeta.title || "", abstract: paperMeta.abstract || "" };
+      const source = { title: cardMeta.title || "", abstract: cardMeta.abstract || "" };
       const labels = {
         tldr: "极速速读", novelty: "创新贡献", methodology: "技术路线",
         limitations: "局限批判", glossary: "术语精讲", custom: "自定义"
       };
-      let activePreset = labels[cardEl.dataset.aiPreset] ? cardEl.dataset.aiPreset : "tldr";
+      let activePreset = labels[boundCard.dataset.aiPreset] ? boundCard.dataset.aiPreset : "tldr";
       let activePort = null;
       let idleTimer = null;
       let totalTimer = null;
@@ -2257,8 +2219,8 @@
           const note = `### AI 学术研读 [${presetName}]${complete ? "" : "（未完成）"}\n**文献**：${source.title}\n**依据**：标题与摘要；模型推断需核验原文。\n\n${lastGeneratedText}`;
           safeSendMessage({
             action: "SAVE_FOOTPRINT_NOTES",
-            doi: paperMeta.doi,
-            title: paperMeta.title,
+            doi: cardMeta.doi,
+            title: cardMeta.title,
             notes: note
           }, response => {
             if (response?.success) {
@@ -2389,17 +2351,17 @@
   }
 
   // Logs Footprint history event to background database
-  function logFootprint(status) {
+  function logFootprint(status, source = paperMeta) {
     safeSendMessage({
       action: "ADD_FOOTPRINT",
       footprint: {
-        title: paperMeta.title,
-        authors: paperMeta.authors,
-        journal: paperMeta.journal,
-        year: paperMeta.year,
-        doi: paperMeta.doi,
-        pdfUrl: paperMeta.pdfUrl,
-        pageUrl: window.location.href,
+        title: source.title,
+        authors: source.authors,
+        journal: source.journal,
+        year: source.year,
+        doi: source.doi,
+        pdfUrl: source.pdfUrl,
+        pageUrl: source.pageUrl || window.location.href,
         status: status
       }
     });
@@ -2473,7 +2435,7 @@
       toast.setAttribute("data-pp-theme", currentTheme);
     }
     toast.querySelector(".pp-jc-toast-msg").innerText = message;
-    
+
     setTimeout(() => toast.classList.add("pp-show"), 10);
     setTimeout(() => {
       toast.classList.remove("pp-show");

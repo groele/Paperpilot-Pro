@@ -25,6 +25,7 @@ const server = http.createServer((req, res) => {
     if (name === 'inline-reference') article = '<p>Prior research <a href="https://doi.org/10.1000/reference">DOI</a> motivates our study.</p><p>DOI: 10.1000/current</p>';
     if (name === 'hidden-identifier') article = '<div style="display:none" data-doi="10.1000/wrong"></div><p>DOI: 10.1000/current</p>';
     if (name === 'structured-identifier') article = '<span data-doi="10.1000/current">Article identifier</span><p>DOI: 10.1000/wrong</p>';
+    if (name === 'truncated-label') article = `<p>DOI: 10.1000/${'x'.repeat(2500)}</p>`;
     if (name === 'jsonld') jsonLd = `<script type="application/ld+json">${JSON.stringify({
       '@graph': [
         {'@type':'ScholarlyArticle',headline:'A related article',identifier:'10.1000/wrong'},
@@ -68,6 +69,13 @@ const server = http.createServer((req, res) => {
     res.on('close', () => { clearInterval(timer); if (current === 'slow') aborted++; });
     return;
   }
+  if (req.url === '/compact-reference' || req.url === '/compact-undated') {
+    const title='Interfacial ferroelectricity at naturally-formed van der Waals interfaces';
+    const date=req.url==='/compact-reference'?'<meta name="citation_publication_date" content="2026-01-01">':'';
+    res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
+    res.end(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><meta name="citation_title" content="${title}"><meta name="citation_doi" content="10.1038/s41467-026-78336-9"><meta name="citation_journal_title" content="Nature Communications"><meta name="citation_pdf_url" content="/test/fixtures/paperpilot-runtime.pdf">${date}</head><body><main><h1>${title}</h1><section class="abstract">A controlled article fixture for default-card verification.</section></main></body></html>`);
+    return;
+  }
   if (req.url === '/paper' || req.url === '/no-abstract') {
     let html = fs.readFileSync(path.join(root, 'test/fixtures/academic-repository.html'), 'utf8');
     if (req.url === '/no-abstract') html = html.replace(/<section class="abstract">.*?<\/section>/s, '');
@@ -81,6 +89,22 @@ async function until(fn, label, timeout=10000) {
   const end=Date.now()+timeout;
   while (Date.now()<end) { if(await fn()) return; await new Promise(r=>setTimeout(r,50)); }
   throw new Error('Timed out: '+label);
+}
+async function evaluateExtensionWorld(context, page, fn) {
+  const cdp=await context.newCDPSession(page);
+  const worlds=[];
+  cdp.on('Runtime.executionContextCreated',event=>worlds.push(event.context));
+  try {
+    await cdp.send('Runtime.enable');
+    for(const world of worlds) {
+      const probe=await cdp.send('Runtime.evaluate',{contextId:world.id,expression:'Boolean(globalThis.chrome?.runtime?.id)',returnByValue:true});
+      if(!probe.result.value) continue;
+      const response=await cdp.send('Runtime.evaluate',{contextId:world.id,expression:`(${fn.toString()})()`,returnByValue:true,awaitPromise:true});
+      if(response.exceptionDetails) throw Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
+      return response.result.value;
+    }
+    throw Error('Extension isolated world unavailable');
+  } finally {await cdp.detach();}
 }
 (async () => {
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -107,8 +131,70 @@ async function until(fn, label, timeout=10000) {
       globalThis.fetch = (url, options) => String(url).startsWith('http://127.0.0.1:')
         ? realFetch(url, options) : Promise.resolve(new Response('{}',{status:503}));
     });
+    const defaultsPage=await context.newPage();
+    await defaultsPage.goto(origin+'/compact-reference');
+    const defaultCard=defaultsPage.locator('#pp-journal-metacard');
+    await defaultCard.waitFor();
+    await until(()=>defaultCard.getAttribute('data-pp-theme').then(theme=>theme==='light'),'fresh card light theme');
+    assert.equal(await defaultsPage.locator('.pp-jc-year-tag').textContent(),'2026 年');
+    assert.match(await defaultsPage.locator('.pp-jc-journal-badge').textContent(),/Nature Index/);
+    assert.match(await defaultsPage.locator('.pp-jc-status-banner').textContent(),/PDF 候选/);
+    assert.equal(await defaultsPage.locator('#pp-jc-btn-copy-doi').isVisible(),true);
+    assert.equal(await defaultsPage.locator('#pp-jc-btn-open-landing').isVisible(),true);
+    for(const selector of ['.pp-jc-citation-field','.pp-jc-drawer','#pp-jc-btn-download','.pp-jc-ai-section','#pp-jc-btn-copy-doi-action']) assert.equal(await defaultsPage.locator(selector).count(),0,selector);
+    const compactBounds=await defaultCard.boundingBox();
+    assert.ok(compactBounds.height<410,JSON.stringify(compactBounds));
+    await defaultCard.screenshot({path:path.join(out,'default-card-reference.png')});
+    await evaluateExtensionWorld(context,defaultsPage,()=>{
+      window.qaOriginalSend=chrome.runtime.sendMessage.bind(chrome.runtime);
+      chrome.runtime.sendMessage=(message,callback)=>message.action==='SET_PUBLIC_SETTINGS'?callback({success:false,error:'QA pin failure'}):window.qaOriginalSend(message,callback);
+    });
+    await defaultsPage.locator('#pp-jc-btn-pin').click();
+    assert.equal(await defaultCard.evaluate(element=>element.classList.contains('pp-jc-pinned')),false);
+    assert.match(await defaultsPage.locator('.pp-jc-toast').last().textContent(),/保存失败/);
+    await evaluateExtensionWorld(context,defaultsPage,()=>{chrome.runtime.sendMessage=window.qaOriginalSend;});
+    await worker.evaluate(()=>chrome.storage.local.set({enable_ni:false,enable_journal_copy_doi_btn:false}));
+    await defaultsPage.locator('#pp-jc-btn-copy-doi').waitFor({state:'detached'});
+    assert.equal(await defaultsPage.locator('.pp-jc-journal-badge.pp-ni-badge').count(),0);
+    await evaluateExtensionWorld(context,defaultsPage,()=>{
+      window.qaCopies=0;
+      Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{window.qaCopies++;throw Error('QA clipboard denied');}}});
+      window.qaOriginalExec=document.execCommand;
+      document.execCommand=()=>false;
+    });
+    await defaultsPage.keyboard.press('Alt+c');
+    assert.equal(await evaluateExtensionWorld(context,defaultsPage,()=>window.qaCopies),0);
+    await worker.evaluate(()=>chrome.storage.local.set({enable_ni:true,enable_journal_copy_doi_btn:true}));
+    await defaultsPage.locator('#pp-jc-btn-copy-doi').waitFor();
+    await defaultsPage.locator('#pp-jc-btn-copy-doi').click();
+    await until(()=>defaultsPage.locator('.pp-jc-toast').last().textContent().then(text=>text.includes('复制失败')),'clipboard failure surfaced');
+    assert.equal(await defaultsPage.locator('#pp-jc-doi-badge').evaluate(element=>element.classList.contains('pp-show')),false);
+    await evaluateExtensionWorld(context,defaultsPage,()=>{delete navigator.clipboard;document.execCommand=window.qaOriginalExec;});
+    await defaultsPage.goto(origin+'/compact-undated');
+    await defaultCard.waitFor();
+    assert.equal(await defaultsPage.locator('.pp-jc-year-tag').textContent(),'年份未标注');
+    await evaluateExtensionWorld(context,defaultsPage,()=>{
+      Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:()=>new Promise(resolve=>{window.qaResolveCopy=resolve;})}});
+    });
+    await defaultsPage.locator('#pp-jc-btn-copy-doi').click();
+    await defaultsPage.evaluate(()=>{
+      history.pushState({},'', '/replacement-article');
+      document.querySelector('meta[name="citation_doi"]').content='10.1000/replacement';
+      document.querySelector('meta[name="citation_title"]').content='A replacement article after navigation';
+      document.querySelector('h1').textContent='A replacement article after navigation';
+    });
+    await until(()=>defaultsPage.locator('#pp-jc-doi-val-box .pp-jc-meta-val').textContent().then(text=>text==='10.1000/replacement'),'SPA replacement identity');
+    await evaluateExtensionWorld(context,defaultsPage,()=>window.qaResolveCopy());
+    await until(()=>worker.evaluate(async()=>{
+      const rows=(await chrome.storage.local.get('history')).history || [];
+      return rows.some(row=>row.doi==='10.1038/s41467-026-78336-9' && row.actions?.includes('copied_doi'));
+    }),'delayed copy retains its original paper identity');
+    assert.equal(await worker.evaluate(async()=>((await chrome.storage.local.get('history')).history || []).some(row=>row.doi==='10.1000/replacement' && row.actions?.includes('copied_doi'))),false);
+    assert.equal(await defaultsPage.locator('#pp-jc-doi-badge').evaluate(element=>element.classList.contains('pp-show')),false);
+    await defaultsPage.close();
+    pass('Fresh screenshot defaults: compact/light card, no advanced tools, truthful year/PDF state, NI/DOI switches, shortcut gating, failed pin and clipboard rollback');
     await worker.evaluate(async origin=>{
-      await chrome.storage.local.set({ai_provider:'custom',ai_base_url:origin+'/v1',ai_model:'qa-model',ai_api_key:'',ai_preset:'methodology',ai_prompt:'我的自定义分析要求',enable_ai_summary_btn:true,enable_metacard:true,enable_metrics_auto_detect:false});
+      await chrome.storage.local.set({ai_provider:'custom',ai_base_url:origin+'/v1',ai_model:'qa-model',ai_api_key:'',ai_preset:'methodology',ai_prompt:'我的自定义分析要求',enable_ai_summary_btn:true,enable_metacard:true,enable_metrics_display:true,enable_metrics_auto_detect:false,enable_journal_citation_tools:true,enable_pdf_download_btn:true});
     },origin);
     const doiPage = await context.newPage();
     for (const [route, expected] of [
@@ -133,7 +219,8 @@ async function until(fn, label, timeout=10000) {
       ['jsonld-query?paper=2','10.1000/current'],
       ['jsonld-wrong-title','暂无 DOI'],
       ['jsonld-owner','10.1000/current'],
-      ['url-query-conflict/10.1000/one?doi=10.1000%2Ftwo','暂无 DOI']
+      ['url-query-conflict/10.1000/one?doi=10.1000%2Ftwo','暂无 DOI'],
+      ['truncated-label','暂无 DOI']
     ]) {
       await doiPage.goto(`${origin}/doi-fixture/${route}`);
       const field = doiPage.locator('#pp-jc-doi-val-box .pp-jc-meta-val');
@@ -143,7 +230,7 @@ async function until(fn, label, timeout=10000) {
       assert.deepEqual(duplicateIds,[],route);
     }
     await doiPage.close();
-    pass('DOI browser fixtures: 22 scenarios covering conflicting/reordered metadata, corroboration, JSON-LD identity/ties/query URLs/graph ownership, reference headings, inline/hidden references, structured identifiers, encoding and Unicode');
+    pass('DOI browser fixtures: 23 scenarios covering evidence conflicts, JSON-LD identity, reference exclusion, encoding, Unicode and truncated labels');
     const article=await context.newPage();
     await article.goto(origin+'/paper');
     await article.locator('#pp-journal-metacard').waitFor();
@@ -243,7 +330,28 @@ async function until(fn, label, timeout=10000) {
     await article.locator('.pp-jc-citation-field').waitFor({state:'detached'});
     assert.equal(await citationMaster.isChecked(),false);
     await popup.locator('.pp-preset-btn[data-preset="recommended"]').click();
+    await until(()=>citationMaster.isChecked().then(checked=>!checked),'recommended compact citation defaults');
+    assert.equal(await popup.locator('#setting-enable-ai-summary-btn').isChecked(),false);
+    await popup.locator('.pp-preset-btn[data-preset="expert"]').click();
     await article.locator('#pp-jc-btn-copy-bib').waitFor();
+    await worker.evaluate(()=>chrome.storage.local.set({appearance_mode:'dark',enable_footprint_heatmap:false}));
+    await until(()=>popup.locator('html').getAttribute('data-pp-theme').then(theme=>theme==='dark'),'pre-preset saved dark theme');
+    await until(()=>popup.locator('#footprint-heatmap-card').evaluate(element=>element.style.display==='none'),'external heatmap switch sync');
+    await popup.evaluate(()=>{
+      window.qaOriginalSet=chrome.storage.local.set;
+      chrome.storage.local.set=(_data,callback)=>{
+        Object.defineProperty(chrome.runtime,'lastError',{configurable:true,value:{message:'QA preset save failure'}});
+        try{callback();}finally{delete chrome.runtime.lastError;}
+      };
+    });
+    await popup.locator('.pp-preset-btn[data-preset="recommended"]').click();
+    await until(()=>popup.locator('html').getAttribute('data-pp-theme').then(theme=>theme==='dark'),'failed preset restores saved appearance');
+    await until(()=>citationMaster.isChecked(),'failed preset restores citation switch');
+    assert.equal(await popup.locator('#setting-enable-ai-summary-btn').isChecked(),true);
+    assert.equal(await popup.locator('#status-academic').getAttribute('aria-pressed'),'true');
+    assert.equal(await popup.locator('#footprint-heatmap-card').evaluate(element=>element.style.display==='none'),true);
+    await popup.evaluate(()=>{chrome.storage.local.set=window.qaOriginalSet;});
+    await worker.evaluate(()=>chrome.storage.local.set({appearance_mode:'light',enable_footprint_heatmap:true}));
     await popup.locator('.pp-settings-presets-bar > summary').click();
     pass('Citation controls: independent GB/Bib, master hiding, saved child preferences, popup/article reload, live landing control and global settings search');
     assert.equal(await popup.locator('#setting-ai-preset').inputValue(),'methodology');

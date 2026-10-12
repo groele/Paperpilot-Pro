@@ -2,6 +2,7 @@
   const root = global.PaperPilotBackground || {};
   const JOURNAL_RUNTIME_FILES = Object.freeze([
     "core/messaging.js",
+    "core/settings.js",
     "core/sanitize.js",
     "core/metadata.js",
     "core/site-profiles.js",

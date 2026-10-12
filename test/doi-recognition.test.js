@@ -103,6 +103,7 @@ test("DOI parsing bounds hostile structured input without constructing truncated
   const cycle={}; cycle.identifier=[cycle,cycle,cycle];
   assert.equal(m.normalizeDoi(cycle), "");
   assert.equal(m.extractDoi('10.1000/'+ 'x'.repeat(16001)), "");
+  assert.equal(m.extractDois(Array.from({length:100},(_,i)=>`10.1000/${i}`).join(' ')).length,64);
 });
 
 test("invalid UTF-16 cannot crash DOI resolver links and supplementary entities stay intact", () => {

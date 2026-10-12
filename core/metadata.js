@@ -116,6 +116,7 @@
       }
       const regex = /(?<![\p{L}\p{N}_.])10\.\d{4,9}\/[^\s"'，。；：！？、（）【】《》「」『』]+/igu;
       for (const match of text.matchAll(regex)) {
+        if (found.size >= 64) break;
         const doi = cleanDoiMatch(match[0], { authoritative });
         if (doi && !found.has(foldDoiCase(doi))) found.set(foldDoiCase(doi), doi);
       }

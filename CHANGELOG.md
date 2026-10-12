@@ -1,5 +1,18 @@
 # Changelog
 
+## v4.0.5 - 2026-10-12
+
+### Fixed
+- Use shared screenshot-matched compact/light defaults for fresh installs and settings fallbacks; reuse them for recommended/reset presets while preserving existing upgrade preferences and data.
+- Keep unknown publication years unknown; accept standard PDF metadata instead of filtering its field name as a citation; connect the journal Nature Index switch and DOI keyboard gate.
+- Remove the redundant DOI action and misleading citation fallback. Handle clipboard/pin/preset failure, restore affected preferences and appearance, and synchronize externally changed view controls.
+- Bind asynchronous card actions to their original article/card snapshots; check automatic metrics switches and credentials before and after queued lookups.
+- Reject truncated DOI labels and enforce the per-text candidate bound.
+
+### Verification
+- `npm run verify`: 157 tests and E2E fixtures. Real extension checks cover the fresh screenshot state, failure rollback, delayed-copy SPA identity, presets, external view updates, 23 DOI scenarios and existing flows, plus three native popup reopenings.
+- Detailed findings: [default-state and logic audit](docs/defaults-and-logic-audit-2026-10-12.md).
+
 ## v4.0.4 - 2026-10-12
 
 ### Fixed

@@ -774,6 +774,7 @@ const initPopup = () => {
     "enable_footprint_bib_btn",
     "enable_footprint_star_btn"
   ], (config) => {
+    config = PaperPilotCore.settings.withDefaults(config);
     if (config.auto_redirect !== undefined) configRedirect.checked = config.auto_redirect;
     syncPdfDownloadSaveAsControls(config.pdf_download_save_as === true);
     if (config.pdf_naming !== undefined) configPdfNaming.value = config.pdf_naming;
@@ -863,12 +864,17 @@ const initPopup = () => {
   function restoreStoredCheckboxes(keys) {
     chrome.storage.local.get(keys, values => {
       if (chrome.runtime.lastError) return;
+      values = Object.fromEntries(keys.map(key => [key, PaperPilotCore.settings.value(key, values[key])]));
       keys.forEach(key => {
         const input = document.getElementById(`setting-${key.replace(/_/g, "-")}`);
-        if (input?.type === "checkbox") input.checked = ["auto_redirect", "pdf_download_save_as", "enable_easyscholar"].includes(key) ? values[key] === true : values[key] !== false;
+        if (input?.type === "checkbox") input.checked = values[key] === true;
+        else if (input && values[key] !== undefined) input.value = values[key];
       });
+      if (keys.includes("appearance_mode")) updateTheme(values.appearance_mode);
+      if (keys.includes("enable_easyscholar")) syncEasyScholarControls();
       applyPopupCustomLayout(values);
       updateCardStatusBadges();
+      updateFeatureStatusGrid();
     });
   }
 
@@ -941,20 +947,22 @@ const initPopup = () => {
       if (areaName !== "local") return;
       coreModules.forEach(module => {
         if (!changes[module.key]) return;
-        module.savedValue = changes[module.key].newValue !== false;
+        module.savedValue = PaperPilotCore.settings.value(module.key, changes[module.key].newValue) === true;
         module.control.checked = module.savedValue;
       });
       Object.entries(changes).forEach(([key, change]) => {
         const input = document.getElementById(`setting-${key.replace(/_/g, "-")}`);
-        if (input?.type === "checkbox") input.checked = ["auto_redirect", "pdf_download_save_as", "enable_easyscholar"].includes(key) ? change.newValue === true : change.newValue !== false;
+        if (input?.type === "checkbox") input.checked = PaperPilotCore.settings.value(key, change.newValue) === true;
       });
+      const changedPreferences = Object.fromEntries(Object.entries(changes).map(([key, change]) => [key, PaperPilotCore.settings.value(key, change.newValue)]));
+      applyPopupCustomLayout(changedPreferences);
       if (changes.history) applyHistorySnapshot(changes.history.newValue, changes.history_revision?.newValue ?? historyRevision);
       if (changes.enable_easyscholar) syncEasyScholarControls();
       updateCardStatusBadges();
       updateFeatureStatusGrid();
       if (changes.ai_preset && configAiPreset) configAiPreset.value = changes.ai_preset.newValue || "tldr";
       if (changes.appearance_mode) {
-        configAppearanceMode.value = changes.appearance_mode.newValue || "system";
+        configAppearanceMode.value = PaperPilotCore.settings.value("appearance_mode", changes.appearance_mode.newValue);
         updateTheme(configAppearanceMode.value);
       }
       if (changes.overview_collapsed && changes.overview_collapsed.newValue !== undefined) {
@@ -1440,152 +1448,7 @@ const initPopup = () => {
     function applyPresetConfiguration(preset) {
       if (!preset) return;
 
-      const presetMaps = {
-        recommended: {
-          enable_sorting_filter: true,
-          enable_ni: true,
-          enable_dedup: true,
-          enable_badges: true,
-          enable_metacard: true,
-          enable_markdown_note: true,
-          enable_metrics_display: true,
-          enable_metrics_auto_detect: true,
-          enable_bibtex_btn: true,
-          enable_scholar_copy_gbt_btn: true,
-          enable_scholar_copy_doi_btn: true,
-          enable_scholar_star_btn: true,
-          enable_journal_copy_doi_btn: true,
-          enable_journal_citation_tools: true,
-          enable_journal_copy_gbt_btn: true,
-          enable_journal_copy_bib_btn: true,
-          enable_journal_open_landing_btn: true,
-          enable_pdf_download_btn: true,
-          enable_ai_summary_btn: true,
-          enable_footprint_heatmap: true,
-          enable_footprint_stats: true,
-          enable_page_diagnostics: true,
-          enable_footprint_quick_filters: true,
-          enable_footprint_gbt_btn: true,
-          enable_footprint_bib_btn: true,
-          enable_footprint_star_btn: true,
-          enable_ccf_badge: true,
-          enable_core_badge: true,
-          enable_warn_badge: true,
-          enable_if_badge: true,
-          enable_cas_badge: true,
-          enable_jcr_badge: true,
-          enable_cite_badge: true
-        },
-        minimal: {
-          enable_sorting_filter: false,
-          enable_ni: true,
-          enable_dedup: true,
-          enable_badges: true,
-          enable_metacard: true,
-          enable_markdown_note: false,
-          enable_metrics_display: true,
-          enable_metrics_auto_detect: true,
-          enable_bibtex_btn: true,
-          enable_scholar_copy_gbt_btn: true,
-          enable_scholar_copy_doi_btn: false,
-          enable_scholar_star_btn: false,
-          enable_journal_copy_doi_btn: false,
-          enable_journal_citation_tools: false,
-          enable_journal_copy_gbt_btn: true,
-          enable_journal_copy_bib_btn: true,
-          enable_journal_open_landing_btn: false,
-          enable_pdf_download_btn: true,
-          enable_ai_summary_btn: false,
-          enable_footprint_heatmap: false,
-          enable_footprint_stats: false,
-          enable_page_diagnostics: false,
-          enable_footprint_quick_filters: true,
-          enable_footprint_gbt_btn: true,
-          enable_footprint_bib_btn: true,
-          enable_footprint_star_btn: false,
-          enable_ccf_badge: true,
-          enable_core_badge: true,
-          enable_warn_badge: true,
-          enable_if_badge: true,
-          enable_cas_badge: true,
-          enable_jcr_badge: false,
-          enable_cite_badge: false
-        },
-        expert: {
-          enable_sorting_filter: true,
-          enable_ni: true,
-          enable_dedup: true,
-          enable_badges: true,
-          enable_metacard: true,
-          enable_markdown_note: true,
-          enable_metrics_display: true,
-          enable_metrics_auto_detect: true,
-          enable_bibtex_btn: true,
-          enable_scholar_copy_gbt_btn: true,
-          enable_scholar_copy_doi_btn: true,
-          enable_scholar_star_btn: true,
-          enable_journal_copy_doi_btn: true,
-          enable_journal_citation_tools: true,
-          enable_journal_copy_gbt_btn: true,
-          enable_journal_copy_bib_btn: true,
-          enable_journal_open_landing_btn: true,
-          enable_pdf_download_btn: true,
-          enable_ai_summary_btn: true,
-          enable_footprint_heatmap: true,
-          enable_footprint_stats: true,
-          enable_page_diagnostics: true,
-          enable_footprint_quick_filters: true,
-          enable_footprint_gbt_btn: true,
-          enable_footprint_bib_btn: true,
-          enable_footprint_star_btn: true,
-          enable_ccf_badge: true,
-          enable_core_badge: true,
-          enable_warn_badge: true,
-          enable_if_badge: true,
-          enable_cas_badge: true,
-          enable_jcr_badge: true,
-          enable_cite_badge: true
-        },
-        reset: {
-          enable_sorting_filter: true,
-          enable_ni: true,
-          enable_dedup: true,
-          enable_badges: true,
-          enable_metacard: true,
-          enable_markdown_note: true,
-          enable_metrics_display: true,
-          enable_metrics_auto_detect: true,
-          enable_bibtex_btn: true,
-          enable_scholar_copy_gbt_btn: true,
-          enable_scholar_copy_doi_btn: true,
-          enable_scholar_star_btn: true,
-          enable_journal_copy_doi_btn: true,
-          enable_journal_citation_tools: true,
-          enable_journal_copy_gbt_btn: true,
-          enable_journal_copy_bib_btn: true,
-          enable_journal_open_landing_btn: true,
-          enable_pdf_download_btn: true,
-          enable_ai_summary_btn: true,
-          enable_footprint_heatmap: true,
-          enable_footprint_stats: true,
-          enable_page_diagnostics: true,
-          enable_footprint_quick_filters: true,
-          enable_footprint_gbt_btn: true,
-          enable_footprint_bib_btn: true,
-          enable_footprint_star_btn: true,
-          enable_ccf_badge: true,
-          enable_core_badge: true,
-          enable_warn_badge: true,
-          enable_if_badge: true,
-          enable_cas_badge: true,
-          enable_jcr_badge: true,
-          enable_cite_badge: true,
-          auto_redirect: false,
-          pdf_download_save_as: false
-        }
-      };
-
-      const target = presetMaps[preset];
+      const target = PaperPilotCore.settings.preset(preset);
       if (!target) return;
 
       const keyToInput = {
@@ -1626,21 +1489,24 @@ const initPopup = () => {
         pdf_download_save_as: configPdfDownloadSaveAs
       };
 
+      keyToInput.appearance_mode = configAppearanceMode;
       for (const [key, val] of Object.entries(target)) {
         const input = keyToInput[key];
         if (input) {
-          input.checked = val;
+          if (input.type === "checkbox") input.checked = val;
+          else input.value = val;
         }
       }
 
       const toastMsgs = {
-        recommended: "已应用「常用推荐」配置 · 核心能力全面开启",
+        recommended: "已应用「常用推荐」配置 · 已恢复简洁阅读卡片",
         minimal: "已切换为「极简专注」模式 · 界面极致清爽",
         expert: "已开启「专家全能」模式 · 启用全部学术工具与徽章",
         reset: "已恢复出厂默认初始配置"
       };
 
       saveSettings(target, toastMsgs[preset] || "配置预设已应用");
+      if (target.appearance_mode !== undefined) updateTheme(target.appearance_mode);
       applyPopupCustomLayout(target);
       renderCurrentFootprints();
       syncBadgeCardActiveStates();

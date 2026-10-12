@@ -139,7 +139,7 @@
     if (tag === "meta" && PDF_META_NAMES.has(metaName)) {
       addCandidate(state, element.content || element.getAttribute("content"), {
         source: metaName === "citation_pdf_url" ? "citation_pdf_url" : "pdf-meta",
-        text: metaName,
+        text: "PDF metadata",
         reason: "PDF metadata tag",
         score: metaName === "citation_pdf_url" ? 99 : 96
       });

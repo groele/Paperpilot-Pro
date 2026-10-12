@@ -12,6 +12,7 @@ const files = [
   "popup/popup.js",
   "popup/popup.html",
   "core/messaging.js",
+  "core/settings.js",
   "core/cache.js",
   "core/sanitize.js",
   "core/metadata.js",

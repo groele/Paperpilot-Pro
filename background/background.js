@@ -1,5 +1,6 @@
 importScripts(
     "../core/messaging.js",
+    "../core/settings.js",
     "../core/cache.js",
     "../core/sanitize.js",
     "../core/metadata.js",
@@ -52,7 +53,8 @@ function getRequestedPublicSettingKeys(keys) {
 
 async function getPublicSettings(keys) {
   const safeKeys = getRequestedPublicSettingKeys(keys);
-  const settings = await chrome.storage.local.get(safeKeys);
+  const stored = await chrome.storage.local.get(safeKeys);
+  const settings = Object.fromEntries(safeKeys.map(key => [key, PP_CORE.settings.value(key, stored[key])]).filter(([, value]) => value !== undefined));
   return { success: true, ok: true, settings };
 }
 
@@ -128,8 +130,6 @@ restrictLocalStorageToTrustedContexts();
 chrome.runtime.onInstalled.addListener(() => {
     restrictLocalStorageToTrustedContexts();
       const defaults = {
-        auto_redirect: false,
-        pdf_download_save_as: false,
         pdf_naming: "1", // "[{Journal}] {Author} - {Title}"
         pdf_download_dir: "PaperPilot Pro",
         ai_provider: "openai",
@@ -141,48 +141,12 @@ chrome.runtime.onInstalled.addListener(() => {
         history: [],
         history_revision: 0,
         pdf_cache: {},
-        appearance_mode: "system",
-        enable_ni: true,
-        enable_sorting_filter: true,
-        enable_dedup: true,
-        enable_badges: true,
-        enable_metacard: true,
-        enable_markdown_note: true,
-        enable_metrics_display: true,
-        enable_metrics_auto_detect: true,
-        enable_bibtex_btn: true,
-        enable_scholar_copy_doi_btn: true,
-        enable_scholar_copy_gbt_btn: true,
-        enable_scholar_star_btn: true,
-        enable_journal_copy_doi_btn: true,
-        enable_journal_citation_tools: true,
-        enable_journal_copy_gbt_btn: true,
-        enable_journal_copy_bib_btn: true,
-        enable_journal_open_landing_btn: true,
         pdf_landing_cache: {},
-        enable_pdf_download_btn: true,
-        enable_ai_summary_btn: true,
-        enable_easyscholar: false,
         easyscholar_key: "",
         easyscholar_cache: {},
         openalex_api_key: "",
         scholarly_contact_email: "",
-        enable_ccf_badge: true,
-        enable_core_badge: true,
-        enable_warn_badge: true,
-        enable_if_badge: true,
-        enable_cas_badge: true,
-        enable_jcr_badge: true,
-        enable_cite_badge: true,
-        enable_pdf_badge: true,
-        metacard_pinned: false,
-        enable_footprint_heatmap: true,
-        enable_footprint_stats: true,
-        enable_page_diagnostics: true,
-        enable_footprint_quick_filters: true,
-        enable_footprint_gbt_btn: true,
-        enable_footprint_bib_btn: true,
-        enable_footprint_star_btn: true
+        ...PP_CORE.settings.DEFAULTS
       };
 
     chrome.storage.local.get([...Object.keys(defaults), "enable_copy_doi_btn"], (result) => {
@@ -1456,9 +1420,9 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
 
   // Fetch the easyScholar key to determine if we should bypass a stale estimate cache
   const settings = await chrome.storage.local.get([
-    "enable_easyscholar", "easyscholar_key", "openalex_api_key", "scholarly_contact_email"
+    "enable_easyscholar", "enable_metrics_auto_detect", "easyscholar_key", "openalex_api_key", "scholarly_contact_email"
   ]);
-  const secretKey = settings.enable_easyscholar === true
+  const secretKey = settings.enable_easyscholar === true && PP_CORE.settings.value("enable_metrics_auto_detect", settings.enable_metrics_auto_detect) === true
     ? (settings.easyscholar_key || "").trim()
     : "";
   const openAlexApiKey = String(settings.openalex_api_key || "").trim();
@@ -1533,7 +1497,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
   let easyScholarPromise = null;
   const initialJournal = clientJournal || metadata.journal;
   if (secretKey && initialJournal) {
-    easyScholarPromise = enqueueEasyScholar(initialJournal, secretKey).then(rankData => {
+    easyScholarPromise = enqueueEasyScholar(initialJournal, secretKey, true).then(rankData => {
       if (rankData) {
         mapEasyScholarRank(metadata, rankData);
       }
@@ -1633,7 +1597,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
     await easyScholarPromise;
   } else if (secretKey && metadata.journal) {
     try {
-      const rankData = await enqueueEasyScholar(metadata.journal, secretKey);
+      const rankData = await enqueueEasyScholar(metadata.journal, secretKey, true);
       if (rankData) {
         mapEasyScholarRank(metadata, rankData);
       }
@@ -1920,7 +1884,7 @@ chrome.runtime?.onConnect?.addListener(port => {
         }, 180000);
         try {
           const settings = await chrome.storage.local.get(["enable_ai_summary_btn", "enable_metacard"]);
-          if (settings.enable_ai_summary_btn === false) throw new Error("学术分析视角已关闭，请在 Dashboard Overview 中开启。");
+          if (PP_CORE.settings.value("enable_ai_summary_btn", settings.enable_ai_summary_btn) !== true) throw new Error("学术分析视角已关闭，请在 Dashboard Overview 中开启。");
           if (settings.enable_metacard === false) throw new Error("期刊详情元卡已关闭。");
           if (!String(msg.abstract || '').trim()) throw new Error("未找到摘要，请先打开包含摘要的论文页面。");
           const config = await loadAiConfig();
@@ -1992,13 +1956,14 @@ let isProcessingQueue = false;
 const easyScholarFlights = new Map();
 const RATE_LIMIT_MS = 600; // Keep safe interval > 500ms (2 req/s)
 
-function enqueueEasyScholar(journalName, secretKey) {
-  const normalizedJournal = PP_CORE.metadata?.normalizeTitle?.(journalName) || String(journalName || "").trim().toLowerCase();
-  if (!normalizedJournal || !secretKey) return Promise.resolve(null);
+function enqueueEasyScholar(journalName, secretKey, automatic = false) {
+  const journalKey = PP_CORE.metadata.normalizeTitle(journalName);
+  if (!journalKey || !secretKey) return Promise.resolve(null);
+  const normalizedJournal = `${automatic ? "automatic" : "explicit"}:${journalKey}`;
   if (easyScholarFlights.has(normalizedJournal)) return easyScholarFlights.get(normalizedJournal);
   const generation = easyScholarConfigGeneration;
   const promise = new Promise((resolve) => {
-    easyscholarQueue.push({ journalName, secretKey, generation, resolve });
+    easyscholarQueue.push({ journalName, secretKey, generation, automatic, resolve });
     processEasyScholarQueue();
   });
   easyScholarFlights.set(normalizedJournal, promise);
@@ -2013,14 +1978,20 @@ function processEasyScholarQueue() {
   if (isProcessingQueue || easyscholarQueue.length === 0) return;
   isProcessingQueue = true;
 
-  const { journalName, secretKey, generation, resolve } = easyscholarQueue.shift();
+  const { journalName, secretKey, generation, automatic, resolve } = easyscholarQueue.shift();
   Promise.resolve().then(async () => {
     // Re-check the default-off gate immediately before network I/O. A queued
     // request is safely cancelled when the user disables or rotates the key.
     if (generation !== easyScholarConfigGeneration) return null;
-    const latest = await chrome.storage.local.get(["enable_easyscholar", "easyscholar_key"]);
+    const keys = ["enable_easyscholar", "easyscholar_key", "enable_metrics_auto_detect"];
+    const latest = await chrome.storage.local.get(keys);
     if (latest.enable_easyscholar !== true || String(latest.easyscholar_key || "").trim() !== secretKey) return null;
-    return fetchEasyScholarDirect(journalName, secretKey);
+    if (automatic && PP_CORE.settings.value("enable_metrics_auto_detect", latest.enable_metrics_auto_detect) !== true) return null;
+    const rank = await fetchEasyScholarDirect(journalName, secretKey);
+    const current = await chrome.storage.local.get(keys);
+    if (generation !== easyScholarConfigGeneration || current.enable_easyscholar !== true || String(current.easyscholar_key || "").trim() !== secretKey) return null;
+    if (automatic && PP_CORE.settings.value("enable_metrics_auto_detect", current.enable_metrics_auto_detect) !== true) return null;
+    return rank;
   })
     .then(result => {
       resolve(result);

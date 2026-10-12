@@ -68,6 +68,64 @@ test("extension updates preserve every existing feature switch and citation sect
   assert.equal(storageData.enable_footprint_stats,false);
 });
 
+test("fresh installation uses the compact screenshot defaults and matching reset preset", async () => {
+  const {sandbox,listeners,storageData}=loadBackgroundHarness();
+  listeners.installed();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(storageData.appearance_mode,'light');
+  for(const key of ['enable_metrics_display','enable_metrics_auto_detect','enable_journal_citation_tools','enable_pdf_download_btn','enable_ai_summary_btn','enable_page_diagnostics']) assert.equal(storageData[key],false,key);
+  for(const key of ['enable_metacard','enable_ni','enable_journal_copy_doi_btn','enable_journal_open_landing_btn','enable_footprint_heatmap']) assert.equal(storageData[key],true,key);
+  const reset=sandbox.PaperPilotCore.settings.preset('reset');
+  for(const [key,value] of Object.entries(reset)) assert.equal(storageData[key],value,key);
+});
+
+test("upgrading preserves explicit expanded-card preferences, keys, notes and history", async () => {
+  const {listeners,storageData}=loadBackgroundHarness();
+  Object.assign(storageData,{appearance_mode:'dark',enable_ai_summary_btn:true,enable_journal_citation_tools:true,enable_pdf_download_btn:true,enable_metrics_display:true,ai_api_key:'private-fixture-key',history:[{title:'Preserved article',notes:'Preserved notes'}]});
+  listeners.installed();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(storageData.appearance_mode,'dark');
+  for(const key of ['enable_ai_summary_btn','enable_journal_citation_tools','enable_pdf_download_btn','enable_metrics_display']) assert.equal(storageData[key],true,key);
+  assert.equal(storageData.ai_api_key,'private-fixture-key');
+  assert.equal(storageData.history[0].notes,'Preserved notes');
+});
+
+test("public setting reads apply missing defaults without exposing credentials", async () => {
+  const {sandbox,storageData}=loadBackgroundHarness();
+  storageData.ai_api_key='private-fixture-key';
+  const result=await sandbox.getPublicSettings(['enable_ai_summary_btn','appearance_mode','ai_api_key']);
+  assert.equal(result.settings.enable_ai_summary_btn,false);
+  assert.equal(result.settings.appearance_mode,'light');
+  assert.equal(result.settings.ai_api_key,undefined);
+});
+
+test("automatic journal metrics respect the automatic-detection switch", async () => {
+  for(const enabled of [false,true]) {
+    const {sandbox,calls,storageData}=loadBackgroundHarness({fetchResponse:()=>({ok:true,status:200,json:async()=>null})});
+    Object.assign(storageData,{enable_easyscholar:true,easyscholar_key:'fixture-key',enable_metrics_auto_detect:enabled});
+    await sandbox.fetchPaperMetadata('10.1000/automatic-metrics','Journal metrics test article','Fixture journal');
+    assert.equal(calls.fetches.some(call=>call.url.includes('easyscholar.cc')),enabled);
+  }
+});
+
+test("queued automatic metrics are skipped after disable and late replies cannot survive key rotation", async () => {
+  const first=loadBackgroundHarness();
+  Object.assign(first.storageData,{enable_easyscholar:true,easyscholar_key:'fixture-key',enable_metrics_auto_detect:true});
+  assert.equal(await first.sandbox.enqueueEasyScholar('---','fixture-key',true),null);
+  const queued=first.sandbox.enqueueEasyScholar('Fixture journal','fixture-key',true);
+  first.storageData.enable_metrics_auto_detect=false;
+  assert.equal(await queued,null);
+  assert.equal(first.calls.fetches.length,0);
+  let release;
+  const second=loadBackgroundHarness({fetchResponse:()=>({ok:true,status:200,json:()=>new Promise(resolve=>{release=resolve;})})});
+  Object.assign(second.storageData,{enable_easyscholar:true,easyscholar_key:'old-fixture-key',enable_metrics_auto_detect:true});
+  const pending=second.sandbox.enqueueEasyScholar('Fixture journal','old-fixture-key',true);
+  while(!release) await new Promise(resolve=>setImmediate(resolve));
+  second.storageData.easyscholar_key='new-fixture-key';
+  release({code:200,data:{officialRank:{}}});
+  assert.equal(await pending,null);
+});
+
 test("an identifier-less revisit cannot bridge or erase conflicting DOI editions", async () => {
   const {sandbox,storageData}=loadBackgroundHarness();
   await sandbox.addFootprint({title:'Shared article title',doi:'10.1000/a',notes:'Notes A'});
@@ -532,6 +590,15 @@ test("PDF discovery extracts nested viewer URLs and recognizes query-based PDF r
     ["https://repo.example/files/Paper.PDF?token=abc"]
   );
   assert.equal(core.pdfDiscovery.looksLikePdfUrl("https://repo.example/article/file?id=10.1/demo&type=pdf"), true);
+});
+
+test("citation_pdf_url metadata is not mistaken for a downloadable citation", () => {
+  const core=loadCore('core/pdf.js','core/pdf-discovery.js');
+  const meta={tagName:'META',content:'/paper.pdf',getAttribute:key=>key==='name'?'citation_pdf_url':''};
+  const document={contentType:'text/html',documentElement:{children:[]},scripts:[],querySelectorAll:()=>[meta]};
+  const result=core.pdfDiscovery.collect(document,'https://repository.example/paper',{maxNodes:1,maxScriptChars:0});
+  assert.equal(result.candidates[0].url,'https://repository.example/paper.pdf');
+  assert.equal(result.candidates[0].source,'citation_pdf_url');
 });
 
 test("PDF discovery skips a deep DOM scan for direct PDF and viewer surfaces", () => {
