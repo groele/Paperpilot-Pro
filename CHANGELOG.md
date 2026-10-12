@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.1.0 - 2026-10-07
+
+### Added
+- **GB/T 7714-2015 中文国标引文导出支持**：在 `core/citation.js` 中新增国标引文规范化生成（著者-出版年制与顺序编码制），支持中英文作者规范缩写（3人以上加“等”或“et al.”）；在 Popup 留痕卡片增加 `GB` 一键复制按键，并在导出下拉列表中支持 GB/T 7714 格式批量导出。
+- **期刊元卡一键国标/BibTeX引用复制**：在期刊浮动元卡（Metacard）DOI 展示区内新增 `GB` 与 `Bib` 快速复制按钮，方便用户在浏览 Nature、Science、IEEE、Elsevier、arXiv 等期刊网页时无需打开弹窗即可直接复制标准化引文。
+- **文过留痕笔记专属筛选 Chip 与全局全文检索联动**：在 Popup 快捷筛选与详细 Filter Chips 中新增「📝 笔记」选项，并使搜索框可全文模糊检索笔记（`item.notes`）内容。
+- **AI 学术研读 ➔ 文过留痕笔记闭环沉淀**：在期刊浮动元卡 AI 总结面板增加「📌 存入留痕」按键；在后台新增 `SAVE_FOOTPRINT_NOTES` 事务，持久化保存学术分析笔记；Popup 留痕卡片提供「📝 笔记」标识与编辑抽屉双向读写同步，并在 Markdown 复制与批量导出时完整包含研读笔记。
+- **独立标准化 Nature Index 规范核心模块**：新增 `core/nature-index.js`，收录官方 82 本自然科学顶刊与医学扩增名单，支持全名、标准缩写与别名精准匹配。
+
+### Fixed & Optimized
+- **修复后台 `updateFootprintNotes` 异步锁死（Deadlock）隐患**：在无对应留痕记录直接存入笔记时，消除了原先递归进入 `enqueueHistoryMutation` 导致的 Promise 死锁，直接在事务快照中归一化写入新文献记录。
+- **修复 PubMed / MEDLINE 格式作者倒置问题**：在 `core/citation.js` 的 `formatGbtAuthor` 和 RIS 构建中新增缩写判定，避免将无逗号的缩写英文名（如 `Vaswani A`、`Smith J.`）错误倒置为 `A V` 或 `J S`。
+- **Google Scholar 复制 Markdown 笔记漏记留痕补齐**：在 Scholar 搜索条目点击「复制笔记 [MD]」时，同步持久化记录文过留痕（`status: "copied_markdown"`）。
+- **Nature Index 假阳性高误标率彻底修复**：重构期刊匹配算法，单词刊名（如 *Nature*, *Science*, *Cell*, *Geology*）强制严格等值匹配；引入负向过滤表，彻底杜绝 *Science of The Total Environment*、*Computational Materials Science*、*Cellular Oncology*、*Engineering Geology* 等普通期刊被误标为 Nature Index。
+- **收藏星标文献防驱逐淘汰保护**：重构 `background/background.js` 中的容量淘汰策略（`trimHistoryWithStarredProtection`），当历史记录达到 500 条上限时，优先淘汰未星标的旧记录，永久保护用户的精选收藏星标文献不被丢弃。
+
 ## v3.0.1 - 2026-09-20
 
 ### Fixed

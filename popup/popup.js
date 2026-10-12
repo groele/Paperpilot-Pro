@@ -153,6 +153,7 @@ const initPopup = () => {
   const recordEditDoiInput = document.getElementById("record-edit-doi-input");
   const recordEditPdfInput = document.getElementById("record-edit-pdf-input");
   const recordEditAuthorsInput = document.getElementById("record-edit-authors-input");
+  const recordEditNotesInput = document.getElementById("record-edit-notes-input");
 
 
   const configRedirect = document.getElementById("setting-auto-redirect");
@@ -184,6 +185,19 @@ const initPopup = () => {
   const configJournalCopyDoiBtn = document.getElementById("setting-enable-journal-copy-doi-btn");
   const configPdfDownloadBtn = document.getElementById("setting-enable-pdf-download-btn");
   const configAiSummaryBtn = document.getElementById("setting-enable-ai-summary-btn");
+
+  const configScholarCopyGbtBtn = document.getElementById("setting-enable-scholar-copy-gbt-btn");
+  const configScholarStarBtn = document.getElementById("setting-enable-scholar-star-btn");
+  const configJournalCopyGbtBtn = document.getElementById("setting-enable-journal-copy-gbt-btn");
+  const configJournalCopyBibBtn = document.getElementById("setting-enable-journal-copy-bib-btn");
+  const configJournalOpenLandingBtn = document.getElementById("setting-enable-journal-open-landing-btn");
+  const configFootprintHeatmap = document.getElementById("setting-enable-footprint-heatmap");
+  const configFootprintStats = document.getElementById("setting-enable-footprint-stats");
+  const configPageDiagnostics = document.getElementById("setting-enable-page-diagnostics");
+  const configFootprintQuickFilters = document.getElementById("setting-enable-footprint-quick-filters");
+  const configFootprintGbtBtn = document.getElementById("setting-enable-footprint-gbt-btn");
+  const configFootprintBibBtn = document.getElementById("setting-enable-footprint-bib-btn");
+  const configFootprintStarBtn = document.getElementById("setting-enable-footprint-star-btn");
 
   // easyScholar & Academic badges toggles
   const configCcfBadge = document.getElementById("setting-enable-ccf-badge");
@@ -460,6 +474,7 @@ const initPopup = () => {
     recordEditDoiInput.value = item.doi || "";
     recordEditPdfInput.value = item.pdfUrl || "";
     recordEditAuthorsInput.value = Array.isArray(item.authors) ? item.authors.join("; ") : "";
+    if (recordEditNotesInput) recordEditNotesInput.value = item.notes || "";
 
     positionRecordEditorNearAnchor(anchor);
     recordEditOverlay.classList.add("pp-open");
@@ -488,6 +503,7 @@ const initPopup = () => {
       doi: recordEditDoiInput.value.trim(),
       pdfUrl: recordEditPdfInput.value.trim(),
       authors: parseAuthorsInput(recordEditAuthorsInput.value),
+      notes: recordEditNotesInput ? recordEditNotesInput.value.trim() : (historyData[activeEditIndex].notes || ""),
       updatedAt: Date.now()
     };
     closeRecordEditor();
@@ -763,7 +779,19 @@ const initPopup = () => {
     "enable_if_badge",
     "enable_cas_badge",
     "enable_jcr_badge",
-    "enable_cite_badge"
+    "enable_cite_badge",
+    "enable_scholar_copy_gbt_btn",
+    "enable_scholar_star_btn",
+    "enable_journal_copy_gbt_btn",
+    "enable_journal_copy_bib_btn",
+    "enable_journal_open_landing_btn",
+    "enable_footprint_heatmap",
+    "enable_footprint_stats",
+    "enable_page_diagnostics",
+    "enable_footprint_quick_filters",
+    "enable_footprint_gbt_btn",
+    "enable_footprint_bib_btn",
+    "enable_footprint_star_btn"
   ], (config) => {
     if (config.auto_redirect !== undefined) configRedirect.checked = config.auto_redirect;
     syncPdfDownloadSaveAsControls(config.pdf_download_save_as === true);
@@ -828,6 +856,26 @@ const initPopup = () => {
     configCasBadge.checked = config.enable_cas_badge !== false;
     configJcrBadge.checked = config.enable_jcr_badge !== false;
     configCiteBadge.checked = config.enable_cite_badge !== false;
+
+    if (configScholarCopyGbtBtn) configScholarCopyGbtBtn.checked = config.enable_scholar_copy_gbt_btn !== false;
+    if (configScholarStarBtn) configScholarStarBtn.checked = config.enable_scholar_star_btn !== false;
+    if (configJournalCopyGbtBtn) configJournalCopyGbtBtn.checked = config.enable_journal_copy_gbt_btn !== false;
+    if (configJournalCopyBibBtn) configJournalCopyBibBtn.checked = config.enable_journal_copy_bib_btn !== false;
+    if (configJournalOpenLandingBtn) configJournalOpenLandingBtn.checked = config.enable_journal_open_landing_btn !== false;
+    if (configFootprintHeatmap) configFootprintHeatmap.checked = config.enable_footprint_heatmap !== false;
+    if (configFootprintStats) configFootprintStats.checked = config.enable_footprint_stats !== false;
+    if (configPageDiagnostics) configPageDiagnostics.checked = config.enable_page_diagnostics !== false;
+    if (configFootprintQuickFilters) configFootprintQuickFilters.checked = config.enable_footprint_quick_filters !== false;
+    if (configFootprintGbtBtn) configFootprintGbtBtn.checked = config.enable_footprint_gbt_btn !== false;
+    if (configFootprintBibBtn) configFootprintBibBtn.checked = config.enable_footprint_bib_btn !== false;
+    if (configFootprintStarBtn) configFootprintStarBtn.checked = config.enable_footprint_star_btn !== false;
+
+    applyPopupCustomLayout({
+      enable_footprint_heatmap: config.enable_footprint_heatmap !== false,
+      enable_footprint_stats: config.enable_footprint_stats !== false,
+      enable_page_diagnostics: config.enable_page_diagnostics !== false,
+      enable_footprint_quick_filters: config.enable_footprint_quick_filters !== false
+    });
 
     coreModules.forEach(module => {
       module.savedValue = module.control.checked;
@@ -1054,6 +1102,60 @@ const initPopup = () => {
   configJcrBadge.onchange = () => saveSetting("enable_jcr_badge", configJcrBadge.checked, "JCR 分区指标显示已同步");
   configCiteBadge.onchange = () => saveSetting("enable_cite_badge", configCiteBadge.checked, "被引量徽章显示已同步");
 
+  function applyPopupCustomLayout(settings = {}) {
+    const heatmapCard = document.getElementById("footprint-heatmap-card");
+    const statsBar = document.getElementById("footprint-stats-bar");
+    const pageDiagnostics = document.getElementById("page-diagnostics");
+    const quickFilters = document.getElementById("footprint-quick-filters");
+    if (heatmapCard && settings.enable_footprint_heatmap !== undefined) {
+      heatmapCard.style.display = settings.enable_footprint_heatmap ? "" : "none";
+    }
+    if (statsBar && settings.enable_footprint_stats !== undefined) {
+      statsBar.style.display = settings.enable_footprint_stats ? "" : "none";
+    }
+    if (pageDiagnostics && settings.enable_page_diagnostics !== undefined) {
+      pageDiagnostics.style.display = settings.enable_page_diagnostics ? "" : "none";
+    }
+    if (quickFilters && settings.enable_footprint_quick_filters !== undefined) {
+      quickFilters.style.display = settings.enable_footprint_quick_filters ? "" : "none";
+    }
+  }
+
+  // Scholar & Journal & Footprint custom toggles saves
+  if (configScholarCopyGbtBtn) configScholarCopyGbtBtn.onchange = () => saveSetting("enable_scholar_copy_gbt_btn", configScholarCopyGbtBtn.checked, "谷歌学术 GB/T 7714 按钮开关已同步");
+  if (configScholarStarBtn) configScholarStarBtn.onchange = () => saveSetting("enable_scholar_star_btn", configScholarStarBtn.checked, "谷歌学术收藏按钮开关已同步");
+  if (configJournalCopyGbtBtn) configJournalCopyGbtBtn.onchange = () => saveSetting("enable_journal_copy_gbt_btn", configJournalCopyGbtBtn.checked, "悬浮卡 GB/T 7714 按钮开关已同步");
+  if (configJournalCopyBibBtn) configJournalCopyBibBtn.onchange = () => saveSetting("enable_journal_copy_bib_btn", configJournalCopyBibBtn.checked, "悬浮卡 BibTeX 按钮开关已同步");
+  if (configJournalOpenLandingBtn) configJournalOpenLandingBtn.onchange = () => saveSetting("enable_journal_open_landing_btn", configJournalOpenLandingBtn.checked, "悬浮卡网页端入口开关已同步");
+  if (configFootprintHeatmap) configFootprintHeatmap.onchange = () => {
+    saveSetting("enable_footprint_heatmap", configFootprintHeatmap.checked, "学术打卡日历显示已同步");
+    applyPopupCustomLayout({ enable_footprint_heatmap: configFootprintHeatmap.checked });
+  };
+  if (configFootprintStats) configFootprintStats.onchange = () => {
+    saveSetting("enable_footprint_stats", configFootprintStats.checked, "研读统计概览栏显示已同步");
+    applyPopupCustomLayout({ enable_footprint_stats: configFootprintStats.checked });
+  };
+  if (configPageDiagnostics) configPageDiagnostics.onchange = () => {
+    saveSetting("enable_page_diagnostics", configPageDiagnostics.checked, "当前页面诊断 Scanner 显示已同步");
+    applyPopupCustomLayout({ enable_page_diagnostics: configPageDiagnostics.checked });
+  };
+  if (configFootprintQuickFilters) configFootprintQuickFilters.onchange = () => {
+    saveSetting("enable_footprint_quick_filters", configFootprintQuickFilters.checked, "留痕快捷筛选栏显示已同步");
+    applyPopupCustomLayout({ enable_footprint_quick_filters: configFootprintQuickFilters.checked });
+  };
+  if (configFootprintGbtBtn) configFootprintGbtBtn.onchange = () => {
+    saveSetting("enable_footprint_gbt_btn", configFootprintGbtBtn.checked, "留痕卡片 GB/T 7714 复制按钮已同步");
+    renderCurrentFootprints();
+  };
+  if (configFootprintBibBtn) configFootprintBibBtn.onchange = () => {
+    saveSetting("enable_footprint_bib_btn", configFootprintBibBtn.checked, "留痕卡片 BibTeX 复制按钮已同步");
+    renderCurrentFootprints();
+  };
+  if (configFootprintStarBtn) configFootprintStarBtn.onchange = () => {
+    saveSetting("enable_footprint_star_btn", configFootprintStarBtn.checked, "留痕卡片收藏按钮已同步");
+    renderCurrentFootprints();
+  };
+
   let currentChipFilter = "all";
   let currentDateFilter = null;
 
@@ -1109,6 +1211,8 @@ const initPopup = () => {
 
     if (currentChipFilter === "starred") {
       result = result.filter(item => item.starred === true);
+    } else if (currentChipFilter === "notes") {
+      result = result.filter(item => Boolean(item.notes && item.notes.trim()));
     } else if (currentChipFilter === "downloaded") {
       result = result.filter(item => item.status === "downloaded");
     } else if (currentChipFilter === "copied") {
@@ -1122,7 +1226,8 @@ const initPopup = () => {
       const doi = (item.doi || "").toLowerCase();
       const authors = Array.isArray(item.authors) ? item.authors.join(" ").toLowerCase() : String(item.authors || "").toLowerCase();
       const year = String(item.year || "");
-      return title.includes(q) || journal.includes(q) || doi.includes(q) || authors.includes(q) || year.includes(q);
+      const notes = (item.notes || "").toLowerCase();
+      return title.includes(q) || journal.includes(q) || doi.includes(q) || authors.includes(q) || year.includes(q) || notes.includes(q);
     });
   }
 
@@ -1132,9 +1237,10 @@ const initPopup = () => {
   }
 
   function refreshHistoryStats() {
-    const next = { all: historyData.length, starred: 0, downloaded: 0, copied: 0 };
+    const next = { all: historyData.length, starred: 0, notes: 0, downloaded: 0, copied: 0 };
     historyData.forEach(item => {
       if (item.starred === true) next.starred++;
+      if (item.notes && item.notes.trim()) next.notes++;
       if (item.status === "downloaded") next.downloaded++;
       if ((item.status || "").startsWith("copied")) next.copied++;
     });
@@ -1351,8 +1457,9 @@ const initPopup = () => {
     const labels = {
       all: `全部 (${counts.all})`,
       starred: `⭐ 收藏 (${counts.starred})`,
+      notes: `📝 笔记 (${counts.notes || 0})`,
       downloaded: `📥 已下载 (${counts.downloaded})`,
-      copied: `📝 已复引用 (${counts.copied})`
+      copied: `📋 已复制 (${counts.copied})`
     };
     document.querySelectorAll("#footprint-chips [data-filter], #footprint-quick-filters [data-filter]").forEach(button => {
       const filter = button.dataset.filter || "all";
@@ -1576,6 +1683,26 @@ const initPopup = () => {
         });
       };
 
+      // 1-Click Copy GB/T 7714 button
+      const gbBtn = document.createElement("button");
+      gbBtn.type = "button";
+      gbBtn.className = "pp-foot-copy-btn";
+      gbBtn.textContent = "GB";
+      gbBtn.title = "一键复制该文献的 GB/T 7714 国标引用";
+      gbBtn.onclick = (event) => {
+        event.stopPropagation();
+        const citation = window.PaperPilotCore?.citation;
+        const text = citation?.buildGbt7714Entries
+          ? citation.buildGbt7714Entries([item], { numbered: false })
+          : `${item.authors?.join(", ") || "佚名"}. ${item.title || "Untitled"}[J]. ${item.journal || ""}, ${item.year || ""}.`;
+        robustCopyToClipboard(text).then(() => {
+          item.status = "copied_citation";
+          persistHistory("已将 GB/T 7714 引用写入剪贴板");
+        }).catch(() => {
+          showToast("剪贴板写入失败，请检查浏览器权限");
+        });
+      };
+
       // 1-Click Copy Markdown button
       const mdBtn = document.createElement("button");
       mdBtn.type = "button";
@@ -1589,7 +1716,10 @@ const initPopup = () => {
         const journalStr = item.journal ? `*${item.journal}*` : "";
         const yearStr = item.year ? `(${item.year})` : "";
         const authorsStr = Array.isArray(item.authors) ? item.authors.join(", ") : (item.authors || "");
-        const mdText = `${link} - ${journalStr} ${yearStr}${authorsStr ? ` - ${authorsStr}` : ""}`.trim();
+        let mdText = `${link} - ${journalStr} ${yearStr}${authorsStr ? ` - ${authorsStr}` : ""}`.trim();
+        if (item.notes) {
+          mdText += `\n\n> **研读笔记**：\n> ${item.notes.replace(/\n/g, "\n> ")}`;
+        }
         robustCopyToClipboard(mdText).then(() => {
           item.status = "copied_citation";
           persistHistory("已将 Markdown 笔记写入剪贴板");
@@ -1598,12 +1728,13 @@ const initPopup = () => {
         });
       };
 
-      tools.appendChild(starBtn);
-      tools.appendChild(bibBtn);
-      tools.appendChild(mdBtn);
+      if (configFootprintStarBtn ? configFootprintStarBtn.checked : true) tools.appendChild(starBtn);
+      if (configFootprintBibBtn ? configFootprintBibBtn.checked : true) tools.appendChild(bibBtn);
+      if (configFootprintGbtBtn ? configFootprintGbtBtn.checked : true) tools.appendChild(gbBtn);
+      if (configMarkdownNote ? configMarkdownNote.checked : true) tools.appendChild(mdBtn);
 
       // 1-Click Copy DOI button
-      if (item.doi) {
+      if (item.doi && (configJournalCopyDoiBtn ? configJournalCopyDoiBtn.checked : true)) {
         const doiBtn = document.createElement("button");
         doiBtn.type = "button";
         doiBtn.className = "pp-foot-copy-btn";
@@ -1657,6 +1788,18 @@ const initPopup = () => {
         const displayed = authorList.slice(0, 2).join(", ") + (authorList.length > 2 ? " 等" : "");
         authorsEl.textContent = displayed;
         metaRow.appendChild(authorsEl);
+      }
+
+      if (item.notes) {
+        const noteBadge = document.createElement("span");
+        noteBadge.className = "pp-foot-note-badge";
+        noteBadge.textContent = "📝 笔记";
+        noteBadge.title = item.notes.slice(0, 100) + (item.notes.length > 100 ? "..." : "");
+        noteBadge.onclick = (event) => {
+          event.stopPropagation();
+          openRecordEditor(recordIndex, noteBadge);
+        };
+        metaRow.appendChild(noteBadge);
       }
 
       const statusBadge = document.createElement("span");
@@ -1803,8 +1946,12 @@ const initPopup = () => {
         const doi = paper.doi ? `[${paper.doi}](https://doi.org/${paper.doi})` : "N/A";
         const url = paper.pdfUrl ? `[PDF 全文](${paper.pdfUrl})` : "";
         const authors = Array.isArray(paper.authors) ? paper.authors.join(", ") : (paper.authors || "");
-        return `${idx + 1}. **${title}**\n   - 期刊年份: ${journal} ${year}\n   - 作者: ${authors || "N/A"}\n   - DOI/直链: ${doi} ${url}`.trim();
+        const notesStr = paper.notes ? `\n   - 研读笔记: ${paper.notes.replace(/\n+/g, " ")}` : "";
+        return `${idx + 1}. **${title}**\n   - 期刊年份: ${journal} ${year}\n   - 作者: ${authors || "N/A"}\n   - DOI/直链: ${doi} ${url}${notesStr}`.trim();
       }).join("\n\n");
+    } else if (citation && format === "gbt7714") {
+      exported = citation.buildGbt7714Entries(normalized);
+      label = "GB/T 7714 国标引用";
     } else if (citation && format === "ris") {
       exported = citation.buildRisEntries(normalized);
       label = "RIS";
