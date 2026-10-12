@@ -210,6 +210,42 @@ function loadBackgroundHarness(options = {}) {
   return { sandbox, calls, listeners, storageData, sessionData };
 }
 
+test("DOI lookup refuses foreign and missing identifiers from every provider", async () => {
+  for (const rawDoi of ['10.1000/wrong', undefined]) {
+    const {sandbox}=loadBackgroundHarness({fetchResponse:()=>({ok:true,status:200,json:async()=>({
+      DOI:rawDoi,doi:rawDoi,title:'Foreign paper title',best_oa_location:{url_for_pdf:'https://example.org/wrong.pdf'}
+    })})});
+    const result=await sandbox.fetchPaperMetadata('10.1000/requested','Requested research article title','Requested journal');
+    assert.equal(result.data.doi,'10.1000/requested');
+    assert.equal(result.data.title,'Requested research article title');
+    assert.equal(result.data.pdfUrl,'');
+    assert.equal(result.data.sources.length,0);
+  }
+});
+
+test("title-resolved DOI cannot inherit a foreign Unpaywall PDF", async () => {
+  const title='Valley polarization in layered semiconductor heterostructures';
+  const {sandbox}=loadBackgroundHarness({fetchResponse:url=>({ok:true,status:200,json:async()=>
+    url.includes('api.openalex.org')?{results:[{title,doi:'https://doi.org/10.1000/correct'}]}:
+    url.includes('api.crossref.org')?{message:{items:[]}}:
+    {doi:'10.1000/foreign',best_oa_location:{url_for_pdf:'https://example.org/foreign.pdf'}}
+  })});
+  const result=await sandbox.fetchPaperMetadata('',title,'Fixture journal');
+  assert.equal(result.data.doi,'10.1000/correct');
+  assert.equal(result.data.pdfUrl,'');
+});
+
+test("metadata cache and request flights keep distinct Unicode DOI identities", async () => {
+  const {sandbox,calls}=loadBackgroundHarness({fetchResponse:()=>({ok:true,status:200,json:async()=>null})});
+  const upper='10.1000/Á.abc',lower='10.1000/á.abc';
+  assert.notEqual(sandbox.getMetadataFlightKey(upper,'Same paper'),sandbox.getMetadataFlightKey(lower,'Same paper'));
+  const first=await sandbox.fetchPaperMetadata(upper,'Same article title in Unicode','Fixture journal');
+  const second=await sandbox.fetchPaperMetadata(lower,'Same article title in Unicode','Fixture journal');
+  assert.equal(first.fromCache,false);
+  assert.equal(second.fromCache,false);
+  assert.equal(calls.fetches.length,6);
+});
+
 test("AI summary reports missing API key instead of creating a fake summary", async () => {
   const core = loadCore("core/messaging.js", "core/ai.js");
 
@@ -706,9 +742,10 @@ test("journal content collects up to 32 structured PDF candidates", () => {
 });
 
 test("background DOI lookup rejects suffix-only identifiers", () => {
-  const source = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
-
-  assert.match(source, /PP_CORE\.metadata\?\.extractDoi/);
+  const {sandbox}=loadBackgroundHarness();
+  assert.equal(sandbox.normalizeDoiForLookup('adh5083'),'');
+  assert.equal(sandbox.normalizeDoiForLookup('10.1000/one;10.1000/two'),'');
+  assert.equal(sandbox.normalizeDoiForLookup('https://doi.org/10.1000%2Fvalid'),'10.1000/valid');
 });
 
 test('history keeps conflicting DOI records and preserves enriched metadata on revisits', async () => {

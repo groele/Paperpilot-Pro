@@ -1,8 +1,21 @@
 # DOI recognition changes — 2026-10-12
 
-Version: 4.0.0
+Version: 4.0.4
 
-## Findings and fixes
+## V4.0.4 follow-up
+
+- Group explicit DOI metadata, selected article JSON-LD, page/publisher routes, canonical routes and generic identifiers by authority. Conflicting leading candidates need unique independent corroboration; competing supported identities remain unresolved. Tag order and duplicate evidence do not select a winner.
+- JSON-LD uses query-aware page identity and WebPage/mainEntity graph ownership. Mismatched article titles and close competing DOI nodes do not become the current paper. Parsing has 240 KB, 512-node, depth-eight and 128-script limits; oversize scripts are skipped.
+- DOM fallback skips hidden nodes, heading-marked reference sections and inline citation prose, while prioritizing explicit article identifiers and labelled DOI evidence. Link/block scans are bounded.
+- Encoded prefixes, nested URL transport layers, mixed valid/malformed escapes, non-breaking copied spaces and supplementary Unicode HTML entities are supported. Authoritative Unicode suffixes, literal percent sequences and SICI syntax are preserved; malformed UTF-16 and conflicting single-DOI fields are rejected.
+- DOI comparison uses ASCII-only case folding, as specified by the [DOI Handbook](https://www.doi.org/doi-handbook/DOIHandbook_2025.pdf), across evidence, libraries, caches and requests. This avoids merging distinct non-ASCII suffixes.
+- CSL/OpenAlex/Unpaywall/Crossref enrichment must carry the requested DOI; the title-resolved Unpaywall path has the same guard. Cache schema is 4.
+
+Validation: 149 tests plus E2E fixtures, 22 DOI page scenarios in the actual MV3 extension, and three native toolbar popup reopenings. Live Crossref records `10.1038/nphys1170` and `10.1002/(SICI)1099-0844(199912)17:4<290::AID-CBF849>3.0.CO;2-P` matched parsed identities. `10.1126/science.169.3946.635` returned HTTP 429 and remains unverified in this run. Controlled service fixtures verify rejection of wrong/missing DOI identities; they do not prove universal publisher coverage or registration of synthetic test identifiers.
+
+The local parser targets common academic 4–9-digit registrant prefixes; it is not a registry validator. A single text input is limited to 16 KB, candidate traversal to 512 visits/depth eight/128 strings, and output to 64 identifiers. Oversize input is refused instead of creating a truncated DOI. Existing shortDOI/OCR/closed-shadow/scanned-PDF limitations remain.
+
+## V4.0.0 original findings and fixes
 
 The previous page extractor checked every DOI anchor before the current article URL, allowing a reference to become the page DOI. It also read arbitrary body text and selected the first JSON-LD article. Fallback extraction now excludes reference and recommendation containers, accepts article identifiers or DOI-labelled blocks, and refuses conflicting fallback candidates. Bibliographic metadata remains first; JSON-LD selection uses the current title and page identity. Current URL and publisher-specific route evidence precede DOM fallback.
 

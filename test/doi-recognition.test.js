@@ -47,7 +47,15 @@ for (const [input, expected] of [
   ["10.1234567890/demo", ""],
   ["10.1000/", ""],
   ["adh5083", ""],
-  ["https://doi.org/not-a-doi", ""]
+  ["https://doi.org/not-a-doi", ""],
+  ["10.1000%2Fdemo%23suffix", "10.1000/demo#suffix"],
+  ["doi:10%2E1000/demo", "10.1000/demo"],
+  ["https%3A%2F%2Fdoi.org%2F10.1000%252Fdemo", "10.1000/demo"],
+  ["https://doi.org/10.1000%2Fbad%ZZ", "10.1000/bad%ZZ"],
+  ["https://doi.org/search/10.1000/wrong", ""],
+  ["See https://doi.org/10.1000/demo.", "10.1000/demo"],
+  ["doi: 10.1000&nbsp;/demo", "10.1000/demo"],
+  ["10.1000/&#x1F52C;", "10.1000/🔬"]
 ]) {
   test(`DOI parsing: ${JSON.stringify(input)}`, () => assert.equal(m.extractDoi(input), expected));
 }
@@ -61,8 +69,56 @@ test("structured identifiers skip unrelated fields, deduplicate and preserve aut
   assert.equal(m.normalizeDoi("not-a-doi"), "");
 });
 
+test("one identifier cannot silently select the first DOI from a conflicting field", () => {
+  assert.equal(m.normalizeDoi("10.1000/one;10.1000/two"), "");
+  assert.equal(m.normalizeDoi(["10.1000/one", "10.1000/ONE"]), "10.1000/one");
+  assert.equal(m.extractDoi({propertyID:"not-doi",value:"10.1000/wrong"}), "");
+  assert.deepEqual(Array.from(m.extractDois("10.1000/one;10.1000/two")), ["10.1000/one","10.1000/two"]);
+});
+
+test("authoritative Unicode identifiers and literal percent sequences round-trip", () => {
+  for (const doi of ["10.1000/研究，补充", "10.1000/literal%2Fsequence", "10.1000/registered.", sici]) {
+    assert.equal(m.normalizeDoi(doi), doi);
+    assert.equal(m.normalizeDoi(m.doiUrl(doi)), doi);
+  }
+});
+
+test("DOI comparison follows ASCII-only folding rather than Unicode case folding", () => {
+  assert.equal(m.doiKey('10.1000/Á.ABC'),'10.1000/Á.abc');
+  assert.notEqual(m.doiKey('10.1000/Á.abc'),m.doiKey('10.1000/á.abc'));
+  assert.equal(m.extractDois(['10.1000/Á.abc','10.1000/á.abc']).length,2);
+});
+
+test("DOI evidence uses source priority and refuses conflicting corroboration", () => {
+  const primary={source:"metadata",priority:100,values:["10.1000/one","10.1000/two"],authoritative:true};
+  assert.equal(m.selectDoiEvidence([primary]).ambiguous,true);
+  assert.equal(m.selectDoiEvidence([primary,{source:"url",priority:80,values:"10.1000/two"}]).doi,"10.1000/two");
+  assert.equal(m.selectDoiEvidence([primary,{source:"metadata",priority:90,values:"10.1000/two"}]).doi,"");
+  assert.equal(m.selectDoiEvidence([primary,{source:"url",priority:80,values:"10.1000/two"},{source:"jsonld",priority:90,values:"10.1000/one"}]).doi,"");
+  assert.equal(m.selectDoiEvidence([{source:"doi",priority:100,values:"10.1000/correct"},{source:"dc",priority:70,values:"10.1000/wrong"}]).doi,"10.1000/correct");
+  assert.equal(m.selectDoiEvidence([{source:"url",priority:80,values:"10.1000/one"},{source:"canonical",priority:80,values:"10.1000/two"}]).ambiguous,true);
+});
+
+test("DOI parsing bounds hostile structured input without constructing truncated identifiers", () => {
+  const cycle={}; cycle.identifier=[cycle,cycle,cycle];
+  assert.equal(m.normalizeDoi(cycle), "");
+  assert.equal(m.extractDoi('10.1000/'+ 'x'.repeat(16001)), "");
+});
+
+test("invalid UTF-16 cannot crash DOI resolver links and supplementary entities stay intact", () => {
+  assert.equal(m.normalizeDoi('10.1000/\ud800'), '');
+  assert.equal(m.doiUrl('10.1000/\udc00'), '');
+  assert.equal(m.normalizeDoi(m.doiUrl('10.1000/🔬')), '10.1000/🔬');
+  assert.doesNotThrow(()=>m.decodeHtmlEntities('&#x110000; &#55296;'));
+});
+
 test("malformed URL encoding never aborts a site profile", () => {
   assert.doesNotThrow(() => core.siteProfiles.resolve("https://iopscience.iop.org/article/10.1088/example%ZZ/meta"));
+});
+
+test("publisher profiles cannot turn a conflicting URL into the first DOI", () => {
+  const profile=core.siteProfiles.resolve('https://example.test/article/10.1000/one?doi=10.1000%2Ftwo');
+  assert.equal(profile.doiCandidates.length,0);
 });
 
 test("DOI link construction round-trips reserved characters and SICI identifiers", () => {

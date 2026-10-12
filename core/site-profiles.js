@@ -76,13 +76,13 @@
 
 
   function doiFromText(text) {
-    if (root.metadata?.extractDoi) return root.metadata.extractDoi([text]);
+    if (root.metadata?.normalizeDoi) return root.metadata.normalizeDoi(text);
     const match = String(text || "").match(/\b10\.\d{4,9}\/[^\s"'<>]+/i);
     return match ? match[0].replace(/[.,;:)\]}]+$/g, "") : "";
   }
 
   function doiFromPath(url) {
-    if (root.metadata?.extractDoi) return root.metadata.extractDoi(url.href);
+    if (root.metadata?.normalizeDoi) return root.metadata.normalizeDoi(url.href);
     let decodedPath;
     try { decodedPath = decodeURIComponent(url.pathname); } catch (_) { decodedPath = url.pathname; }
     const match = decodedPath.match(/\/doi\/(?:full\/|abs\/|epdf\/|pdf\/)?(10\.[^?#]+)/i);

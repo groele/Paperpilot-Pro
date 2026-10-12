@@ -10,18 +10,43 @@ fs.mkdirSync(out, {recursive:true});
 let mode = 'normal', requests = 0, aborted = 0;
 const server = http.createServer((req, res) => {
   if (req.url.startsWith('/doi-fixture/')) {
-    const name = req.url.split('/')[2];
+    const name = new URL(req.url, 'http://fixture.test').pathname.split('/')[2];
     const title = `DOI recognition fixture ${name}`;
     let metadata = '', article = '', jsonLd = '';
     if (name === 'metadata') metadata = '<meta name="dc.identifier" content="10.1000/wrong"><meta name="CITATION_DOI" content="10.1000/current">';
     if (name === 'labeled') article = '<p>DOI: 10.1000/current(2026).</p>';
     if (name === 'ambiguous') article = '<a href="https://doi.org/10.1000/one">DOI</a><a href="https://doi.org/10.1000/two">DOI</a>';
+    if (name.startsWith('metadata-conflict')) metadata = '<meta name="citation_doi" content="10.1000/wrong"><meta name="citation_doi" content="10.1000/current">';
+    if (name === 'metadata-conflict-reverse') metadata = '<meta name="citation_doi" content="10.1000/current"><meta name="citation_doi" content="10.1000/wrong">';
+    if (name === 'generic-metadata') metadata = '<meta name="dc.identifier" content="10.1000/wrong">';
+    if (name === 'encoded-metadata') metadata = '<meta name="citation_doi" content="10%2E1000%2Fcurrent">';
+    if (name === 'unicode-metadata') metadata = '<meta name="citation_doi" content="10.1000/研究，补充">';
+    if (name === 'unmarked-references') article = '<section><h2>References</h2><p>DOI: 10.1000/reference</p><a href="https://doi.org/10.1000/reference">DOI</a></section>';
+    if (name === 'inline-reference') article = '<p>Prior research <a href="https://doi.org/10.1000/reference">DOI</a> motivates our study.</p><p>DOI: 10.1000/current</p>';
+    if (name === 'hidden-identifier') article = '<div style="display:none" data-doi="10.1000/wrong"></div><p>DOI: 10.1000/current</p>';
+    if (name === 'structured-identifier') article = '<span data-doi="10.1000/current">Article identifier</span><p>DOI: 10.1000/wrong</p>';
     if (name === 'jsonld') jsonLd = `<script type="application/ld+json">${JSON.stringify({
       '@graph': [
         {'@type':'ScholarlyArticle',headline:'A related article',identifier:'10.1000/wrong'},
         {'@type':'https://schema.org/ScholarlyArticle',headline:title,identifier:{propertyID:'DOI',value:'10.1000/current'}}
       ]
     })}</script>`;
+    if (name === 'jsonld-conflict') jsonLd = `<script type="application/ld+json">${JSON.stringify([
+      {'@type':'ScholarlyArticle',headline:title,identifier:'10.1000/one'},
+      {'@type':'ScholarlyArticle',headline:title,identifier:'10.1000/two'}
+    ])}</script>`;
+    if (name === 'jsonld-query') jsonLd = `<script type="application/ld+json">${JSON.stringify([
+      {'@type':'ScholarlyArticle',headline:title,identifier:'10.1000/wrong',url:`http://${req.headers.host}/doi-fixture/jsonld-query?paper=1`},
+      {'@type':'ScholarlyArticle',headline:title,identifier:'10.1000/current',url:`http://${req.headers.host}/doi-fixture/jsonld-query?paper=2`}
+    ])}</script>`;
+    if (name === 'jsonld-wrong-title') jsonLd = `<script type="application/ld+json">${JSON.stringify({
+      '@type':'ScholarlyArticle',headline:'Unrelated research on superconducting circuits',identifier:'10.1000/wrong',url:`http://${req.headers.host}${req.url}`
+    })}</script>`;
+    if (name === 'jsonld-owner') jsonLd = `<script type="application/ld+json">${JSON.stringify({'@graph':[
+      {'@type':'ScholarlyArticle','@id':'#related',headline:title,identifier:'10.1000/wrong'},
+      {'@type':'WebPage',url:`http://${req.headers.host}${req.url}`,mainEntity:{'@id':'#current'}},
+      {'@type':'ScholarlyArticle','@id':'#current',headline:title,identifier:'10.1000/current'}
+    ]})}</script>`;
     const journalMeta = name === 'encoded' ? '' : '<meta name="citation_journal_title" content="Fixture Journal">';
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><meta name="citation_title" content="${title}">${journalMeta}${metadata}${jsonLd}</head><body>
       <section id="references"><p>DOI: 10.1000/reference</p><a href="https://doi.org/10.1000/reference">Reference DOI</a></section>
@@ -93,7 +118,22 @@ async function until(fn, label, timeout=10000) {
       ['labeled', '10.1000/current(2026)'],
       ['reference-only', '暂无 DOI'],
       ['ambiguous', '暂无 DOI'],
-      ['encoded/10.1000%2Fdemo%23value', '10.1000/demo#value']
+      ['encoded/10.1000%2Fdemo%23value', '10.1000/demo#value'],
+      ['metadata-conflict','暂无 DOI'],
+      ['metadata-conflict/10.1000/current','10.1000/current'],
+      ['metadata-conflict-reverse/10.1000/current','10.1000/current'],
+      ['generic-metadata/10.1000/current','10.1000/current'],
+      ['encoded-metadata','10.1000/current'],
+      ['unicode-metadata','10.1000/研究，补充'],
+      ['unmarked-references','暂无 DOI'],
+      ['inline-reference','10.1000/current'],
+      ['hidden-identifier','10.1000/current'],
+      ['structured-identifier','10.1000/current'],
+      ['jsonld-conflict','暂无 DOI'],
+      ['jsonld-query?paper=2','10.1000/current'],
+      ['jsonld-wrong-title','暂无 DOI'],
+      ['jsonld-owner','10.1000/current'],
+      ['url-query-conflict/10.1000/one?doi=10.1000%2Ftwo','暂无 DOI']
     ]) {
       await doiPage.goto(`${origin}/doi-fixture/${route}`);
       const field = doiPage.locator('#pp-jc-doi-val-box .pp-jc-meta-val');
@@ -103,7 +143,7 @@ async function until(fn, label, timeout=10000) {
       assert.deepEqual(duplicateIds,[],route);
     }
     await doiPage.close();
-    pass('DOI browser fixtures: page identity, metadata priority, JSON-LD, labels, reference exclusion, ambiguity and encoding');
+    pass('DOI browser fixtures: 22 scenarios covering conflicting/reordered metadata, corroboration, JSON-LD identity/ties/query URLs/graph ownership, reference headings, inline/hidden references, structured identifiers, encoding and Unicode');
     const article=await context.newPage();
     await article.goto(origin+'/paper');
     await article.locator('#pp-journal-metacard').waitFor();

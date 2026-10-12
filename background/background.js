@@ -15,7 +15,7 @@ importScripts(
 
 const PP_CORE = globalThis.PaperPilotCore || {};
 const PP_BACKGROUND = globalThis.PaperPilotBackground || {};
-const METADATA_CACHE_SCHEMA_VERSION = 3;
+const METADATA_CACHE_SCHEMA_VERSION = 4;
 const METADATA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const METADATA_TITLE_MATCH_THRESHOLD = 0.9;
 const DEFAULT_METADATA_CONTACT_EMAIL = PP_CORE.metadata?.UNPAYWALL_EMAIL || "paperpilot@gmail.com";
@@ -1374,14 +1374,7 @@ function downloadPdf(url, filename, candidateUrls = [], context = {}) {
 }
 
 function normalizeDoiForLookup(doi) {
-  if (PP_CORE.metadata?.extractDoi) {
-    return PP_CORE.metadata.extractDoi([doi], { authoritative: true });
-  }
-  const normalized = String(doi || "").trim()
-    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
-    .replace(/^doi:\s*/i, "")
-    .replace(/[?#].*$/, "");
-  return /^10\.\d{4,9}\/\S+$/i.test(normalized) ? normalized : "";
+  return PP_CORE.metadata.normalizeDoi(doi);
 }
 
 function isWeakMetadataTitle(title, doi = "") {
@@ -1412,7 +1405,7 @@ function getMetadataFlightKey(doi, title, pageUrl = "") {
   const normalizedDoi = normalizeDoiForLookup(doi);
   const normalizedTitle = PP_CORE.metadata?.normalizeTitle?.(title) || String(title || "").trim().toLowerCase();
   const pageKey = String(pageUrl || "").split("#")[0];
-  return `${normalizedDoi ? `doi:${normalizedDoi.toLowerCase()}` : `title:${normalizedTitle}`}|page:${pageKey}`;
+  return `${normalizedDoi ? `doi:${PP_CORE.metadata.doiKey(normalizedDoi)}` : `title:${normalizedTitle}`}|page:${pageKey}`;
 }
 
 function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
@@ -1459,7 +1452,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
   // If DOI is missing, try to resolve via title using OpenAlex
   let paperDoi = normalizeDoiForLookup(doi);
   const normalizedRequestedTitle = PP_CORE.metadata?.normalizeTitle?.(title) || String(title || "").trim().toLowerCase();
-  const cacheKey = paperDoi ? paperDoi.toLowerCase() : `title_${normalizedRequestedTitle}`;
+  const cacheKey = paperDoi ? PP_CORE.metadata.doiKey(paperDoi) : `title_${normalizedRequestedTitle}`;
 
   // Fetch the easyScholar key to determine if we should bypass a stale estimate cache
   const settings = await chrome.storage.local.get([
@@ -1564,7 +1557,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
     const work = openAlex?.results ? openAlex.results[0] : openAlex;
     const matchesRequestedDoi = item => {
       const rawDoi = item?.DOI || item?.doi;
-      return !rawDoi || normalizeDoiForLookup(rawDoi).toLowerCase() === paperDoi.toLowerCase();
+      return Boolean(rawDoi) && PP_CORE.metadata.doiKey(rawDoi) === PP_CORE.metadata.doiKey(paperDoi);
     };
     if (work && matchesRequestedDoi(work) && PP_CORE.metadata?.applyOpenAlexWork) PP_CORE.metadata.applyOpenAlexWork(metadata, work);
     // DOI-negotiated CSL is the canonical bibliographic source and therefore
@@ -1610,7 +1603,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
         const upResponse = await fetchResponseWithTimeout(`https://api.unpaywall.org/v2/${encodeURIComponent(metadata.doi)}?email=${encodeURIComponent(contactEmail)}`);
         if (upResponse.ok) {
           const upData = await upResponse.json();
-          if (upData.best_oa_location) {
+          if (PP_CORE.metadata.doiKey(upData.doi) === PP_CORE.metadata.doiKey(metadata.doi) && upData.best_oa_location) {
             if (PP_CORE.metadata?.applyUnpaywall) {
               PP_CORE.metadata.applyUnpaywall(metadata, upData);
             } else {
@@ -1775,9 +1768,9 @@ async function addFootprint(footprint) {
   }
   return enqueueHistoryMutation(async snapshot => {
     let history = snapshot.history;
-    const doi = PP_CORE.metadata.normalizeDoi(footprint.doi).toLowerCase();
+    const doi = PP_CORE.metadata.doiKey(footprint.doi);
     const matches = history.filter(item => PP_CORE.library.samePaper(item, footprint));
-    const existing = (doi && matches.find(item => PP_CORE.metadata.normalizeDoi(item.doi).toLowerCase() === doi)) || matches.find(item => !item.doi) || (matches.length === 1 ? matches[0] : null);
+    const existing = (doi && matches.find(item => PP_CORE.metadata.doiKey(item.doi) === doi)) || matches.find(item => !item.doi) || (matches.length === 1 ? matches[0] : null);
     const newItem = PP_CORE.library.mergeRecord(existing, footprint);
     const remaining = history.filter(item => item !== existing);
     const rawMerged = PP_CORE.library.normalizeRecords([...remaining, newItem]);

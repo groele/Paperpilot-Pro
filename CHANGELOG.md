@@ -1,5 +1,20 @@
 # Changelog
 
+## v4.0.4 - 2026-10-12
+
+### Fixed
+- Select article DOI evidence by source priority and independent corroboration instead of tag order; refuse unresolved conflicts in metadata, URL paths/query identifiers and publisher profiles.
+- Resolve JSON-LD mainEntity graph ownership, preserve query-string page identity, reject unrelated titles and conflicting tied article nodes, and bound parsing work.
+- Exclude unmarked reference sections identified by headings, inline citation prose and hidden DOI nodes. Prefer explicit article identifiers and labelled DOI links/blocks.
+- Parse encoded prefixes, nested encoded URLs, valid escape sequences alongside malformed escapes, non-breaking copied spaces and supplementary Unicode entities. Preserve registered Unicode/punctuation and literal percent sequences in authoritative identifiers, keep legacy SICI suffixes, and reject malformed UTF-16 before link construction.
+- Use ASCII-only DOI case folding consistently for evidence, library identity, request flights and caches. Reject multi-DOI values in single-identifier fields.
+- Require matching DOI identities in provider enrichment, including Unpaywall after title resolution. Bump metadata cache schema to 4 so older recognition results refresh.
+
+### Verification
+- `npm run verify`: lint, 149 tests and E2E fixtures. Browser regression includes 22 DOI page scenarios; native toolbar checks cover three reopenings with calendar, tools/settings and scroll reachability.
+- Two live Crossref records, including a legacy SICI DOI, matched parsed identities. A third lookup returned HTTP 429 and was not counted as verified.
+- Details: [V4.0.4 DOI recognition notes](docs/releases/v4.0.4.md).
+
 ## v4.0.3 - 2026-10-12
 
 ### Fixed

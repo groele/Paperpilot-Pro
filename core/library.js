@@ -3,7 +3,7 @@
   const STATUSES = ['visited', 'downloaded', 'copied_bibtex', 'copied_doi', 'copied_citation', 'copied_markdown'];
   const normalize = value => String(value || '').normalize('NFKD').toLowerCase().replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
   const titleKey = value => root.metadata.normalizeTitle(value);
-  const doiKey = value => root.metadata.normalizeDoi(value).toLowerCase();
+  const doiKey = value => root.metadata.doiKey(value);
   const authors = value => root.citation?.normalizeAuthors(value) || (Array.isArray(value) ? value.map(String) : []);
 
   function samePaper(left, right) {

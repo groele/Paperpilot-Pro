@@ -8,7 +8,7 @@
 ![Type](https://img.shields.io/badge/type-Chrome%20Extension-blue?style=flat-square)
 ![Workflow](https://img.shields.io/badge/workflow-literature%20engine-green?style=flat-square)
 ![Architecture](https://img.shields.io/badge/architecture-browser--native-purple?style=flat-square)
-![Version](https://img.shields.io/badge/version-4.0.3-6f42c1?style=flat-square)
+![Version](https://img.shields.io/badge/version-4.0.4-6f42c1?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
 
 Part of **ResearchFlow Lab** — a local-first research productivity ecosystem for literature, manuscripts, data, and scientific visualization.
@@ -214,3 +214,5 @@ Developed by **Shikun Hou / groele**.
 - V4.0.2 repairs Chrome toolbar popups collapsing to 25×25 pixels. Reload the extension and use the toolbar icon again; see [popup repair notes](docs/releases/v4.0.2.md). `npm run test:browser` now includes the native action-popup regression; `npm run test:popup` runs it separately.
 
 - V4.0.3 restores the reading heatmap as the default library view, with keyboard-accessible date filtering and accurate date/range counts; see [reading calendar notes](docs/releases/v4.0.3.md).
+
+- V4.0.4 strengthens DOI evidence selection, article ownership, reference exclusion, encoded/Unicode identifiers and provider identity checks; see [DOI recognition notes](docs/releases/v4.0.4.md). Reload the extension and refresh article tabs after updating.

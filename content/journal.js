@@ -874,27 +874,32 @@
     toasts.forEach(t => t.setAttribute("data-pp-theme", currentTheme));
   }
 
-  function flattenJsonLd(value, output = []) {
-    if (!value) return output;
+  function flattenJsonLd(value, output = [], depth = 0) {
+    if (!value || depth > 8 || output.length >= 512) return output;
     if (Array.isArray(value)) {
-      value.forEach(item => flattenJsonLd(item, output));
+      value.slice(0, 512).forEach(item => flattenJsonLd(item, output, depth + 1));
       return output;
     }
     if (typeof value !== "object") return output;
 
     output.push(value);
-    if (value["@graph"]) flattenJsonLd(value["@graph"], output);
-    if (value.mainEntity) flattenJsonLd(value.mainEntity, output);
+    if (value["@graph"]) flattenJsonLd(value["@graph"], output, depth + 1);
+    if (value.mainEntity) flattenJsonLd(value.mainEntity, output, depth + 1);
     return output;
   }
 
   function getJsonLdNodes() {
     const nodes = [];
-    document.querySelectorAll('script[type="application/ld+json"]').forEach(script => {
+    let budget = 240000;
+    for (const script of Array.from(document.querySelectorAll('script[type="application/ld+json"]')).slice(0, 128)) {
+      const text = script.textContent || "";
+      if (budget <= 0 || nodes.length >= 512) break;
+      if (text.length > budget) continue;
+      budget -= text.length;
       try {
-        flattenJsonLd(JSON.parse(script.textContent || ""), nodes);
+        flattenJsonLd(JSON.parse(text), nodes);
       } catch (_) {}
-    });
+    }
     return nodes;
   }
 
@@ -912,26 +917,47 @@
     const currentTitle = document.querySelector('meta[name="citation_title" i], meta[name="dc.title" i]')?.content || document.querySelector('h1, [itemprop="headline"]')?.textContent || "";
     const canonicalUrl = document.querySelector('link[rel="canonical"]')?.href || window.location.href;
     const urlKey = value => {
-      try { const url = new URL(value, window.location.href); return `${url.origin}${url.pathname}`.replace(/\/$/, "").toLowerCase(); }
+      try { const url = new URL(value, window.location.href); return `${url.origin}${url.pathname.replace(/\/$/, "")}${url.search}`; }
       catch (_) { return ""; }
     };
-    const currentDoi = core?.extractDoi?.(canonicalUrl);
-    const articles = getJsonLdNodes().filter(node => {
+    const currentDoi = core?.normalizeDoi?.(window.location.href) || core?.normalizeDoi?.(canonicalUrl);
+    const nodes = getJsonLdNodes();
+    const ownedIds = new Set(), ownedNodes = new Set();
+    const entityId = value => {
+      try { return new URL(value, window.location.href).href; } catch (_) { return ""; }
+    };
+    for (const node of nodes) {
+      const types = Array.isArray(node["@type"]) ? node["@type"] : [node["@type"]];
+      const pageUrl = node.url || node["@id"];
+      if (!types.some(type => /(?:^|[:/])(?:WebPage|ItemPage)$/.test(String(type))) || typeof pageUrl !== "string" || urlKey(pageUrl) !== urlKey(canonicalUrl)) continue;
+      const entities = Array.isArray(node.mainEntity) ? node.mainEntity : [node.mainEntity];
+      for (const entity of entities) {
+        if (!entity) continue;
+        if (typeof entity === "object") ownedNodes.add(entity);
+        const id = typeof entity === "string" ? entity : entity["@id"];
+        if (typeof id === "string") ownedIds.add(entityId(id));
+      }
+    }
+    const articles = nodes.filter(node => {
       const rawType = node["@type"];
       const types = Array.isArray(rawType) ? rawType : [rawType];
       return types.some(type => articleTypes.has(String(type || "").replace(/^(?:schema:|https?:\/\/schema\.org\/)/i, ""))) &&
              (node.headline || node.name || node.doi || node.identifier);
     }).map(node => {
-      const nodeUrl = node.url || node.mainEntityOfPage?.["@id"] || node.mainEntityOfPage || node["@id"];
+      const nodeUrl = node.url || node.mainEntityOfPage?.["@id"] || node.mainEntityOfPage;
       const nodeDoi = extractJsonLdDoi(node);
-      const samePage = typeof nodeUrl === "string" && urlKey(nodeUrl) === urlKey(canonicalUrl);
-      const sameDoi = currentDoi && nodeDoi && currentDoi.toLowerCase() === nodeDoi.toLowerCase();
+      const samePage = (typeof nodeUrl === "string" && urlKey(nodeUrl) === urlKey(canonicalUrl)) || ownedNodes.has(node) || (typeof node["@id"] === "string" && ownedIds.has(entityId(node["@id"])));
+      const sameDoi = currentDoi && nodeDoi && core.doiKey(currentDoi) === core.doiKey(nodeDoi);
       const headline = normalizeJsonLdText(node.headline || node.name);
+      if (currentDoi && nodeDoi && !sameDoi) return { node, score: -Infinity };
+      if (currentTitle && headline && !core?.isTitleMatch?.(currentTitle, headline)) return { node, score: -Infinity };
       let score = samePage || sameDoi ? 30 : (nodeUrl ? -6 : 0);
       if (currentTitle && headline) score += core?.isTitleMatch?.(currentTitle, headline) ? 20 : -20;
       if (/ScholarlyArticle/.test(String(node["@type"]))) score += 2;
-      return { node, score };
+      return { node, score, doi: nodeDoi };
     }).filter(candidate => candidate.score >= 0).sort((a, b) => b.score - a.score);
+    const firstDoi = articles[0]?.doi;
+    if (articles.some(candidate => articles[0].score - candidate.score < 4 && candidate.doi && firstDoi && core.doiKey(candidate.doi) !== core.doiKey(firstDoi))) return null;
     return articles[0]?.node || null;
   }
 
@@ -945,9 +971,10 @@
   }
 
   function extractDoiFromCandidates(candidates, options = {}) {
-    const coreExtractor = window.PaperPilotCore?.metadata?.extractDoi;
+    const coreExtractor = window.PaperPilotCore?.metadata?.extractDois;
     if (typeof coreExtractor === "function") {
-      return coreExtractor(candidates, options);
+      const matches = coreExtractor(candidates, options);
+      return matches.length === 1 ? matches[0] : "";
     }
 
     // All activation paths load core/metadata.js before this runtime. A
@@ -957,32 +984,50 @@
 
   function extractArticleDomDoi() {
     const core = window.PaperPilotCore?.metadata;
-    if (!core?.extractDois) return "";
-    const excluded = 'nav, aside, footer, [role="doc-bibliography"], [id*="reference" i], [class*="reference" i], .ref-list, .references, .bibliography, [id^="pp-"], [class*="related" i], [class*="recommend" i]';
-    const values = [];
+    if (!core?.selectDoiEvidence) return "";
+    const excluded = 'nav, aside, footer, cite, [hidden], [aria-hidden="true"], [role="doc-bibliography"], [role="doc-biblioentry"], [id*="reference" i], [class*="reference" i], .ref-list, .bib-list, .bibliography, .literature-cited, [id^="pp-"], [class*="related" i], [class*="recommend" i]';
+    const referenceHeading = /^(?:references?|bibliography|literature cited|related (?:articles?|research)|参考文献|参考资料|引用文献)\s*[:：]?$/i;
+    const excludedNode = node => {
+      if (node.closest(excluded) || !node.getClientRects().length) return true;
+      for (let parent = node.parentElement, depth = 0; parent && depth < 8 && !/^(?:MAIN|ARTICLE|BODY)$/.test(parent.tagName); parent = parent.parentElement, depth++) {
+        const heading = parent.querySelector(':scope > h2, :scope > h3, :scope > h4, :scope > header > h2, :scope > header > h3');
+        if (heading && referenceHeading.test(heading.textContent.trim())) return true;
+        if (/^(?:UL|OL)$/.test(parent.tagName) && referenceHeading.test(parent.previousElementSibling?.textContent?.trim() || "")) return true;
+      }
+      return false;
+    };
+    const structuredValues = [], linkValues = [], textValues = [];
     const links = document.querySelectorAll('a[href*="doi.org/" i], a[href*="/doi/10." i], [itemprop="identifier"], [data-doi]');
-    for (const node of links) {
-      if (node.closest(excluded)) continue;
-      values.push(node.getAttribute("data-doi") || node.getAttribute("content") || node.href || node.textContent || "");
+    for (const node of Array.from(links).slice(0, 256)) {
+      if (excludedNode(node)) continue;
+      const value = node.getAttribute("data-doi") || node.getAttribute("content") || node.href || node.textContent || "";
+      if (node.matches('[data-doi], [itemprop="identifier"]')) structuredValues.push(value);
+      else {
+        const text = (node.textContent || "").trim();
+        const paragraph = node.closest('p');
+        const labelled = /^(?:doi\b|https?:\/\/(?:dx\.)?doi\.org\/|10\.\d{4,9}\/)/i.test(text);
+        const inHeader = node.closest('article header, main header, .article-info, .article-header, [class*="doi" i], [id*="doi" i]');
+        if (inHeader || (labelled && (!paragraph || /^\s*(?:doi\b|https?:\/\/(?:dx\.)?doi\.org\/)/i.test(paragraph.textContent)))) linkValues.push(value);
+      }
     }
-    let matches = core.extractDois(values);
-    if (matches.length === 1) return matches[0];
-    if (matches.length > 1) return "";
     // Read only DOI-labelled blocks, excluding references and the extension's
     // own card. An arbitrary DOI anywhere in body text is not article evidence.
     const blocks = document.querySelectorAll('[class*="doi" i], [id*="doi" i], article header, main header, .article-info, .article-header, p');
     let budget = 20000;
-    for (const block of blocks) {
+    for (const block of Array.from(blocks).slice(0, 256)) {
       if (budget <= 0) break;
-      if (block.closest(excluded)) continue;
+      if (excludedNode(block)) continue;
       const text = (block.textContent || "").slice(0, Math.min(budget, 2000));
       budget -= text.length;
       const structured = !block.matches("p");
       const label = structured ? /(?:\bdoi\s*[:：]|https?:\/\/(?:dx\.)?doi\.org\/)/i : /^\s*(?:doi\s*[:：]|https?:\/\/(?:dx\.)?doi\.org\/)/i;
-      if (label.test(text)) values.push(text);
+      if (label.test(text)) textValues.push(text);
     }
-    matches = core.extractDois(values);
-    return matches.length === 1 ? matches[0] : "";
+    return core.selectDoiEvidence([
+      {source:"article-identifier",priority:100,values:structuredValues,authoritative:true},
+      {source:"article-doi-link",priority:90,values:linkValues,authoritative:true},
+      {source:"article-doi-label",priority:80,values:textValues}
+    ]).doi;
   }
 
   function extractJsonLdDoi(article) {
@@ -995,7 +1040,7 @@
       article.mainEntityOfPage
     ];
 
-    return extractDoiFromCandidates(candidates, { authoritative: true });
+    return window.PaperPilotCore?.metadata?.normalizeDoi?.(candidates) || "";
   }
 
   function hasAcademicMetadata() {
@@ -1243,18 +1288,17 @@
     // DOI Sniffer
     const doiMetaNames = [
       "citation_doi", "prism.doi", "dc.identifier.doi", "bepress_citation_doi",
-      "article:doi", "doi", "rft.doi", "eprints.id_number", "dc.identifier", "rft_id", "dc.identifier.uri"
+      "article:doi", "doi", "rft.doi"
     ];
     const canonicalUrl = document.querySelector('link[rel="canonical"]')?.href || "";
-    const doi = extractDoiFromCandidates(getMetaCandidates(doiMetaNames), { authoritative: true }) || extractDoiFromCandidates([
-      // Embedded bibliographic metadata is authoritative. Publisher URL
-      // routes are fallbacks because paths can append UI suffixes (/meta,
-      // /pdf, /full) that are not part of the DOI itself.
-      extractJsonLdDoi(jsonLdArticle),
-      ...(siteProfile?.doiCandidates || []),
-      window.location.href,
-      canonicalUrl
-    ]) || extractArticleDomDoi();
+    const doiEvidence = window.PaperPilotCore.metadata.selectDoiEvidence([
+      {source:"doi-metadata",priority:100,values:getMetaCandidates(doiMetaNames),authoritative:true},
+      {source:"article-jsonld",priority:90,values:extractJsonLdDoi(jsonLdArticle),authoritative:true},
+      {source:"page-route",priority:80,values:[...(siteProfile?.doiCandidates || []),window.location.href]},
+      {source:"canonical-route",priority:80,values:canonicalUrl},
+      {source:"generic-identifier-metadata",priority:70,values:getMetaCandidates(["eprints.id_number","dc.identifier","rft_id","dc.identifier.uri"]),authoritative:true}
+    ]);
+    const doi = doiEvidence.doi || (doiEvidence.ambiguous ? "" : extractArticleDomDoi());
 
     // Title Sniffer
     let title = getMeta([

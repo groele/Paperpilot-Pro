@@ -13,6 +13,13 @@ test('paper identity never merges distinct DOI records with identical titles', (
   assert.equal(library.samePaper({doi:'https://doi.org/10.1000/A'},{doi:'10.1000/a'}),true);
   assert.equal(library.samePaper({title:'Introduction',year:2025},{title:'Introduction',year:2026}),false);
 });
+
+test('DOI identity folds ASCII case while preserving distinct Unicode suffixes', () => {
+  assert.equal(library.samePaper({doi:'10.1000/Á.ABC'},{doi:'10.1000/Á.abc'}),true);
+  assert.equal(library.samePaper({doi:'10.1000/Á.abc'},{doi:'10.1000/á.abc'}),false);
+  const result=library.importRecords([{title:'Same title',doi:'10.1000/Á.abc'}],[{title:'Same title',doi:'10.1000/á.abc'}]);
+  assert.equal(result.history.length,2);
+});
 test('revisits preserve notes, bibliography, favorites and previous download actions', () => {
   const record = library.mergeRecord(library.normalizeRecord({title:'Full article',doi:'10.1000/a',journal:'Journal',year:2025,pdfUrl:'https://example.test/p.pdf',notes:'Research notes',starred:true,status:'downloaded'}), {title:'Full article',doi:'10.1000/a',journal:'',year:null,status:'visited'},1000);
   assert.equal(record.notes,'Research notes'); assert.equal(record.journal,'Journal'); assert.equal(record.year,2025);

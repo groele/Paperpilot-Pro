@@ -1,8 +1,20 @@
 (function(global) {
   const root = global.PaperPilotCore || {};
 
+  function foldDoiCase(value) {
+    return String(value || "").replace(/[A-Z]/g, char => char.toLowerCase());
+  }
+
+  function doiKey(value) {
+    return foldDoiCase(normalizeDoi(value));
+  }
+
   function decodeUriComponent(value) {
-    try { return decodeURIComponent(value); } catch (_) { return value; }
+    try { return decodeURIComponent(value); } catch (_) {
+      return value.replace(/(?:%[0-9a-f]{2})+/gi, encoded => {
+        try { return decodeURIComponent(encoded); } catch (_) { return encoded; }
+      });
+    }
   }
 
   function prepareDoiText(value) {
@@ -11,7 +23,7 @@
       // Normalize common copied prefix typography without changing the suffix.
       .replace(/(?:１０|10)[．.]([０-９0-9]{4,9})[／/]/g, (_, digits) =>
         `10.${digits.replace(/[０-９]/g, char => String(char.charCodeAt(0) - 0xff10))}/`)
-      .replace(/\b(10\.\d{4,9})[ \t]*\/[ \t]*(?:\r?\n[ \t]*)?/g, "$1/");
+      .replace(/\b(10\.\d{4,9})[ \t\u00a0\u202f]*\/[ \t\u00a0\u202f]*(?:\r?\n[ \t]*)?/g, "$1/");
   }
 
   function cleanDoiMatch(value, { authoritative = false } = {}) {
@@ -33,18 +45,19 @@
       }
       break;
     }
+    if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(doi)) return "";
     return /^10\.\d{4,9}\/[^\s\u0000-\u001f\u007f]+$/i.test(doi) ? doi : "";
   }
 
-  function doiCandidateStrings(value, output = [], depth = 0) {
-    if (depth > 8 || value === null || value === undefined) return output;
+  function doiCandidateStrings(value, output = [], depth = 0, budget = { remaining: 512 }) {
+    if (depth > 8 || output.length >= 128 || budget.remaining-- <= 0 || value === null || value === undefined) return output;
     if (Array.isArray(value)) {
-      value.forEach(item => doiCandidateStrings(item, output, depth + 1));
+      value.slice(0, 128).forEach(item => doiCandidateStrings(item, output, depth + 1, budget));
     } else if (typeof value === "object") {
       // PropertyValue identifiers such as ISBN must not be mistaken for DOI.
-      if (value.propertyID && !/doi/i.test(String(value.propertyID))) return output;
+      if (value.propertyID && !/^(?:doi|(?:urn:|info:)?doi|https?:\/\/(?:dx\.)?doi\.org\/?|.*[:/#]doi)$/i.test(String(value.propertyID).trim())) return output;
       for (const key of ["doi", "DOI", "value", "@value", "identifier", "@id", "url", "sameAs", "mainEntityOfPage"]) {
-        if (value[key] !== undefined) doiCandidateStrings(value[key], output, depth + 1);
+        if (value[key] !== undefined) doiCandidateStrings(value[key], output, depth + 1, budget);
       }
     } else if (typeof value === "string") {
       output.push(value);
@@ -55,8 +68,13 @@
   function extractDois(values, options = {}) {
     const found = new Map();
     const addText = (raw, authoritative = options.authoritative === true, depth = 0) => {
-      if (depth > 3) return;
+      if (depth > 3 || raw.length > 16000 || found.size >= 64) return;
       let text = prepareDoiText(raw).trim();
+      // Decode an encoded DOI prefix once. A literal percent sequence in an
+      // already plain DOI suffix is not an invitation to decode it again.
+      if (/^(?:(?:urn:doi:|info:doi\/|doi\s*[:：]\s*))?10(?:%2e\d{4,9}(?:\/|%2f)|\.\d{4,9}%2f)|^https?%3a%2f%2f/i.test(text)) {
+        text = decodeUriComponent(text);
+      }
       if (/^(?:https?:)?\/\//i.test(text)) {
         try {
           const url = new URL(text.startsWith("//") ? `https:${text}` : text);
@@ -69,7 +87,9 @@
           if (/(?:^|[.-])(?:springer|biomedcentral)[.-]com(?:[.-]|$)/i.test(url.hostname)) {
             path = path.replace(/\.pdf$/i, "");
           }
-          addText(path, authoritative, depth + 1);
+          const isResolver = /^(?:dx\.)?doi\.org$/i.test(url.hostname);
+          if (isResolver && /^\/10\.\d{4,9}\//i.test(path)) addText(path.slice(1), true, depth + 1);
+          else if (!isResolver) addText(path, authoritative, depth + 1);
           // Search/tracking queries are never treated as article identifiers.
           for (const key of ["doi", "rft_id", "rft.doi", "rft_id[]", "url"]) {
             for (const value of url.searchParams.getAll(key)) addText(value, authoritative, depth + 1);
@@ -78,16 +98,26 @@
         } catch (_) { return; }
       }
       text = text.replace(/https?:\/\/[^\s"'，。；！？）】》]+/gi, url => {
-        addText(url, authoritative, depth + 1);
+        addText(authoritative ? url : url.replace(/[.,;:]+$/, ""), authoritative, depth + 1);
         return " ";
       });
       // Keep SICI angle brackets and semicolons; stop at real HTML tags,
       // prose punctuation in Chinese, quotes, and whitespace.
       text = text.replace(/<\/?(?:a|span|div|p|br|i|b|em|strong)\b[^>]*>/gi, " ");
+      // A separator before another DOI is a list boundary, while SICI
+      // semicolons inside one identifier must remain intact.
+      text = text.replace(/[,;](?=\s*10\.\d{4,9}\/)/g, " ");
+      if (authoritative && /^(?:(?:urn:doi:|info:doi\/|doi\s*[:：]\s*))?10\.\d{4,9}\/\S+$/i.test(text)) {
+        const doi = cleanDoiMatch(text, { authoritative });
+        if (doi) {
+          if (!found.has(foldDoiCase(doi))) found.set(foldDoiCase(doi), doi);
+          return;
+        }
+      }
       const regex = /(?<![\p{L}\p{N}_.])10\.\d{4,9}\/[^\s"'，。；：！？、（）【】《》「」『』]+/igu;
       for (const match of text.matchAll(regex)) {
         const doi = cleanDoiMatch(match[0], { authoritative });
-        if (doi && !found.has(doi.toLowerCase())) found.set(doi.toLowerCase(), doi);
+        if (doi && !found.has(foldDoiCase(doi))) found.set(foldDoiCase(doi), doi);
       }
     };
     for (const value of doiCandidateStrings(values)) addText(value);
@@ -99,7 +129,32 @@
   }
 
   function normalizeDoi(doi) {
-    return extractDoi(doi, { authoritative: true });
+    const candidates = extractDois(doi, { authoritative: true });
+    return candidates.length === 1 ? candidates[0] : "";
+  }
+
+  function selectDoiEvidence(groups) {
+    const evidence = (groups || []).map(group => ({
+      ...group,
+      candidates: extractDois(group.values, { authoritative: group.authoritative === true })
+    })).filter(group => group.candidates.length).sort((a, b) => b.priority - a.priority);
+    if (!evidence.length) return { doi: "", source: "", ambiguous: false };
+    const highest = evidence[0].priority;
+    const leaders = evidence.filter(group => group.priority === highest);
+    const candidates = extractDois(leaders.flatMap(group => group.candidates), { authoritative: true });
+    if (candidates.length === 1) return { doi: candidates[0], source: leaders[0].source, ambiguous: false };
+    // Count independent sources, never duplicate tags/links. A conflicted
+    // source cannot corroborate one of its own alternatives.
+    const support = new Map(candidates.map(doi => [foldDoiCase(doi), new Set()]));
+    const leaderSources = new Set(leaders.map(group => group.source));
+    for (const group of evidence.filter(group => group.priority < highest && group.candidates.length === 1 && !leaderSources.has(group.source))) {
+      support.get(foldDoiCase(group.candidates[0]))?.add(group.source);
+    }
+    const corroborated = candidates.filter(doi => support.get(foldDoiCase(doi)).size > 0);
+    if (corroborated.length === 1) {
+      return { doi: corroborated[0], source: leaders[0].source, ambiguous: false };
+    }
+    return { doi: "", source: leaders[0].source, ambiguous: true };
   }
 
   function doiUrl(doi) {
@@ -132,15 +187,17 @@
   }
 
   function decodeHtmlEntities(str) {
+    const character = (entity, code) => Number.isInteger(code) && code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : entity;
     return String(str || "")
+      .replace(/&nbsp;/g, "\u00a0")
       .replace(/&amp;/g, "&")
       .replace(/&lt;/g, "<")
       .replace(/&gt;/g, ">")
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
       .replace(/&apos;/g, "'")
-      .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(Number(num)))
-      .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+      .replace(/&#(\d+);/g, (entity, num) => character(entity, Number(num)))
+      .replace(/&#x([0-9a-f]+);/gi, (entity, hex) => character(entity, parseInt(hex, 16)));
   }
 
   function cleanTitleString(str) {
@@ -199,13 +256,13 @@
   function selectTitleResult(query, candidates) {
     const matches = (candidates || []).map(candidate => {
       const title = candidate.source === "crossref" ? candidate.item?.title?.[0] : candidate.item?.title;
-      const doi = extractDoi(candidate.item?.DOI || candidate.item?.doi, { authoritative: true });
+      const doi = normalizeDoi(candidate.item?.DOI || candidate.item?.doi);
       return { ...candidate, doi, title, score: titleSimilarity(query, title) };
     }).filter(candidate => candidate.doi && isTitleMatch(query, candidate.title))
       .sort((a, b) => b.score - a.score);
     const best = matches[0];
     if (!best) return null;
-    const rival = matches.find(candidate => candidate.doi.toLowerCase() !== best.doi.toLowerCase());
+    const rival = matches.find(candidate => doiKey(candidate.doi) !== doiKey(best.doi));
     // Repeated titles (errata, editions, or competing records) need more
     // evidence than a search provider's ordering before assigning a DOI.
     return rival && best.score - rival.score < 0.04 ? null : best;
@@ -329,6 +386,7 @@
   root.metadata = {
     UNPAYWALL_EMAIL,
     normalizeDoi,
+    doiKey,
     doiUrl,
     cleanDoiMatch,
     extractDoi,
@@ -341,6 +399,7 @@
     titleSimilarity,
     isTitleMatch,
     selectTitleResult,
+    selectDoiEvidence,
     createBaseMetadata,
     applyCrossrefItem,
     applyCslJson,
