@@ -10,6 +10,7 @@ try {
     "../core/pdf-verifier.js",
     "../core/ai.js",
     "../core/citation.js",
+    "../core/library.js",
     "page-activation.js"
   );
 } catch (err) {
@@ -18,9 +19,9 @@ try {
 
 const PP_CORE = globalThis.PaperPilotCore || {};
 const PP_BACKGROUND = globalThis.PaperPilotBackground || {};
-const METADATA_CACHE_SCHEMA_VERSION = 2;
+const METADATA_CACHE_SCHEMA_VERSION = 3;
 const METADATA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const METADATA_TITLE_MATCH_THRESHOLD = 0.72;
+const METADATA_TITLE_MATCH_THRESHOLD = 0.9;
 const DEFAULT_METADATA_CONTACT_EMAIL = PP_CORE.metadata?.UNPAYWALL_EMAIL || "paperpilot@gmail.com";
 
 const PUBLIC_SETTING_KEYS = new Set([
@@ -267,6 +268,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (action === "HISTORY_REPLACE" || action === "history.replace") {
     replaceHistorySnapshot(message.history, message.revision).then(sendResponse)
       .catch(error => sendResponse({ success: false, ok: false, error: error.message }));
+    return true;
+  }
+
+  if (action === "HISTORY_MUTATE") {
+    mutateHistoryItem(message).then(sendResponse)
+      .catch(error => sendResponse({ success: false, ok: false, error: error.message }));
+    return true;
+  }
+
+  if (action === 'HISTORY_IMPORT') {
+    enqueueHistoryMutation(async snapshot => {
+      if (!Array.isArray(message.records) || message.records.length > 2000) return { success: false, error: '无效备份或记录数超过限制' };
+      const merged = PP_CORE.library.importRecords(snapshot.history, message.records);
+      const history = trimHistoryWithStarredProtection(merged.history, 500);
+      const revision = snapshot.revision + 1;
+      await chrome.storage.local.set({ history, history_revision: revision });
+      return { success: true, ok: true, history, revision, added: merged.added, retained: history.length };
+    }).then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
 
@@ -1392,7 +1411,7 @@ function downloadPdf(url, filename, candidateUrls = [], context = {}) {
 
 function normalizeDoiForLookup(doi) {
   if (PP_CORE.metadata?.extractDoi) {
-    return PP_CORE.metadata.extractDoi([doi]);
+    return PP_CORE.metadata.extractDoi([doi], { authoritative: true });
   }
   const normalized = String(doi || "").trim()
     .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
@@ -1476,7 +1495,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
   // If DOI is missing, try to resolve via title using OpenAlex
   let paperDoi = normalizeDoiForLookup(doi);
   const normalizedRequestedTitle = PP_CORE.metadata?.normalizeTitle?.(title) || String(title || "").trim().toLowerCase();
-  const cacheKey = paperDoi || `title_${normalizedRequestedTitle}`;
+  const cacheKey = paperDoi ? paperDoi.toLowerCase() : `title_${normalizedRequestedTitle}`;
 
   // Fetch the easyScholar key to determine if we should bypass a stale estimate cache
   const settings = await chrome.storage.local.get([
@@ -1579,11 +1598,15 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
         .catch(e => (console.warn("Unpaywall lookup failed:", e.message), null))
     ]);
     const work = openAlex?.results ? openAlex.results[0] : openAlex;
-    if (work && PP_CORE.metadata?.applyOpenAlexWork) PP_CORE.metadata.applyOpenAlexWork(metadata, work);
+    const matchesRequestedDoi = item => {
+      const rawDoi = item?.DOI || item?.doi;
+      return !rawDoi || normalizeDoiForLookup(rawDoi).toLowerCase() === paperDoi.toLowerCase();
+    };
+    if (work && matchesRequestedDoi(work) && PP_CORE.metadata?.applyOpenAlexWork) PP_CORE.metadata.applyOpenAlexWork(metadata, work);
     // DOI-negotiated CSL is the canonical bibliographic source and therefore
     // applies after OpenAlex enrichment so it wins for title/authors/journal/year.
-    if (csl && PP_CORE.metadata?.applyCslJson) PP_CORE.metadata.applyCslJson(metadata, csl);
-    if (unpaywall && PP_CORE.metadata?.applyUnpaywall) PP_CORE.metadata.applyUnpaywall(metadata, unpaywall);
+    if (csl && matchesRequestedDoi(csl) && PP_CORE.metadata?.applyCslJson) PP_CORE.metadata.applyCslJson(metadata, csl);
+    if (unpaywall && matchesRequestedDoi(unpaywall) && PP_CORE.metadata?.applyUnpaywall) PP_CORE.metadata.applyUnpaywall(metadata, unpaywall);
 
     // Crossref fallback if title is weak after OpenAlex
     if (isWeakMetadataTitle(metadata.title, metadata.doi)) {
@@ -1591,7 +1614,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
         const crResponse = await fetchResponseWithTimeout(`https://api.crossref.org/works/${encodeURIComponent(metadata.doi)}`);
         if (crResponse.ok) {
           const crData = await crResponse.json();
-          applyCrossrefItem(metadata, crData.message);
+          if (matchesRequestedDoi(crData.message)) applyCrossrefItem(metadata, crData.message);
         }
       } catch (e) {
         console.warn("Crossref DOI lookup failed:", e.message);
@@ -1602,19 +1625,17 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
     // its normalized title is sufficiently similar to the requested paper.
     if (title && !isWeakMetadataTitle(title)) {
       const [oaData, crData] = await Promise.all([
-        fetchJsonResponse(buildOpenAlexUrl(`works?filter=title.search:${encodeURIComponent(title)}&limit=1`, openAlexApiKey, contactEmail), {
+        fetchJsonResponse(buildOpenAlexUrl(`works?filter=title.search:${encodeURIComponent(title)}&per-page=5`, openAlexApiKey, contactEmail), {
           headers: { "User-Agent": `mailto:${contactEmail}` }
         }).catch(e => (console.warn("OpenAlex title lookup failed:", e.message), null)),
-        fetchJsonResponse(`https://api.crossref.org/works?query.title=${encodeURIComponent(title)}&rows=1`)
+        fetchJsonResponse(`https://api.crossref.org/works?query.title=${encodeURIComponent(title)}&rows=5`)
           .catch(e => (console.warn("Crossref title lookup failed:", e.message), null))
       ]);
-      const oaWork = oaData?.results?.[0];
-      const crItem = crData?.message?.items?.[0];
-      const accepted = [
-        oaWork && { score: PP_CORE.metadata?.titleSimilarity?.(title, oaWork.title) || 0, source: "openalex", item: oaWork },
-        crItem && { score: PP_CORE.metadata?.titleSimilarity?.(title, crItem.title?.[0]) || 0, source: "crossref", item: crItem }
-      ].filter(Boolean).filter(candidate => metadataTitleMatches(title, candidate.source === "openalex" ? candidate.item.title : candidate.item.title?.[0]))
-        .sort((a, b) => b.score - a.score)[0];
+      const candidates = [
+        ...(oaData?.results || []).map(item => ({ source: "openalex", item })),
+        ...(crData?.message?.items || []).map(item => ({ source: "crossref", item }))
+      ].filter(candidate => metadataTitleMatches(title, candidate.source === "openalex" ? candidate.item.title : candidate.item.title?.[0]));
+      const accepted = PP_CORE.metadata?.selectTitleResult?.(title, candidates);
       if (accepted?.source === "openalex") PP_CORE.metadata?.applyOpenAlexWork?.(metadata, accepted.item);
       if (accepted?.source === "crossref") applyCrossrefItem(metadata, accepted.item);
     }
@@ -1670,7 +1691,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
   // Cache final metadata with timestamp for expiration eviction
   metadata.pageUrl = pageUrl || metadata.pageUrl || "";
   metadata.cachedAt = Date.now();
-  metadata.expiresAt = metadata.cachedAt + METADATA_CACHE_TTL_MS;
+  metadata.expiresAt = metadata.cachedAt + (metadata.sources?.length ? METADATA_CACHE_TTL_MS : 5 * 60 * 1000);
   metadata.cacheSchemaVersion = METADATA_CACHE_SCHEMA_VERSION;
   metadata.stale = false;
   metadata.source = metadata.sources && metadata.sources.length ? metadata.sources.join(", ") : "local";
@@ -1725,19 +1746,36 @@ function trimHistoryWithStarredProtection(records, maxLimit = 500) {
 function normalizeHistoryRecords(records) {
   const normalized = (Array.isArray(records) ? records : [])
     .filter(item => item && typeof item === "object" && (String(item.title || "").trim() || String(item.doi || "").trim()))
-    .map(item => ({
-      title: String(item.title || "Unknown Title").trim(),
-      authors: Array.isArray(item.authors) ? item.authors.map(author => String(author || "").trim()).filter(Boolean).slice(0, 30) : [],
-      journal: String(item.journal || "").trim(),
-      year: Number.isFinite(Number(item.year)) ? Number(item.year) : new Date().getFullYear(),
-      doi: String(item.doi || "").trim(),
-      pdfUrl: /^https?:\/\//i.test(String(item.pdfUrl || "")) ? String(item.pdfUrl) : "",
-      starred: item.starred === true,
-      notes: typeof item.notes === "string" ? String(item.notes).slice(0, 8000) : "",
-      status: ["visited", "downloaded", "copied_bibtex", "copied_doi", "copied_citation", "copied_markdown"].includes(item.status) ? item.status : "visited",
-      time: Number.isFinite(Number(item.time || item.updatedAt || item.timestamp)) ? Number(item.time || item.updatedAt || item.timestamp) : Date.now()
-    }));
+    .map(item => PP_CORE.library.normalizeRecord(item));
   return trimHistoryWithStarredProtection(normalized, 500);
+}
+
+function mutateHistoryItem(message) {
+  return enqueueHistoryMutation(async snapshot => {
+    let history = normalizeHistoryRecords(snapshot.history);
+    const key = String(message.key || '');
+    const index = history.findIndex(record => PP_CORE.library.recordKey(record) === key);
+    let removed = null;
+    if (message.restore) {
+      const record = PP_CORE.library.normalizeRecord(message.restore);
+      if (!record.title && !record.doi) return { success: false, error: '无效文献' };
+      if (history.some(item => PP_CORE.library.samePaper(item, record))) return { success: false, error: '文献已存在，无需恢复' };
+      history.splice(Math.min(Math.max(0, Number(message.index) || 0), history.length), 0, record);
+    } else {
+      if (index < 0) return { success: false, errorCode: 'HISTORY_NOT_FOUND', error: '文献已被移除，请重新选择' };
+      if (message.remove) removed = history.splice(index, 1)[0];
+      else {
+        const patch = Object.fromEntries(Object.entries(message.patch || {}).filter(([field]) => ['title','doi','journal','year','authors','notes','status','starred','pdfUrl','pageUrl'].includes(field)));
+        const updated = PP_CORE.library.normalizeRecord({ ...history[index], ...patch, actions: [...history[index].actions, patch.status].filter(Boolean), updatedAt: Date.now() });
+        if (history.some((item, i) => i !== index && PP_CORE.library.samePaper(item, updated))) return { success: false, errorCode: 'HISTORY_DUPLICATE', error: '另一条文献已使用该标识，请检查 DOI 或标题' };
+        history[index] = updated;
+      }
+    }
+    history = trimHistoryWithStarredProtection(history, 500);
+    const revision = snapshot.revision + 1;
+    await chrome.storage.local.set({ history, history_revision: revision });
+    return { success: true, ok: true, history, revision, removed, index };
+  });
 }
 
 function enqueueHistoryMutation(mutator) {
@@ -1773,18 +1811,9 @@ async function addFootprint(footprint) {
   }
   return enqueueHistoryMutation(async snapshot => {
     let history = snapshot.history;
-    const sameFootprint = item => {
-      const matchDoi = footprint.doi && item.doi && String(footprint.doi).toLowerCase() === String(item.doi).toLowerCase();
-      const matchTitle = footprint.title && item.title && String(footprint.title).toLowerCase().trim() === String(item.title).toLowerCase().trim();
-      return Boolean(matchDoi || matchTitle);
-    };
+    const sameFootprint = item => PP_CORE.library.samePaper(item, footprint);
     const existing = history.find(sameFootprint) || null;
-    const newItem = normalizeHistoryRecords([{
-      ...footprint,
-      starred: typeof footprint.starred === "boolean" ? footprint.starred : Boolean(existing?.starred),
-      notes: typeof footprint.notes === "string" ? footprint.notes : (existing?.notes || ""),
-      time: Date.now()
-    }])[0];
+    const newItem = PP_CORE.library.mergeRecord(existing, footprint);
     const rawMerged = [newItem, ...history.filter(item => !sameFootprint(item))];
     history = trimHistoryWithStarredProtection(rawMerged, 500);
     const revision = snapshot.revision + 1;
@@ -1804,17 +1833,13 @@ async function addFootprint(footprint) {
 async function updateFootprintNotes(doi, title, notes) {
   return enqueueHistoryMutation(async snapshot => {
     let history = snapshot.history;
-    const sameFootprint = item => {
-      const matchDoi = doi && item.doi && String(doi).toLowerCase() === String(item.doi).toLowerCase();
-      const matchTitle = title && item.title && String(title).toLowerCase().trim() === String(item.title).toLowerCase().trim();
-      return Boolean(matchDoi || matchTitle);
-    };
+    const sameFootprint = item => PP_CORE.library.samePaper(item, { doi, title });
     const existing = history.find(sameFootprint) || null;
     if (!existing) {
       const newItem = normalizeHistoryRecords([{
         doi,
         title,
-        notes: String(notes || "").slice(0, 8000),
+        notes: String(notes || "").slice(0, 50000),
         status: "copied_citation",
         time: Date.now()
       }])[0];
@@ -1831,7 +1856,7 @@ async function updateFootprintNotes(doi, title, notes) {
         source: "chrome.storage.local"
       };
     }
-    existing.notes = String(notes || "").slice(0, 8000);
+    existing.notes = String(notes || "").slice(0, 50000);
     existing.time = Date.now();
     const revision = snapshot.revision + 1;
     await chrome.storage.local.set({ history, history_revision: revision });

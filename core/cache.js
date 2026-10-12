@@ -36,7 +36,7 @@
       },
       run(key, factory) {
         if (pending.has(key)) return pending.get(key);
-        const task = Promise.resolve().then(factory).finally(() => pending.delete(key));
+        const task = Promise.resolve().then(factory).finally(() => { if (pending.get(key) === task) pending.delete(key); });
         pending.set(key, task);
         return task;
       },

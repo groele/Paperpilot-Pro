@@ -882,6 +882,7 @@
 
     output.push(value);
     if (value["@graph"]) flattenJsonLd(value["@graph"], output);
+    if (value.mainEntity) flattenJsonLd(value.mainEntity, output);
     return output;
   }
 
@@ -905,12 +906,31 @@
       "TechArticle"
     ]);
 
-    return getJsonLdNodes().find(node => {
+    const core = window.PaperPilotCore?.metadata;
+    const currentTitle = document.querySelector('meta[name="citation_title" i], meta[name="dc.title" i]')?.content || document.querySelector('h1, [itemprop="headline"]')?.textContent || "";
+    const canonicalUrl = document.querySelector('link[rel="canonical"]')?.href || window.location.href;
+    const urlKey = value => {
+      try { const url = new URL(value, window.location.href); return `${url.origin}${url.pathname}`.replace(/\/$/, "").toLowerCase(); }
+      catch (_) { return ""; }
+    };
+    const currentDoi = core?.extractDoi?.(canonicalUrl);
+    const articles = getJsonLdNodes().filter(node => {
       const rawType = node["@type"];
       const types = Array.isArray(rawType) ? rawType : [rawType];
-      return types.some(type => articleTypes.has(String(type || "").replace(/^schema:/i, ""))) &&
+      return types.some(type => articleTypes.has(String(type || "").replace(/^(?:schema:|https?:\/\/schema\.org\/)/i, ""))) &&
              (node.headline || node.name || node.doi || node.identifier);
-    }) || null;
+    }).map(node => {
+      const nodeUrl = node.url || node.mainEntityOfPage?.["@id"] || node.mainEntityOfPage || node["@id"];
+      const nodeDoi = extractJsonLdDoi(node);
+      const samePage = typeof nodeUrl === "string" && urlKey(nodeUrl) === urlKey(canonicalUrl);
+      const sameDoi = currentDoi && nodeDoi && currentDoi.toLowerCase() === nodeDoi.toLowerCase();
+      const headline = normalizeJsonLdText(node.headline || node.name);
+      let score = samePage || sameDoi ? 30 : (nodeUrl ? -6 : 0);
+      if (currentTitle && headline) score += core?.isTitleMatch?.(currentTitle, headline) ? 20 : -20;
+      if (/ScholarlyArticle/.test(String(node["@type"]))) score += 2;
+      return { node, score };
+    }).filter(candidate => candidate.score >= 0).sort((a, b) => b.score - a.score);
+    return articles[0]?.node || null;
   }
 
   function normalizeJsonLdText(value) {
@@ -922,32 +942,45 @@
     return String(value).trim();
   }
 
-  function extractDoiFromCandidates(candidates) {
+  function extractDoiFromCandidates(candidates, options = {}) {
     const coreExtractor = window.PaperPilotCore?.metadata?.extractDoi;
     if (typeof coreExtractor === "function") {
-      return coreExtractor(candidates);
+      return coreExtractor(candidates, options);
     }
 
-    const doiRegex = /(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*|info:doi\/)?(10\.\d{4,9}\/[^\s"'<>]+)/ig;
-    for (const candidate of candidates.flat(Infinity)) {
-      if (candidate === null || candidate === undefined) continue;
-      const text = typeof candidate === "string"
-        ? candidate
-        : (normalizeJsonLdText(candidate) || JSON.stringify(candidate));
-      doiRegex.lastIndex = 0;
-      let match;
-      while ((match = doiRegex.exec(text))) {
-        const doi = String(match[1] || match[0])
-          .trim()
-          .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
-          .replace(/^info:doi\//i, "")
-          .replace(/^doi:\s*/i, "")
-          .replace(/[?#].*$/, "")
-          .replace(/[.,;:)\]}]+$/g, "");
-        if (/^10\.\d{4,9}\/\S+$/i.test(doi)) return doi;
-      }
-    }
+    // All activation paths load core/metadata.js before this runtime. A
+    // second, weaker regex would silently undo the shared parser's rules.
     return "";
+  }
+
+  function extractArticleDomDoi() {
+    const core = window.PaperPilotCore?.metadata;
+    if (!core?.extractDois) return "";
+    const excluded = 'nav, aside, footer, [role="doc-bibliography"], [id*="reference" i], [class*="reference" i], .ref-list, .references, .bibliography, [id^="pp-"], [class*="related" i], [class*="recommend" i]';
+    const values = [];
+    const links = document.querySelectorAll('a[href*="doi.org/" i], a[href*="/doi/10." i], [itemprop="identifier"], [data-doi]');
+    for (const node of links) {
+      if (node.closest(excluded)) continue;
+      values.push(node.getAttribute("data-doi") || node.getAttribute("content") || node.href || node.textContent || "");
+    }
+    let matches = core.extractDois(values);
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) return "";
+    // Read only DOI-labelled blocks, excluding references and the extension's
+    // own card. An arbitrary DOI anywhere in body text is not article evidence.
+    const blocks = document.querySelectorAll('[class*="doi" i], [id*="doi" i], article header, main header, .article-info, .article-header, p');
+    let budget = 20000;
+    for (const block of blocks) {
+      if (budget <= 0) break;
+      if (block.closest(excluded)) continue;
+      const text = (block.textContent || "").slice(0, Math.min(budget, 2000));
+      budget -= text.length;
+      const structured = !block.matches("p");
+      const label = structured ? /(?:\bdoi\s*[:：]|https?:\/\/(?:dx\.)?doi\.org\/)/i : /^\s*(?:doi\s*[:：]|https?:\/\/(?:dx\.)?doi\.org\/)/i;
+      if (label.test(text)) values.push(text);
+    }
+    matches = core.extractDois(values);
+    return matches.length === 1 ? matches[0] : "";
   }
 
   function extractJsonLdDoi(article) {
@@ -960,7 +993,7 @@
       article.mainEntityOfPage
     ];
 
-    return extractDoiFromCandidates(candidates);
+    return extractDoiFromCandidates(candidates, { authoritative: true });
   }
 
   function hasAcademicMetadata() {
@@ -1196,32 +1229,27 @@
       return "";
     };
     const getMetaCandidates = (names) => {
-      const wanted = new Set(names.map(name => String(name).toLowerCase()));
-      return Array.from(document.querySelectorAll("meta[name], meta[property]"))
-        .filter(el => wanted.has(String(el.getAttribute("name") || el.getAttribute("property") || "").toLowerCase()))
-        .map(el => (el.content || "").trim())
-        .filter(Boolean);
+      const tags = Array.from(document.querySelectorAll("meta[name], meta[property]"));
+      return names.flatMap(name => tags
+        .filter(el => String(el.getAttribute("name") || el.getAttribute("property") || "").toLowerCase() === name.toLowerCase())
+        .map(el => (el.content || "").trim()).filter(Boolean));
     };
 
     // DOI Sniffer
     const doiMetaNames = [
-      "citation_doi", "dc.identifier", "prism.doi", "doi", "dc.identifier.doi",
-      "bepress_citation_doi", "eprints.id_number", "article:doi", "rft_id",
-      "dc.Identifier", "dc.identifier.uri", "DC.Identifier", "DC.identifier"
+      "citation_doi", "prism.doi", "dc.identifier.doi", "bepress_citation_doi",
+      "article:doi", "doi", "rft.doi", "eprints.id_number", "dc.identifier", "rft_id", "dc.identifier.uri"
     ];
-    const doiLinkCandidates = Array.from(document.querySelectorAll("a[href*='doi.org/'], a[href*='/doi/10.']"))
-      .flatMap(link => [link.href, link.textContent || ""]);
-    const doi = extractDoiFromCandidates([
+    const canonicalUrl = document.querySelector('link[rel="canonical"]')?.href || "";
+    const doi = extractDoiFromCandidates(getMetaCandidates(doiMetaNames), { authoritative: true }) || extractDoiFromCandidates([
       // Embedded bibliographic metadata is authoritative. Publisher URL
       // routes are fallbacks because paths can append UI suffixes (/meta,
       // /pdf, /full) that are not part of the DOI itself.
-      ...getMetaCandidates(doiMetaNames),
       extractJsonLdDoi(jsonLdArticle),
-      ...doiLinkCandidates,
       ...(siteProfile?.doiCandidates || []),
       window.location.href,
-      document.body?.textContent?.slice(0, 20000) || ""
-    ]);
+      canonicalUrl
+    ]) || extractArticleDomDoi();
 
     // Title Sniffer
     let title = getMeta([
@@ -1303,7 +1331,7 @@
       jcrQuartile: "N/A",
       casPartition: "N/A",
       citeScore: "N/A",
-      oaStatus: "Closed",
+      oaStatus: "Unknown",
       isEstimated: false,
       metricsSource: "unconfigured",
       source: "页面元数据",
@@ -1324,7 +1352,7 @@
 
     // Rule 2: If DOI is valid, return doi.org URL
     if (doi && doi.trim().length > 0) {
-      return `https://doi.org/${doi.trim()}`;
+      return window.PaperPilotCore.metadata.doiUrl(doi);
     }
 
     let host = window.location.hostname.toLowerCase();
@@ -1352,7 +1380,7 @@
       return url.replace(".full.pdf", "");
     }
     if ((host.includes("researchsquare.com") || host.includes("preprints.org")) && isLikelyPdfUrl(url)) {
-      return doi ? `https://doi.org/${doi.trim()}` : url.replace(/\/pdf([?#].*)?$/i, "$1");
+      return doi ? window.PaperPilotCore.metadata.doiUrl(doi) : url.replace(/\/pdf([?#].*)?$/i, "$1");
     }
 
     // Rule 5: Springer Link / Elsevier / IEEE PDF URL signature back-resolve
@@ -1432,10 +1460,9 @@
     }
 
     // Rule 6: Embedded DOI in URL path
-    const doiRegex = /\b10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+\b/i;
-    const urlDoi = url.match(doiRegex);
+    const urlDoi = extractDoiFromCandidates([url]);
     if (urlDoi) {
-      return `https://doi.org/${urlDoi[0]}`;
+      return window.PaperPilotCore.metadata.doiUrl(urlDoi);
     }
 
     // Rule 7: Title Search fallback
@@ -1583,7 +1610,7 @@
           <!-- Status Banner -->
           <div class="pp-jc-status-banner ${paperMeta.pdfUrl ? 'pp-status-ok' : 'pp-status-warn'}">
             <span class="pp-status-dot"></span>
-            <span>${paperMeta.pdfUrl ? '已搜寻到正文 PDF 直链 · 支持一键校验下载' : '当前无免费 OA 直链 · 可一键复制 DOI 或网页版'}</span>
+            <span>${paperMeta.pdfUrl ? '检测到 PDF 候选 · 下载时自动校验' : '暂无 PDF 地址 · 可打开文献或复制引用'}</span>
           </div>
 
           <!-- Metadata DOI Field -->
@@ -2333,6 +2360,7 @@
         year: paperMeta.year,
         doi: paperMeta.doi,
         pdfUrl: paperMeta.pdfUrl,
+        pageUrl: window.location.href,
         status: status
       }
     });

@@ -15,6 +15,7 @@ const files = [
   "core/cache.js",
   "core/sanitize.js",
   "core/metadata.js",
+  "core/library.js",
   "core/site-profiles.js",
   "core/nature-index.js",
   "core/pdf.js",
@@ -23,6 +24,7 @@ const files = [
   "core/ai.js",
   "core/citation.js",
   "scripts/e2e.js",
+  "scripts/test.js",
   "scripts/browser-smoke.js"
 ];
 

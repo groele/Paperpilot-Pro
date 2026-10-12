@@ -1,54 +1,110 @@
 (function(global) {
   const root = global.PaperPilotCore || {};
 
-  function normalizeDoi(doi) {
-    return String(doi || "")
-      .trim()
-      .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
-      .replace(/^info:doi\//i, "")
-      .replace(/^doi:\s*/i, "")
-      .replace(/[?#].*$/, "");
+  function decodeUriComponent(value) {
+    try { return decodeURIComponent(value); } catch (_) { return value; }
   }
 
-  function cleanDoiMatch(value) {
-    let doi = normalizeDoi(value)
+  function prepareDoiText(value) {
+    return decodeHtmlEntities(String(value || ""))
+      .replace(/[\u00ad\u200b-\u200d\u2060\ufeff]/g, "")
+      // Normalize common copied prefix typography without changing the suffix.
+      .replace(/(?:１０|10)[．.]([０-９0-9]{4,9})[／/]/g, (_, digits) =>
+        `10.${digits.replace(/[０-９]/g, char => String(char.charCodeAt(0) - 0xff10))}/`)
+      .replace(/\b(10\.\d{4,9})[ \t]*\/[ \t]*(?:\r?\n[ \t]*)?/g, "$1/");
+  }
+
+  function cleanDoiMatch(value, { authoritative = false } = {}) {
+    if (/^(?:https?:)?\/\//i.test(String(value || "").trim())) return extractDoi(value, { authoritative });
+    let doi = prepareDoiText(value).trim()
+      .replace(/^(?:urn:doi:|info:doi\/|doi\s*[:：]\s*)/i, "")
       .replace(/^[\s"'<(\[{]+/, "")
-      .replace(/^\/+/, "")
-      .trim();
-
-    doi = doi.replace(/[\s"'>]+$/g, "");
-    while (/[.,;:)[\]}]+$/.test(doi)) {
-      const openParens = (doi.match(/\(/g) || []).length;
-      const closeParens = (doi.match(/\)/g) || []).length;
-      const openBrackets = (doi.match(/\[/g) || []).length;
-      const closeBrackets = (doi.match(/\]/g) || []).length;
-      if (/[)\]]$/.test(doi) && openParens >= closeParens && openBrackets >= closeBrackets) {
-        break;
+      .replace(/[\s"']+$/, "");
+    const pairs = { ")": "(", "]": "[", "}": "{", ">": "<" };
+    // Remove one character at a time: stripping a run of punctuation can
+    // destroy the balanced closing parenthesis of an old-style DOI.
+    while (doi) {
+      const last = doi.slice(-1);
+      if (pairs[last]) {
+        const count = char => doi.split(char).length - 1;
+        if (count(last) > count(pairs[last])) { doi = doi.slice(0, -1); continue; }
+      } else if (!authoritative && /[.,;:]/.test(last)) {
+        doi = doi.slice(0, -1); continue;
       }
-      doi = doi.replace(/[.,;:)[\]}]+$/, "");
+      break;
     }
-    return /^10\.\d{4,9}\/\S+$/i.test(doi) ? doi : "";
+    return /^10\.\d{4,9}\/[^\s\u0000-\u001f\u007f]+$/i.test(doi) ? doi : "";
   }
 
-  function extractDoi(values) {
-    const candidates = Array.isArray(values) ? values : [values];
-    const doiRegex = /(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*|info:doi\/)?(10\.\d{4,9}\/[^\s"'<>]+)/ig;
-
-    for (const candidate of candidates.flat(Infinity)) {
-      if (candidate === null || candidate === undefined) continue;
-      const text = typeof candidate === "string"
-        ? candidate
-        : (typeof candidate === "object" ? JSON.stringify(candidate) : String(candidate));
-      doiRegex.lastIndex = 0;
-
-      let match;
-      while ((match = doiRegex.exec(text))) {
-        const doi = cleanDoiMatch(match[1] || match[0]);
-        if (doi) return doi;
+  function doiCandidateStrings(value, output = [], depth = 0) {
+    if (depth > 8 || value === null || value === undefined) return output;
+    if (Array.isArray(value)) {
+      value.forEach(item => doiCandidateStrings(item, output, depth + 1));
+    } else if (typeof value === "object") {
+      // PropertyValue identifiers such as ISBN must not be mistaken for DOI.
+      if (value.propertyID && !/doi/i.test(String(value.propertyID))) return output;
+      for (const key of ["doi", "DOI", "value", "@value", "identifier", "@id", "url", "sameAs", "mainEntityOfPage"]) {
+        if (value[key] !== undefined) doiCandidateStrings(value[key], output, depth + 1);
       }
+    } else if (typeof value === "string") {
+      output.push(value);
     }
+    return output;
+  }
 
-    return "";
+  function extractDois(values, options = {}) {
+    const found = new Map();
+    const addText = (raw, authoritative = options.authoritative === true, depth = 0) => {
+      if (depth > 3) return;
+      let text = prepareDoiText(raw).trim();
+      if (/^(?:https?:)?\/\//i.test(text)) {
+        try {
+          const url = new URL(text.startsWith("//") ? `https:${text}` : text);
+          let path = decodeUriComponent(url.pathname);
+          // Presentation suffixes are removed only for the publisher that
+          // defines them; `/meta` may be part of a valid DOI elsewhere.
+          if (/(?:^|[.-])iopscience[.-]iop[.-]org(?:[.-]|$)/i.test(url.hostname)) {
+            path = path.replace(/\/(?:meta|pdf|full|abstract)\/?$/i, "");
+          }
+          if (/(?:^|[.-])(?:springer|biomedcentral)[.-]com(?:[.-]|$)/i.test(url.hostname)) {
+            path = path.replace(/\.pdf$/i, "");
+          }
+          addText(path, authoritative, depth + 1);
+          // Search/tracking queries are never treated as article identifiers.
+          for (const key of ["doi", "rft_id", "rft.doi", "rft_id[]", "url"]) {
+            for (const value of url.searchParams.getAll(key)) addText(value, authoritative, depth + 1);
+          }
+          return;
+        } catch (_) { return; }
+      }
+      text = text.replace(/https?:\/\/[^\s"'，。；！？）】》]+/gi, url => {
+        addText(url, authoritative, depth + 1);
+        return " ";
+      });
+      // Keep SICI angle brackets and semicolons; stop at real HTML tags,
+      // prose punctuation in Chinese, quotes, and whitespace.
+      text = text.replace(/<\/?(?:a|span|div|p|br|i|b|em|strong)\b[^>]*>/gi, " ");
+      const regex = /(?<![\p{L}\p{N}_.])10\.\d{4,9}\/[^\s"'，。；：！？、（）【】《》「」『』]+/igu;
+      for (const match of text.matchAll(regex)) {
+        const doi = cleanDoiMatch(match[0], { authoritative });
+        if (doi && !found.has(doi.toLowerCase())) found.set(doi.toLowerCase(), doi);
+      }
+    };
+    for (const value of doiCandidateStrings(values)) addText(value);
+    return Array.from(found.values());
+  }
+
+  function extractDoi(values, options = {}) {
+    return extractDois(values, options)[0] || "";
+  }
+
+  function normalizeDoi(doi) {
+    return extractDoi(doi, { authoritative: true });
+  }
+
+  function doiUrl(doi) {
+    const identifier = normalizeDoi(doi);
+    return identifier ? `https://doi.org/${identifier.split("/").map(part => encodeURIComponent(part)).join("/")}` : "";
   }
 
   function isWeakTitle(title, doi = "") {
@@ -117,8 +173,42 @@
     return (2 * intersection) / (aTokens.size + bTokens.size);
   }
 
-  function isTitleMatch(query, candidate, threshold = 0.72) {
-    return titleSimilarity(query, candidate) >= threshold;
+  function isTitleMatch(query, candidate, threshold = 0.9) {
+    const a = normalizeTitle(query);
+    const b = normalizeTitle(candidate);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (Math.min(a.split(" ").length, b.split(" ").length) <= 3) return false;
+    const significant = value => value.split(" ")
+      .filter(token => /\d/.test(token) || /^(?:not|without|non)$/.test(token)).sort().join(" ");
+    if (significant(a) !== significant(b)) return false;
+    if (titleSimilarity(query, candidate) < threshold) return false;
+    const left = a.split(" "), right = b.split(" ");
+    const row = new Array(right.length + 1).fill(0);
+    for (const token of left) {
+      let diagonal = 0;
+      for (let index = 1; index <= right.length; index += 1) {
+        const previous = row[index];
+        row[index] = token === right[index - 1] ? diagonal + 1 : Math.max(row[index], row[index - 1]);
+        diagonal = previous;
+      }
+    }
+    return 2 * row[right.length] / (left.length + right.length) >= threshold;
+  }
+
+  function selectTitleResult(query, candidates) {
+    const matches = (candidates || []).map(candidate => {
+      const title = candidate.source === "crossref" ? candidate.item?.title?.[0] : candidate.item?.title;
+      const doi = extractDoi(candidate.item?.DOI || candidate.item?.doi, { authoritative: true });
+      return { ...candidate, doi, title, score: titleSimilarity(query, title) };
+    }).filter(candidate => candidate.doi && isTitleMatch(query, candidate.title))
+      .sort((a, b) => b.score - a.score);
+    const best = matches[0];
+    if (!best) return null;
+    const rival = matches.find(candidate => candidate.doi.toLowerCase() !== best.doi.toLowerCase());
+    // Repeated titles (errata, editions, or competing records) need more
+    // evidence than a search provider's ordering before assigning a DOI.
+    return rival && best.score - rival.score < 0.04 ? null : best;
   }
 
   function createBaseMetadata({ doi = "", title = "", journal = "" } = {}) {
@@ -239,8 +329,10 @@
   root.metadata = {
     UNPAYWALL_EMAIL,
     normalizeDoi,
+    doiUrl,
     cleanDoiMatch,
     extractDoi,
+    extractDois,
     isWeakTitle,
     stripHtmlTags,
     decodeHtmlEntities,
@@ -248,6 +340,7 @@
     normalizeTitle,
     titleSimilarity,
     isTitleMatch,
+    selectTitleResult,
     createBaseMetadata,
     applyCrossrefItem,
     applyCslJson,

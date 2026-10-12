@@ -22,7 +22,7 @@
   }
 
   function escapeBibtex(value, isVerbatim = false) {
-    let text = decodeHtmlEntities(stripTags(value)).trim();
+    let text = decodeHtmlEntities(isVerbatim ? String(value || "") : stripTags(value)).trim();
     if (!text) return "";
     if (isVerbatim) {
       return text.replace(/\s+/g, "");
@@ -146,7 +146,7 @@
       lines.push(`TI  - ${cleanText(paper.title || "Untitled paper")}`);
       if (paper.journal || paper.venue) lines.push(`JO  - ${cleanText(paper.journal || paper.venue)}`);
       if (paper.year) lines.push(`PY  - ${cleanText(paper.year)}`);
-      if (paper.doi) lines.push(`DO  - ${cleanText(paper.doi)}`);
+      if (paper.doi) lines.push(`DO  - ${escapeBibtex(paper.doi, true)}`);
       if (paper.url || paper.pdfUrl) lines.push(`UR  - ${cleanText(paper.url || paper.pdfUrl)}`);
       lines.push("ER  - \n");
       return lines.join("\n");
@@ -162,7 +162,7 @@
         author: authors.map(name => ({ literal: cleanText(name) })),
         "container-title": cleanText(paper.journal || paper.venue || ""),
         issued: paper.year ? { "date-parts": [[Number(paper.year)]] } : undefined,
-        DOI: cleanText(paper.doi || ""),
+        DOI: escapeBibtex(paper.doi || "", true),
         URL: cleanText(paper.url || paper.pdfUrl || ""),
         source: cleanText(paper.source || paper.metricsSource || "PaperPilot")
       };

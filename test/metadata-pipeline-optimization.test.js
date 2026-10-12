@@ -7,7 +7,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 
 function loadMetadata() {
-  const context = vm.createContext({ console });
+  const context = vm.createContext({ console, URL });
   context.globalThis = context;
   vm.runInContext(fs.readFileSync(path.join(root, "core", "metadata.js"), "utf8"), context);
   return context.PaperPilotCore.metadata;

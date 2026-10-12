@@ -9,6 +9,26 @@ const out = path.join(root, 'output/playwright');
 fs.mkdirSync(out, {recursive:true});
 let mode = 'normal', requests = 0, aborted = 0;
 const server = http.createServer((req, res) => {
+  if (req.url.startsWith('/doi-fixture/')) {
+    const name = req.url.split('/')[2];
+    const title = `DOI recognition fixture ${name}`;
+    let metadata = '', article = '', jsonLd = '';
+    if (name === 'metadata') metadata = '<meta name="dc.identifier" content="10.1000/wrong"><meta name="CITATION_DOI" content="10.1000/current">';
+    if (name === 'labeled') article = '<p>DOI: 10.1000/current(2026).</p>';
+    if (name === 'ambiguous') article = '<a href="https://doi.org/10.1000/one">DOI</a><a href="https://doi.org/10.1000/two">DOI</a>';
+    if (name === 'jsonld') jsonLd = `<script type="application/ld+json">${JSON.stringify({
+      '@graph': [
+        {'@type':'ScholarlyArticle',headline:'A related article',identifier:'10.1000/wrong'},
+        {'@type':'https://schema.org/ScholarlyArticle',headline:title,identifier:{propertyID:'DOI',value:'10.1000/current'}}
+      ]
+    })}</script>`;
+    const journalMeta = name === 'encoded' ? '' : '<meta name="citation_journal_title" content="Fixture Journal">';
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><meta name="citation_title" content="${title}">${journalMeta}${metadata}${jsonLd}</head><body>
+      <section id="references"><p>DOI: 10.1000/reference</p><a href="https://doi.org/10.1000/reference">Reference DOI</a></section>
+      <aside class="related"><a href="https://doi.org/10.1000/related">Related DOI</a></aside>
+      <main><h1>${title}</h1><section class="abstract">An article for browser verification.</section>${article}</main></body></html>`;
+    res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'}); res.end(html); return;
+  }
   if (req.url === '/v1/chat/completions') {
     requests++;
     const current = mode;
@@ -45,6 +65,7 @@ async function until(fn, label, timeout=10000) {
     executablePath:process.env.PP_CHROMIUM_EXECUTABLE || undefined,
     channel:process.env.PP_CHROMIUM_EXECUTABLE ? undefined : 'chromium', headless:true,
     ignoreDefaultArgs:['--disable-extensions'],
+    acceptDownloads:true, downloadsPath:path.join(out,'downloads'),
     args:[`--disable-extensions-except=${root}`,`--load-extension=${root}`],
     viewport:{width:1100,height:800}
   });
@@ -64,6 +85,23 @@ async function until(fn, label, timeout=10000) {
     await worker.evaluate(async origin=>{
       await chrome.storage.local.set({ai_provider:'custom',ai_base_url:origin+'/v1',ai_model:'qa-model',ai_api_key:'',ai_preset:'methodology',ai_prompt:'我的自定义分析要求',enable_ai_summary_btn:true,enable_metacard:true,enable_metrics_auto_detect:false});
     },origin);
+    const doiPage = await context.newPage();
+    for (const [route, expected] of [
+      ['url/10.1000/current', '10.1000/current'],
+      ['metadata', '10.1000/current'],
+      ['jsonld', '10.1000/current'],
+      ['labeled', '10.1000/current(2026)'],
+      ['reference-only', '暂无 DOI'],
+      ['ambiguous', '暂无 DOI'],
+      ['encoded/10.1000%2Fdemo%23value', '10.1000/demo#value']
+    ]) {
+      await doiPage.goto(`${origin}/doi-fixture/${route}`);
+      const field = doiPage.locator('#pp-jc-doi-val-box .pp-jc-meta-val');
+      await field.waitFor();
+      assert.equal(await field.textContent(), expected, route);
+    }
+    await doiPage.close();
+    pass('DOI browser fixtures: page identity, metadata priority, JSON-LD, labels, reference exclusion, ambiguity and encoding');
     const article=await context.newPage();
     await article.goto(origin+'/paper');
     await article.locator('#pp-journal-metacard').waitFor();
@@ -73,6 +111,8 @@ async function until(fn, label, timeout=10000) {
     const popup=await context.newPage();
     await popup.setViewportSize({width:420,height:600});
     await popup.goto(`chrome-extension://${extensionId}/popup/popup.html`);
+    await until(()=>popup.locator('#btn-toggle-overview').getAttribute('aria-expanded').then(x=>x==='false'),'compact library defaults');
+    await popup.locator('#btn-toggle-overview').click();
     const academic=popup.locator('#status-academic');
     await until(()=>academic.getAttribute('aria-disabled').then(x=>x==='false'),'popup ready');
     await academic.click();
@@ -136,7 +176,9 @@ async function until(fn, label, timeout=10000) {
     pass('Stop cancels upstream request; selecting a perspective does not auto-send');
     await generate.click();
     await until(()=>article.locator('#pp-jc-ai-content').textContent().then(t=>t.includes('论文陈述')),'stream before disabling');
-    await popup.bringToFront(); await academic.click();
+    await popup.bringToFront();
+    await popup.locator('#tab-btn-foot').click();
+    await academic.click();
     await article.locator('.pp-jc-ai-section').waitFor({state:'detached'});
     await until(()=>Promise.resolve(aborted>=2),'disable abort');
     await academic.click(); await article.locator('.pp-jc-ai-section').waitFor();
@@ -187,6 +229,88 @@ async function until(fn, label, timeout=10000) {
     assert.equal(await article.locator('#pp-journal-metacard').count(),1);
     assert.equal(await article.locator('#pp-jc-btn-ai-sum').isEnabled(),true);
     pass('Back navigation restores one functional card');
+
+    await worker.evaluate(async () => {
+      const now = Date.now();
+      const rows = [
+        {title:'Valley polarization in layered semiconductors',doi:'10.1000/valley',authors:['José Zhang'],year:2026,journal:'Fixture Journal',notes:'Low temperature measurement notes',starred:true,status:'visited',actions:['visited','downloaded'],time:now},
+        ...Array.from({length:64},(_,i)=>({title:`Optical response in semiconductor sample ${i}`,doi:`10.1000/sample-${i}`,authors:['Ada Lovelace'],year:2025-i%5,journal:'Fixture Journal',status:'visited',time:now-1000*(i+1)}))
+      ];
+      await chrome.storage.local.set({history:rows,history_revision:100,overview_collapsed:true,appearance_mode:'light'});
+    });
+    await popup.bringToFront();
+    await popup.locator('#tab-btn-foot').click();
+    await until(()=>popup.locator('.pp-foot-card').count().then(n=>n===30),'bounded library rendering');
+    assert.equal(await popup.locator('.pp-library-activity').getAttribute('open'),null);
+    const firstBounds = await popup.locator('.pp-foot-card').first().boundingBox();
+    assert.ok(firstBounds.y<430,JSON.stringify(firstBounds));
+    await popup.locator('#history-search').fill('author:Jose year:2026 valley');
+    await until(()=>popup.locator('.pp-foot-card').count().then(n=>n===1),'compound ranked search');
+    await popup.locator('.pp-foot-more summary').click();
+    await popup.locator('.pp-foot-edit-btn').click();
+    await popup.locator('#record-edit-notes-input').fill('Updated research notes');
+    await popup.locator('#record-edit-notes-input').press('/');
+    assert.equal(await popup.locator('#record-edit-notes-input').inputValue(),'Updated research notes/');
+    assert.equal(await popup.locator('#tab-btn-foot').getAttribute('aria-selected'),'true');
+    await worker.evaluate(()=>addFootprint({title:'Concurrent new article',doi:'10.1000/concurrent',year:2026}));
+    await popup.locator('#record-edit-form button[type="submit"]').click();
+    await until(()=>worker.evaluate(async()=>{
+      const rows=(await chrome.storage.local.get('history')).history;
+      return rows.find(row=>row.doi==='10.1000/valley')?.notes==='Updated research notes/' && Boolean(rows.find(row=>row.doi==='10.1000/concurrent'));
+    }),'atomic edit amid page additions');
+    await popup.locator('.pp-foot-more summary').click();
+    await popup.locator('.pp-foot-del-btn').click();
+    await popup.locator('#popup-toast-undo').waitFor();
+    await popup.locator('#popup-toast-undo').click();
+    await until(()=>popup.locator('.pp-foot-card').count().then(n=>n===1),'undo restores matching article');
+    await popup.locator('#history-search').fill('unfindable-search-term');
+    await until(()=>popup.locator('#history-empty').isVisible(),'search empty state');
+    await popup.locator('#setting-export-format').selectOption('json');
+    assert.equal(await popup.locator('#btn-export-all').isEnabled(),true);
+    await popup.locator('#btn-export-all').click();
+    await until(()=>worker.evaluate(async()=>{
+      const downloads=await chrome.downloads.search({limit:1,orderBy:['-startTime']});
+      return downloads[0]?.state==='complete';
+    }),'native JSON backup download');
+    const backupPath = await worker.evaluate(async()=> (await chrome.downloads.search({limit:1,orderBy:['-startTime']}))[0].filename);
+    const backup = JSON.parse(fs.readFileSync(backupPath,'utf8'));
+    assert.equal(backup.history.length,66);
+    assert.equal(backup.history.find(row=>row.doi==='10.1000/valley').notes,'Updated research notes/');
+    await popup.locator('#file-import-history').setInputFiles({name:'fixture-backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({schema:'paperpilot.history',version:1,history:[
+      {title:'Valley polarization in layered semiconductors',doi:'10.1000/different-edition',year:2026},
+      {title:'Valley polarization in layered semiconductors',doi:'https://doi.org/10.1000/valley',year:2026}
+    ]}))});
+    await until(()=>worker.evaluate(async()=> (await chrome.storage.local.get('history')).history.length===67),'atomic import preserving distinct DOI editions');
+    await popup.locator('#library-reset-filters').click();
+    await until(()=>popup.locator('.pp-foot-card').count().then(n=>n===30),'filter reset');
+    await popup.locator('#library-sort').selectOption('year');
+    assert.match(await popup.locator('.pp-foot-meta-row').first().textContent(),/2026/);
+    await popup.locator('#library-sort').selectOption('auto');
+    await popup.locator('#panel-foot').evaluate(el=>{el.scrollTop=0;});
+    await until(()=>popup.locator('#popup-toast').getAttribute('class').then(x=>!x.includes('pp-show')),'idle library screenshot');
+    for (const theme of ['light','dark']) {
+      await worker.evaluate(theme=>chrome.storage.local.set({appearance_mode:theme}),theme);
+      await until(()=>popup.locator('html').getAttribute('data-pp-theme').then(x=>x===theme),'workbench theme');
+      await popup.screenshot({path:path.join(out,`workbench-library-${theme}.png`)});
+    }
+    await popup.locator('#tab-btn-set').click();
+    await popup.locator('#setting-search-input').fill('DOI');
+    await until(()=>popup.locator('#nav-pill').boundingBox().then(r=>r.x>200),'settings navigation settles');
+    await popup.screenshot({path:path.join(out,'workbench-settings-search.png')});
+    assert.equal(await popup.locator('#history-search').isVisible(),false);
+    pass('Library: compact viewport, 30-row batches, compound search, concurrent edit, notes typing, undo, native full JSON backup, atomic import, empty-state recovery and sorting');
+
+    await context.route('https://scholar.google.com/**', route=>route.fulfill({status:200,contentType:'text/html',body:fs.readFileSync(path.join(root,'test/fixtures/scholar-workbench.html'),'utf8')}));
+    const scholar = await context.newPage();
+    await scholar.goto('https://scholar.google.com/scholar?q=paperpilot-fixture');
+    await until(()=>scholar.locator('.gs_r[data-pp-enhanced="true"]').count().then(n=>n===5),'real Scholar runtime');
+    assert.equal(await scholar.locator('.gs_r[data-folded-as-duplicate="true"]').count(),1);
+    assert.equal(await scholar.locator('.pp-scholar-dup-header').getAttribute('aria-expanded'),'false');
+    await scholar.locator('.pp-scholar-dup-header').press('Enter');
+    assert.equal(await scholar.locator('.pp-scholar-dup-header').getAttribute('aria-expanded'),'true');
+    assert.equal(await scholar.locator('.gs_r:visible').count(),4);
+    await scholar.screenshot({path:path.join(out,'workbench-scholar.png'),fullPage:true});
+    pass('Scholar: real content runtime, DOI-aware indexed clustering, conflicting identities retained and keyboard-accessible source drawer');
 
     assert.deepEqual(errors,[]);
     pass('No uncaught page exceptions');

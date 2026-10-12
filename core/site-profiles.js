@@ -82,7 +82,9 @@
   }
 
   function doiFromPath(url) {
-    const decodedPath = decodeURIComponent(url.pathname);
+    if (root.metadata?.extractDoi) return root.metadata.extractDoi(url.href);
+    let decodedPath;
+    try { decodedPath = decodeURIComponent(url.pathname); } catch (_) { decodedPath = url.pathname; }
     const match = decodedPath.match(/\/doi\/(?:full\/|abs\/|epdf\/|pdf\/)?(10\.[^?#]+)/i);
     return match ? doiFromText(match[1]) : doiFromText(decodedPath);
   }
@@ -90,7 +92,8 @@
   function iopDoiFromPath(url, effectiveHost) {
     const host = effectiveHost || normalizeProxyHost(url.hostname);
     if (!host.includes("iopscience.iop.org") && !url.hostname.toLowerCase().includes("iopscience.iop.org")) return "";
-    const decodedPath = decodeURIComponent(url.pathname);
+    let decodedPath;
+    try { decodedPath = decodeURIComponent(url.pathname); } catch (_) { decodedPath = url.pathname; }
     const match = decodedPath.match(/^\/article\/(10\.\d{4,9}\/.+?)(?:\/(?:meta|pdf|full|abstract))?\/?$/i);
     return match ? doiFromText(match[1]) : "";
   }

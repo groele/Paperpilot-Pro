@@ -11,13 +11,13 @@
     if (String(document.contentType || "").toLowerCase().includes("application/pdf")) return "pdf-document";
 
     const text = `${window.location.href} ${document.title || ""}`;
-    const hasDoiRoute = /\b10\.\d{4,9}\//i.test(text);
+    const hasDoiRoute = /\b10(?:\.|%2e)\d{4,9}(?:\/|%2f)/i.test(text);
     const directPdfControl = document.querySelector(PDF_SEL);
     if (directPdfControl || hasDoiRoute) return directPdfControl ? "pdf-control" : "doi-route";
     if (document.querySelector("meta[name='citation_pdf_url' i],meta[name='bepress_citation_pdf_url' i],link[type='application/pdf']")) return "pdf-metadata";
 
     const titleMeta = document.querySelector("meta[name='citation_title' i],meta[name='dc.title' i],meta[property='og:title']");
-    const doiMeta = document.querySelector("meta[name='citation_doi' i],meta[name='dc.identifier' i],meta[name='prism.doi' i],meta[property='article:doi']");
+    const doiMeta = document.querySelector("meta[name$='doi' i],meta[name='dc.identifier' i],meta[property$='doi' i]");
     const articleType = document.querySelector("meta[name='citation_journal_title' i],meta[property='og:type'][content='article' i]");
     if (titleMeta && (doiMeta || articleType)) return "scholarly-metadata";
 

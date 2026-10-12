@@ -8,7 +8,7 @@
 ![Type](https://img.shields.io/badge/type-Chrome%20Extension-blue?style=flat-square)
 ![Workflow](https://img.shields.io/badge/workflow-literature%20engine-green?style=flat-square)
 ![Architecture](https://img.shields.io/badge/architecture-browser--native-purple?style=flat-square)
-![Version](https://img.shields.io/badge/version-3.2.0-6f42c1?style=flat-square)
+![Version](https://img.shields.io/badge/version-4.0.0-6f42c1?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
 
 Part of **ResearchFlow Lab** — a local-first research productivity ecosystem for literature, manuscripts, data, and scientific visualization.
@@ -45,14 +45,14 @@ Academic literature discovery is still highly fragmented. Researchers often jump
 | Google Scholar Enhancement | Adds sorting, filtering, deduplication, and visual badges | 增强 Google Scholar 的排序、过滤、去重和标记能力 |
 | Nature Index Highlight | Highlights Nature Index-related journal results | 对 Nature Index 相关期刊结果进行高亮 |
 | Metadata Badges | Displays IF, partition, CCF, CSSCI, warning, citations, and PDF status where available | 展示影响因子、分区、CCF、CSSCI、预警、引用量和 PDF 状态 |
-| DOI Tools | Detects and copies DOI from literature pages | 检测并复制 DOI |
+| DOI Tools | Resolves article identity from prioritized metadata and URL evidence | 按文章身份识别 DOI，排除参考文献与冲突匹配 |
 | On-demand Page Activation | Uses a lightweight detector before loading the full journal runtime on long-tail academic sites | 通过轻量探测器按需激活长尾期刊与机构仓储页面 |
 | Modular PDF Discovery | Detects PDF metadata, controls, viewers, JSON-LD, URL parameters, and open Shadow DOM | 识别 PDF 元标签、按钮、查看器、JSON-LD、URL 参数和开放 Shadow DOM |
 | PDF Verification & Diagnostics | Uses bounded hedged HEAD/Range checks, reuses verified requests, and reports cache/verification status | 使用有界对冲式 HEAD/Range 校验、复用已验证请求并显示缓存与校验诊断 |
 | BibTeX Export | Generates or copies BibTeX-style citation information | 生成或复制 BibTeX 引用 |
 | Markdown Notes | Generates structured literature note templates | 生成结构化 Markdown 读书笔记 |
 | AI Summary | Uses optional local/user-configured AI providers for literature summaries | 使用用户配置的 AI 模型进行文献总结 |
-| Reading Footprints | Records browsed literature history for later search and export | 记录浏览过的论文留痕（文过留痕），便于后续检索与导出 |
+| Research Library | Records browsed literature history for later search and export | 记录浏览过的论文留痕（文过留痕），便于后续检索与导出 |
 | Theme Controls | Supports light, dark, and system-aware appearance | 支持白天、夜间和跟随系统主题 |
 
 ---
@@ -76,6 +76,7 @@ PaperPilot Pro
 │   ├── known academic route matching
 │   └── lightweight all-page detector → on-demand runtime injection
 ├── Core Layer
+│   ├── shared library identity, record merging, indexed deduplication, and ranked search
 │   ├── metadata and DOI normalization
 │   ├── PDF discovery and response classification
 │   ├── pluggable publisher adapters
@@ -200,3 +201,12 @@ Developed by **Shikun Hou / groele**.
 - 截图和结果保存在 `output/playwright/`。第三方元数据请求在烟测中使用受控失败响应；它不等于真实出版商下载或远程 AI 服务验收。
 
 详细审查见 [优化审查报告](docs/optimization-audit-2026-09-20.md)。
+
+## V4.0 workbench
+
+- Start in a compact library view. Expand **工具与页面** or **阅读活动** when needed.
+- Search multiple words together, use quoted phrases, or qualify a field: `author:Jose year:2026 valley`, `doi:10.1000/example`, `notes:"low temperature"`.
+- Open papers, star them or copy DOI directly. **更多** contains citation formats, editing and removal. A removal can be undone for eight seconds while the popup stays open.
+- **导出文件** saves BibTeX, GB/T 7714, Markdown, RIS, CSL JSON or a complete JSON backup. **复制** keeps clipboard export available. Complete JSON backup includes all library records regardless of active filters.
+- Import merges records through the background queue, keeps local notes, and retains distinct DOI identities. The library retains up to 500 records with favorite protection.
+- See [V4.0 release notes](docs/releases/v4.0.0.md) for validation and compatibility boundaries.

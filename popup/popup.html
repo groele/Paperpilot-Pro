@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PaperPilot Pro Workplace 控制台</title>
+  <title>PaperPilot Pro · 文献工作台</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 
@@ -19,20 +19,20 @@
         </div>
         <div>
           <h1 class="pp-popup-title">PaperPilot <span class="pp-title-accent">Pro</span></h1>
-          <span class="pp-popup-subtitle">科研闭环智能助手</span>
+          <span class="pp-popup-subtitle">文献工作台 · 发现 / 阅读 / 积累</span>
         </div>
       </div>
       <div class="pp-header-badges">
         <button class="pp-theme-toggle-btn" id="btn-quick-theme-toggle" type="button" title="一键切换深浅色主题">🌙</button>
-        <span class="pp-popup-version">v3.2.0</span>
+        <span class="pp-popup-version">v4.0.0</span>
       </div>
     </header>
 
-    <!-- Dashboard Overview -->
+    <!-- 工具与页面 -->
     <div class="pp-popup-info-card">
       <div class="pp-popup-info-header">
         <div class="pp-info-title-group">
-          <span class="pp-popup-info-title">Dashboard Overview</span>
+          <span class="pp-popup-info-title">工具与页面</span>
           <span class="pp-info-subtitle">点击切换功能 · 设置即时保存</span>
         </div>
         <div class="pp-info-header-actions">
@@ -162,7 +162,7 @@
           <circle cx="12" cy="12" r="10"></circle>
           <polyline points="12 6 12 12 16 14"></polyline>
         </svg>
-        <span>文过留痕</span>
+        <span>文献库</span>
       </button>
       <button type="button" class="pp-popup-nav-item" id="tab-btn-set" role="tab" aria-selected="false" aria-controls="panel-set">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
@@ -171,7 +171,7 @@
             d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
           </path>
         </svg>
-        <span>全局配置</span>
+        <span>偏好设置</span>
       </button>
     </nav>
 
@@ -179,6 +179,7 @@
     <main class="pp-popup-body">
       <!-- Section 1: Footprints History -->
       <section id="panel-foot" class="pp-popup-section active" role="tabpanel" aria-labelledby="tab-btn-foot">
+        <details class="pp-library-activity"><summary>阅读活动<span>查看统计与日历</span></summary>
         <!-- Footprints Stats Mini Widget -->
         <div class="pp-footprint-stats-bar" id="footprint-stats-bar">
           <div class="pp-stats-item">
@@ -226,6 +227,7 @@
           </div>
         </div>
 
+        </details>
         <!-- Keep saved papers discoverable immediately after the activity overview. -->
         <div class="pp-footprint-quick-filters" id="footprint-quick-filters" aria-label="文过留痕快捷筛选">
           <span class="pp-footprint-quick-label">快捷查看</span>
@@ -265,11 +267,12 @@
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
               <input type="text" class="pp-popup-search-input" id="history-search"
-                placeholder="输入标题、作者、期刊、DOI 或笔记内容实时过滤留痕...">
+                placeholder="搜索标题、作者、DOI、笔记内容…" aria-label="搜索文献" title="可组合关键词；支持 author:、doi:、year: 和引号短语">
               <button type="button" class="pp-search-clear-btn" id="history-search-clear" title="清空搜索"
                 style="display: none;">×</button>
             </div>
 
+            <details class="pp-library-filters" id="library-advanced-filters"><summary>日期与操作筛选</summary>
             <!-- Date Shortcuts & Quick Chips -->
             <div class="pp-search-quick-bar">
               <div class="pp-search-quick-dates">
@@ -289,9 +292,16 @@
                 <button type="button" class="pp-chip" data-filter="copied">📋 已复制</button>
               </div>
             </div>
+            </details>
           </div>
         </div>
 
+        <div class="pp-library-toolbar">
+          <span id="library-result-status" role="status" aria-live="polite">正在读取文献…</span>
+          <select id="library-sort" aria-label="文献排序"><option value="auto">相关性 / 最近阅读</option><option value="year">发表年份 ↓</option><option value="title">标题 A–Z</option></select>
+          <button type="button" id="library-copy-results" title="复制当前结果" aria-label="复制当前结果">复制</button>
+          <button type="button" id="library-reset-filters" hidden>重置筛选</button>
+        </div>
         <div class="pp-popup-footprint-list" id="history-list">
           <!-- Footprint items dynamically appended here -->
           <div class="pp-popup-empty-msg" id="history-empty">
@@ -314,7 +324,7 @@
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-            导出留痕
+            导出文件
           </button>
           <button class="pp-popup-btn pp-popup-btn-secondary" id="btn-import-history" title="从 JSON 备份文件恢复文献留痕">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
@@ -1154,11 +1164,14 @@
     <!-- Global Toast Alert -->
     <div class="pp-popup-toast" id="popup-toast" role="status" aria-live="polite">
       <span id="popup-toast-msg">保存成功</span>
+      <button id="popup-toast-undo" type="button" hidden>撤销</button>
     </div>
   </div>
   <script src="../core/messaging.js"></script>
+  <script src="../core/metadata.js"></script>
   <script src="../core/nature-index.js"></script>
   <script src="../core/citation.js"></script>
+  <script src="../core/library.js"></script>
   <script src="../lib/svg-icons.js"></script>
   <script src="popup.js"></script>
 </body>

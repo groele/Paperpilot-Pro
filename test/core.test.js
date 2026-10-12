@@ -29,6 +29,7 @@ function loadCore(...files) {
 }
 
 function loadBackgroundHarness(options = {}) {
+  const fetchResponse = options.fetchResponse;
   const calls = { downloads: [], fetches: [], cancellations: [], messages: [] };
   const listeners = {};
   const storageData = {
@@ -65,6 +66,7 @@ function loadBackgroundHarness(options = {}) {
     console: { log() {}, warn() {}, error() {} },
     fetch: async (url, options = {}) => {
       calls.fetches.push({ url, method: options.method || "GET" });
+      if (fetchResponse) return fetchResponse(url);
       return {
         ok: true,
         status: 200,
@@ -624,6 +626,93 @@ test("background DOI lookup rejects suffix-only identifiers", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "background/background.js"), "utf8");
 
   assert.match(source, /PP_CORE\.metadata\?\.extractDoi/);
+});
+
+test('history keeps conflicting DOI records and preserves enriched metadata on revisits', async () => {
+  const {sandbox, storageData} = loadBackgroundHarness();
+  await sandbox.addFootprint({title:'Shared title',doi:'10.1000/A',journal:'Full journal',notes:'Saved notes',status:'downloaded'});
+  await sandbox.addFootprint({title:'Shared title',doi:'10.1000/a',journal:'',status:'visited'});
+  assert.equal(storageData.history.length,1);
+  assert.equal(storageData.history[0].journal,'Full journal');
+  assert.equal(storageData.history[0].notes,'Saved notes');
+  assert.ok(storageData.history[0].actions.includes('downloaded'));
+  await sandbox.addFootprint({title:'Shared title',doi:'10.1000/B'});
+  assert.equal(storageData.history.length,2);
+});
+
+test('record edits address stable identity across concurrent page additions; undo preserves new records', async () => {
+  const {sandbox, storageData} = loadBackgroundHarness();
+  await sandbox.addFootprint({title:'Original article',doi:'10.1000/original',notes:'Before edit'});
+  const key = storageData.history[0].id;
+  await Promise.all([
+    sandbox.addFootprint({title:'New page article',doi:'10.1000/new'}),
+    sandbox.mutateHistoryItem({key,patch:{notes:'After edit'}})
+  ]);
+  assert.equal(storageData.history.find(row=>row.id===key).notes,'After edit');
+  const deleted = await sandbox.mutateHistoryItem({key,remove:true});
+  await sandbox.addFootprint({title:'Third article',doi:'10.1000/third'});
+  const restored = await sandbox.mutateHistoryItem({restore:deleted.removed,index:deleted.index});
+  assert.equal(restored.history.length,3);
+  assert.equal(restored.history.find(row=>row.id===key).notes,'After edit');
+  const conflict = await sandbox.mutateHistoryItem({key,patch:{doi:'10.1000/third'}});
+  assert.equal(conflict.errorCode,'HISTORY_DUPLICATE');
+});
+
+test('an invalidated old flight cannot delete the replacement request', async () => {
+  const core = loadCore('core/cache.js');
+  const flights = core.cache.createSingleFlight();
+  let resolveOld, resolveNew;
+  const old = flights.run('same',()=>new Promise(resolve=>{resolveOld=resolve;}));
+  await Promise.resolve(); flights.clear();
+  const replacement = flights.run('same',()=>new Promise(resolve=>{resolveNew=resolve;}));
+  await Promise.resolve(); resolveOld('old'); await old;
+  assert.equal(flights.has('same'),true);
+  resolveNew('new'); await replacement;
+  assert.equal(flights.size,0);
+});
+
+test("background title lookup evaluates later hits through the real service pipeline", async () => {
+  const title = "Valley polarization in layered semiconductor heterostructures";
+  const { sandbox, calls } = loadBackgroundHarness({
+    fetchResponse(url) {
+      const data = String(url).includes("openalex") ? { results: [
+        { title: "Unrelated quantum transport", doi: "10.1000/wrong" },
+        { title, doi: "https://doi.org/10.1000/correct", publication_year: 2026 }
+      ] } : { message: { items: [] } };
+      return { ok: true, json: async () => data };
+    }
+  });
+  const result = await sandbox.fetchPaperMetadata("", title, "");
+  assert.equal(result.data.doi, "10.1000/correct");
+  assert.equal(result.data.title, title);
+  assert.ok(calls.fetches.some(call => call.url.includes("per-page=5")));
+  assert.ok(calls.fetches.some(call => call.url.includes("rows=5")));
+});
+
+test("background refuses ambiguous title matches and retries unresolved metadata soon", async () => {
+  const title = "Valley polarization in layered semiconductor heterostructures";
+  const { sandbox } = loadBackgroundHarness({
+    fetchResponse(url) {
+      const data = String(url).includes("openalex")
+        ? { results: [{ title, doi: "10.1000/one" }] }
+        : { message: { items: [{ title: [title], DOI: "10.1000/two" }] } };
+      return { ok: true, json: async () => data };
+    }
+  });
+  const result = await sandbox.fetchPaperMetadata("", title, "");
+  assert.equal(result.data.doi, "");
+  assert.ok(result.data.expiresAt - result.data.cachedAt <= 300000);
+});
+
+test("DOI enrichment cannot replace the requested article with another DOI", async () => {
+  const { sandbox } = loadBackgroundHarness({
+    fetchResponse() {
+      return { ok: true, json: async () => ({ DOI: "10.1000/wrong", doi: "10.1000/wrong", title: "Unrelated article", publication_year: 2026 }) };
+    }
+  });
+  const result = await sandbox.fetchPaperMetadata("10.1000/requested", "Requested article title", "");
+  assert.equal(result.data.doi, "10.1000/requested");
+  assert.equal(result.data.title, "Requested article title");
 });
 
 test("metadata cache records expiry and stale state", () => {

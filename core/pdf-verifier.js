@@ -24,9 +24,10 @@
         reject(new DOMException("Aborted", "AbortError"));
         return;
       }
-      const timer = setTimeout(resolve, Math.max(0, ms));
+      const timer = setTimeout(() => { signal?.removeEventListener("abort", onAbort); resolve(); }, Math.max(0, ms));
       const onAbort = () => {
         clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
         reject(new DOMException("Aborted", "AbortError"));
       };
       signal?.addEventListener("abort", onAbort, { once: true });

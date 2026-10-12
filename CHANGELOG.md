@@ -1,5 +1,26 @@
 # Changelog
 
+## v4.0.0 - 2026-10-12
+
+### Changed
+- Rebuild the daily workflow around a compact research library, with collapsed tools/activity, ranked compound search, field queries, sorting, accessible action drawers and 30-record render batches.
+- Replace quadratic character-distance clustering with DOI/title indexes and conservative paper identity checks; never collapse distinct DOI identities through an identifier-less intermediary.
+- Centralize record normalization, bibliography-preserving revisits, action history, unknown dates/years, and import deduplication in `core/library.js`.
+
+### Added
+- Identity-addressed queued edits, favorites, removals and eight-second undo without overwriting concurrent page additions.
+- Actual export files for all six formats, clipboard export, complete JSON backups independent of filters, and atomic imports preserving local notes.
+
+### Fixed
+- Improve DOI encoding, balanced punctuation, legacy identifiers, page identity, JSON-LD selection, title search and conflicting-provider handling.
+- Preserve download state, notes and enriched metadata on revisits; keep unknown years and dates unknown.
+- Fix hidden-panel focus ownership, shrinking search controls, undo click interception, old-flight invalidation and PDF delay listener cleanup.
+
+### Compatibility and verification
+- User-requested V4.0 milestone; existing feature switches, GB/T citations, notes and JSON backup schema remain compatible. New record IDs and action arrays are additive.
+- `npm run verify`: 121 tests plus lint and E2E fixtures. Real Chromium MV3 regression covers DOI, Scholar, library, concurrent editing, undo, native JSON download/import, settings and AI streams.
+- Details: [V4.0 release notes](docs/releases/v4.0.0.md).
+
 ## v3.2.0 - 2026-10-08
 
 ### Added & Optimized

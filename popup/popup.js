@@ -218,11 +218,13 @@ const initPopup = () => {
   let historyData = [];
   let historyRevision = 0;
   let activeEditIndex = -1;
+  let activeEditRecord = null;
+  const pendingRecordMutations = new Set();
   let currentHistoryQuery = "";
   let currentDiagnostics = null;
   let currentPdfDownloadSaveAs = false;
   const inputSaveTimers = new Map();
-  const HISTORY_PAGE_SIZE = 60;
+  const HISTORY_PAGE_SIZE = 30;
   let renderedHistoryLimit = HISTORY_PAGE_SIZE;
   let historySearchTimer = null;
   let historyStats = { all: 0, starred: 0, downloaded: 0, copied: 0 };
@@ -493,6 +495,7 @@ const initPopup = () => {
     if (!item || !recordEditOverlay) return;
 
     activeEditIndex = index;
+    activeEditRecord = item;
     recordEditTitleInput.value = item.title || "";
     recordEditJournalInput.value = item.journal || "";
     recordEditYearInput.value = item.year || "";
@@ -511,6 +514,7 @@ const initPopup = () => {
   function closeRecordEditor() {
     if (!recordEditOverlay) return;
     activeEditIndex = -1;
+    activeEditRecord = null;
     recordEditOverlay.classList.remove("pp-open");
     recordEditOverlay.setAttribute("aria-hidden", "true");
     recordEditDrawer?.style.removeProperty("--record-edit-top");
@@ -518,38 +522,27 @@ const initPopup = () => {
   }
 
   function saveRecordEditor() {
-    if (activeEditIndex < 0 || !historyData[activeEditIndex]) return;
-    const yearValue = parseInt(recordEditYearInput.value, 10);
-    historyData[activeEditIndex] = {
-      ...historyData[activeEditIndex],
-      title: recordEditTitleInput.value.trim() || "Untitled paper",
-      journal: recordEditJournalInput.value.trim(),
-      year: Number.isFinite(yearValue) ? yearValue : new Date().getFullYear(),
-      status: recordEditStatusInput.value || "visited",
-      doi: recordEditDoiInput.value.trim(),
-      pdfUrl: recordEditPdfInput.value.trim(),
-      authors: parseAuthorsInput(recordEditAuthorsInput.value),
-      notes: recordEditNotesInput ? recordEditNotesInput.value.trim() : (historyData[activeEditIndex].notes || ""),
-      updatedAt: Date.now()
+    if (!activeEditRecord) return;
+    const rawDoi = recordEditDoiInput.value.trim();
+    const doi = PaperPilotCore.metadata.normalizeDoi(rawDoi);
+    if (rawDoi && !doi) { showToast('DOI 格式无效，请检查后保存'); recordEditDoiInput.focus(); return; }
+    const year = parseInt(recordEditYearInput.value, 10);
+    const patch = {
+      title: recordEditTitleInput.value.trim() || 'Untitled paper',
+      journal: recordEditJournalInput.value.trim(), year: Number.isFinite(year) ? year : null,
+      status: recordEditStatusInput.value || 'visited', doi,
+      pdfUrl: recordEditPdfInput.value.trim(), authors: parseAuthorsInput(recordEditAuthorsInput.value),
+      notes: recordEditNotesInput ? recordEditNotesInput.value.trim() : activeEditRecord.notes || ''
     };
-    closeRecordEditor();
-    persistHistory("Research Record 已更新");
+    mutateRecord(activeEditRecord, patch, '文献信息已更新', false, closeRecordEditor);
   }
 
   function deleteRecordEditorItem() {
-    if (activeEditIndex < 0 || !historyData[activeEditIndex]) return;
-    historyData.splice(activeEditIndex, 1);
-    closeRecordEditor();
-    persistHistory("Research Record 已删除");
+    if (activeEditRecord) mutateRecord(activeEditRecord, {}, '已移除文献', true, closeRecordEditor);
   }
 
   function deleteRecordAt(index) {
-    if (index < 0 || !historyData[index]) return;
-    historyData.splice(index, 1);
-    if (activeEditIndex === index) {
-      closeRecordEditor();
-    }
-    persistHistory("已从文过留痕中移除此记录");
+    if (historyData[index]) mutateRecord(historyData[index], {}, '已移除文献', true);
   }
 
   // Update Dashboard Overview status grid
@@ -839,9 +832,7 @@ const initPopup = () => {
     } else {
       updateTheme("system");
     }
-    if (config.overview_collapsed !== undefined) {
-      setOverviewCollapsed(Boolean(config.overview_collapsed), false);
-    }
+    setOverviewCollapsed(config.overview_collapsed !== false, false);
 
     const easyScholarKeyInput = document.getElementById("setting-easyscholar-key");
     const enableEasyScholarInput = document.getElementById("setting-enable-easyscholar");
@@ -1436,9 +1427,10 @@ const initPopup = () => {
 
     // 4. Keyboard Shortcuts for quick search navigation
     document.addEventListener("keydown", (e) => {
+      if (!panelSet.classList.contains('active')) return;
       if (
         (e.key === "/" || ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F"))) &&
-        !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)
+        !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName) && !document.activeElement?.isContentEditable
       ) {
         e.preventDefault();
         switchPanel("settings");
@@ -1718,6 +1710,7 @@ const initPopup = () => {
 
   let currentChipFilter = "all";
   let currentDateFilter = null;
+  let currentLibrarySort = 'auto';
 
   function safeParseDate(val) {
     if (!val) return null;
@@ -1754,16 +1747,14 @@ const initPopup = () => {
       result = result.filter(item => {
         const rawTime = item.time || item.updatedAt || item.timestamp;
         const parsed = safeParseDate(rawTime);
-        if (!parsed) {
-          return currentDateFilter === todayKey || currentDateFilter === "3days" || currentDateFilter === "week";
-        }
+        if (!parsed) return false;
         if (currentDateFilter === "3days") {
-          const diffDays = (today.getTime() - parsed.getTime()) / (1000 * 3600 * 24);
-          return diffDays >= 0 && diffDays <= 3;
+          const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2);
+          return parsed >= start && parsed <= today;
         }
         if (currentDateFilter === "week") {
-          const diffDays = (today.getTime() - parsed.getTime()) / (1000 * 3600 * 24);
-          return diffDays >= 0 && diffDays <= 7;
+          const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
+          return parsed >= start && parsed <= today;
         }
         return formatDateKey(parsed) === currentDateFilter;
       });
@@ -1774,21 +1765,15 @@ const initPopup = () => {
     } else if (currentChipFilter === "notes") {
       result = result.filter(item => Boolean(item.notes && item.notes.trim()));
     } else if (currentChipFilter === "downloaded") {
-      result = result.filter(item => item.status === "downloaded");
+      result = result.filter(item => PaperPilotCore.library.hasAction(item, 'downloaded'));
     } else if (currentChipFilter === "copied") {
-      result = result.filter(item => (item.status || "").startsWith("copied"));
+      result = result.filter(item => PaperPilotCore.library.hasAction(item, 'copied'));
     }
 
-    if (!q) return result;
-    return result.filter(item => {
-      const title = (item.title || "").toLowerCase();
-      const journal = (item.journal || "").toLowerCase();
-      const doi = (item.doi || "").toLowerCase();
-      const authors = Array.isArray(item.authors) ? item.authors.join(" ").toLowerCase() : String(item.authors || "").toLowerCase();
-      const year = String(item.year || "");
-      const notes = (item.notes || "").toLowerCase();
-      return title.includes(q) || journal.includes(q) || doi.includes(q) || authors.includes(q) || year.includes(q) || notes.includes(q);
-    });
+    result = PaperPilotCore.library.search(result, currentHistoryQuery);
+    if (currentLibrarySort === 'year') return [...result].sort((a,b) => (b.year || 0) - (a.year || 0));
+    if (currentLibrarySort === 'title') return [...result].sort((a,b) => a.title.localeCompare(b.title, 'zh-CN'));
+    return currentHistoryQuery.trim() ? result : [...result].sort((a,b) => b.time - a.time);
   }
 
   function renderCurrentFootprints() {
@@ -1801,8 +1786,8 @@ const initPopup = () => {
     historyData.forEach(item => {
       if (item.starred === true) next.starred++;
       if (item.notes && item.notes.trim()) next.notes++;
-      if (item.status === "downloaded") next.downloaded++;
-      if ((item.status || "").startsWith("copied")) next.copied++;
+      if (PaperPilotCore.library.hasAction(item, 'downloaded')) next.downloaded++;
+      if (PaperPilotCore.library.hasAction(item, 'copied')) next.copied++;
     });
     historyStats = next;
   }
@@ -1836,6 +1821,24 @@ const initPopup = () => {
     });
   }
 
+  function mutateRecord(item, patch, successMsg, remove = false, onSuccess) {
+    const key = PaperPilotCore.library.recordKey(item);
+    if (pendingRecordMutations.has(key)) return;
+    pendingRecordMutations.add(key);
+    sendBackgroundMessage({ action: 'HISTORY_MUTATE', key, patch, remove }, response => {
+      pendingRecordMutations.delete(key);
+      if (!response?.success) { showToast(`保存失败：${response?.error || '请重试'}`); return; }
+      applyHistorySnapshot(response.history, response.revision);
+      onSuccess?.();
+      const undo = response.removed ? () => sendBackgroundMessage({ action: 'HISTORY_MUTATE', restore: response.removed, index: response.index }, restored => {
+        if (!restored?.success) { showToast(restored?.error || '恢复失败'); return; }
+        applyHistorySnapshot(restored.history, restored.revision);
+        showToast('已恢复文献');
+      }) : null;
+      showToast(successMsg, undo);
+    });
+  }
+
   function loadFootprints() {
     sendBackgroundMessage({ action: "HISTORY_GET" }, response => {
       if (!response?.success) {
@@ -1850,17 +1853,7 @@ const initPopup = () => {
 
   function applyHistorySnapshot(rawHistory, revision) {
       const raw = Array.isArray(rawHistory) ? rawHistory : [];
-      const now = Date.now();
-      historyData = raw.map((item, idx) => {
-        const rawTime = item.time || item.updatedAt || item.timestamp;
-        if (!rawTime || !safeParseDate(rawTime)) {
-          return {
-            ...item,
-            time: now - (idx * 1800000)
-          };
-        }
-        return item;
-      });
+      historyData = raw.map(item => PaperPilotCore.library.normalizeRecord(item));
       historyRevision = Number.isInteger(revision) ? revision : 0;
       refreshHistoryStats();
       renderCurrentFootprints();
@@ -2055,6 +2048,12 @@ const initPopup = () => {
   function renderFootprints(items, query = "") {
     updateFootprintStats();
     historyList.innerHTML = "";
+    const status = document.getElementById('library-result-status');
+    if (status) status.textContent = `${items.length} / ${historyData.length} 篇文献`;
+    const reset = document.getElementById('library-reset-filters');
+    if (reset) reset.hidden = !(currentHistoryQuery || currentDateFilter || currentChipFilter !== 'all');
+    const copyButton = document.getElementById('library-copy-results');
+    if (copyButton) copyButton.disabled = !items.length;
 
     const activeDateTag = document.getElementById("search-active-date-tag");
     const resultCountBadge = document.getElementById("search-result-count-badge");
@@ -2104,7 +2103,7 @@ const initPopup = () => {
       }
       historyList.appendChild(emptyMsg);
       emptyMsg.style.display = "block";
-      exportAllBtn.disabled = true;
+      exportAllBtn.disabled = exportFormatSelect?.value === 'json' ? !historyData.length : true;
       return;
     }
 
@@ -2114,12 +2113,16 @@ const initPopup = () => {
     items.slice(0, renderedHistoryLimit).forEach((item) => {
       const recordIndex = historyData.indexOf(item);
       const card = document.createElement("div");
+      card.tabIndex = 0;
+      card.setAttribute('role', 'group');
+      card.setAttribute('aria-label', item.title || '未命名文献');
+      card.onkeydown = event => { if (event.target === card && event.key === 'Enter') { event.preventDefault(); card.onclick(); } };
       card.className = `pp-foot-card ${item.starred ? 'pp-foot-card--starred' : ''}`;
       card.title = "点击在新标签页中打开文献页面或 PDF";
 
       // Click card to open link
       card.onclick = () => {
-        const targetUrl = item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "");
+        const targetUrl = item.pdfUrl || PaperPilotCore.metadata.doiUrl(item.doi) || item.pageUrl;
         if (targetUrl) {
           if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
             chrome.tabs.create({ url: targetUrl });
@@ -2140,7 +2143,7 @@ const initPopup = () => {
       // --- Status mapping ---
       let statusText = "已访问";
       let statusClass = "visited";
-      if (item.status === "downloaded") {
+      if (PaperPilotCore.library.hasAction(item, 'downloaded')) {
         statusText = "已下载";
         statusClass = "downloaded";
       } else if (item.status === "copied_bibtex" || item.status === "copied_doi") {
@@ -2202,8 +2205,7 @@ const initPopup = () => {
       starBtn.title = item.starred ? "取消精选收藏" : "精选收藏此文献";
       starBtn.onclick = (event) => {
         event.stopPropagation();
-        item.starred = !item.starred;
-        persistHistory(item.starred ? "已加入精选文献收藏" : "已取消精选收藏");
+        mutateRecord(item, { starred: !item.starred }, item.starred ? '已取消收藏' : '已加入收藏');
       };
 
       // Quick Delete button
@@ -2236,8 +2238,7 @@ const initPopup = () => {
           ? citation.buildBibtexEntries([item])
           : `@article{paper_${item.year || 2026},\n  title={${item.title || ""}},\n  journal={${item.journal || ""}},\n  year={${item.year || 2026}},\n  doi={${item.doi || ""}}\n}`;
         robustCopyToClipboard(text).then(() => {
-          item.status = "copied_bibtex";
-          persistHistory("已将 BibTeX 引用写入剪贴板");
+          mutateRecord(item, { status: 'copied_bibtex' }, '已将 BibTeX 引用写入剪贴板');
         }).catch(() => {
           showToast("剪贴板写入失败，请检查浏览器权限");
         });
@@ -2256,8 +2257,7 @@ const initPopup = () => {
           ? citation.buildGbt7714Entries([item], { numbered: false })
           : `${item.authors?.join(", ") || "佚名"}. ${item.title || "Untitled"}[J]. ${item.journal || ""}, ${item.year || ""}.`;
         robustCopyToClipboard(text).then(() => {
-          item.status = "copied_citation";
-          persistHistory("已将 GB/T 7714 引用写入剪贴板");
+          mutateRecord(item, { status: 'copied_citation' }, '已将 GB/T 7714 引用写入剪贴板');
         }).catch(() => {
           showToast("剪贴板写入失败，请检查浏览器权限");
         });
@@ -2271,7 +2271,7 @@ const initPopup = () => {
       mdBtn.title = "一键复制 Markdown 笔记格式引用";
       mdBtn.onclick = (event) => {
         event.stopPropagation();
-        const targetUrl = item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : "");
+        const targetUrl = item.pdfUrl || PaperPilotCore.metadata.doiUrl(item.doi) || item.pageUrl;
         const link = targetUrl ? `[${item.title || "Untitled"}](${targetUrl})` : `**${item.title || "Untitled"}**`;
         const journalStr = item.journal ? `*${item.journal}*` : "";
         const yearStr = item.year ? `(${item.year})` : "";
@@ -2281,8 +2281,7 @@ const initPopup = () => {
           mdText += `\n\n> **研读笔记**：\n> ${item.notes.replace(/\n/g, "\n> ")}`;
         }
         robustCopyToClipboard(mdText).then(() => {
-          item.status = "copied_citation";
-          persistHistory("已将 Markdown 笔记写入剪贴板");
+          mutateRecord(item, { status: 'copied_citation' }, '已将 Markdown 笔记写入剪贴板');
         }).catch(() => {
           showToast("剪贴板写入失败，请检查浏览器权限");
         });
@@ -2302,7 +2301,7 @@ const initPopup = () => {
         doiBtn.title = "一键复制文献 DOI 链接";
         doiBtn.onclick = (event) => {
           event.stopPropagation();
-          const doiUrl = item.doi.startsWith("http") ? item.doi : `https://doi.org/${item.doi}`;
+          const doiUrl = PaperPilotCore.metadata.doiUrl(item.doi);
           robustCopyToClipboard(doiUrl).then(() => {
             showToast("已复制 DOI 链接到剪贴板");
           });
@@ -2326,7 +2325,7 @@ const initPopup = () => {
       tools.appendChild(linkIcon);
 
       topRow.appendChild(titleEl);
-      topRow.appendChild(tools);
+
 
       // --- Meta row: journal + year + authors + status badge ---
       const metaRow = document.createElement("div");
@@ -2369,6 +2368,30 @@ const initPopup = () => {
 
       body.appendChild(topRow);
       body.appendChild(metaRow);
+      const more = document.createElement('details');
+      more.className = 'pp-foot-more';
+      const summary = document.createElement('summary');
+      summary.textContent = '更多';
+      more.appendChild(summary);
+      const secondary = document.createElement('div');
+      secondary.className = 'pp-foot-secondary';
+      for (const button of Array.from(tools.children)) {
+        if (button.tagName === 'BUTTON') button.setAttribute('aria-label', button.title || button.textContent);
+        if (button.classList.contains('pp-foot-star') || button.textContent === 'DOI') continue;
+        if (button.tagName === 'SPAN') { button.remove(); continue; }
+        if (button.classList.contains('pp-foot-edit-btn')) button.textContent = '编辑';
+        if (button.classList.contains('pp-foot-del-btn')) button.textContent = '移除';
+        secondary.appendChild(button);
+      }
+      more.appendChild(secondary);
+      more.addEventListener('click', event => event.stopPropagation());
+      more.addEventListener('toggle', () => card.classList.toggle('pp-actions-open', more.open));
+      const read = document.createElement('button');
+      read.type = 'button'; read.className = 'pp-foot-read'; read.textContent = item.pdfUrl ? '阅读 PDF' : '打开文献';
+      read.onclick = event => { event.stopPropagation(); card.onclick(); };
+      tools.prepend(read);
+      tools.appendChild(more);
+      body.appendChild(tools);
 
       card.appendChild(accentBar);
       card.appendChild(body);
@@ -2401,7 +2424,8 @@ const initPopup = () => {
 
   if (searchExpandToggle && searchExpandPanel) {
     searchExpandToggle.onclick = () => {
-      searchExpandPanel.classList.toggle("expanded");
+      const filters = document.getElementById('library-advanced-filters');
+      if (filters) filters.open = !filters.open;
     };
   }
 
@@ -2458,7 +2482,10 @@ const initPopup = () => {
   };
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "/" && document.activeElement !== searchInput && !recordEditOverlay?.classList.contains("pp-open")) {
+    if (!panelFoot.classList.contains('active')) return;
+    if (recordEditOverlay?.classList.contains('pp-open')) return;
+    const typing = e.target.closest?.('input,textarea,select,[contenteditable="true"]');
+    if (e.key === "/" && !typing && !recordEditOverlay?.classList.contains("pp-open")) {
       e.preventDefault();
       if (searchExpandPanel) searchExpandPanel.classList.add("expanded");
       if (searchInput) searchInput.focus();
@@ -2480,16 +2507,23 @@ const initPopup = () => {
     };
   }
 
-  // 6. Bulk Export clean BibTeX / Markdown / RIS files
-  exportAllBtn.onclick = () => {
-    const activeItems = getFilteredHistoryItems();
-    if (activeItems.length === 0) return;
+  const sortControl = document.getElementById('library-sort');
+  if (sortControl) sortControl.onchange = () => { currentLibrarySort = sortControl.value; renderCurrentFootprints(); };
+  const resetControl = document.getElementById('library-reset-filters');
+  if (resetControl) resetControl.onclick = () => {
+    searchInput.value = ''; currentHistoryQuery = ''; currentDateFilter = null; currentChipFilter = 'all';
+    clearTimeout(historySearchTimer); renderCurrentFootprints(); searchInput.focus();
+  };
 
-    const format = exportFormatSelect?.value || "bibtex";
+  // 6. Bulk Export clean BibTeX / Markdown / RIS files
+  function exportHistory(copyOnly = false) {
+    const format = exportFormatSelect?.value || 'bibtex';
+    const activeItems = format === 'json' ? historyData : getFilteredHistoryItems();
+    if (!activeItems.length) return;
     const citation = window.PaperPilotCore?.citation;
     const normalized = activeItems.map(item => ({
       ...item,
-      url: item.pdfUrl || (item.doi ? `https://doi.org/${item.doi}` : ""),
+      url: item.pdfUrl || PaperPilotCore.metadata.doiUrl(item.doi) || item.pageUrl,
       source: item.source || item.metricsSource || "PaperPilot history"
     }));
 
@@ -2503,7 +2537,7 @@ const initPopup = () => {
         const title = paper.title || "Untitled paper";
         const journal = paper.journal ? `*${paper.journal}*` : "";
         const year = paper.year ? `(${paper.year})` : "";
-        const doi = paper.doi ? `[${paper.doi}](https://doi.org/${paper.doi})` : "N/A";
+        const doi = paper.doi ? `[${paper.doi}](${PaperPilotCore.metadata.doiUrl(paper.doi)})` : "N/A";
         const url = paper.pdfUrl ? `[PDF 全文](${paper.pdfUrl})` : "";
         const authors = Array.isArray(paper.authors) ? paper.authors.join(", ") : (paper.authors || "");
         const notesStr = paper.notes ? `\n   - 研读笔记: ${paper.notes.replace(/\n+/g, " ")}` : "";
@@ -2532,13 +2566,29 @@ const initPopup = () => {
       exported = normalized.map(paper => `${paper.title || "Untitled"} ${paper.doi || ""}`.trim()).join("\n");
     }
 
-    robustCopyToClipboard(exported.trim()).then(() => {
-      showToast(`已将 ${normalized.length} 篇文献留痕以 ${label} 写入剪贴板`);
-    }).catch(err => {
-      console.error("Export copy failed:", err);
-      showToast("复制失败，请检查浏览器剪贴板权限！");
-    });
-  };
+    if (copyOnly) {
+      robustCopyToClipboard(exported.trim()).then(() => showToast(`已复制 ${normalized.length} 篇文献 · ${label}`)).catch(() => showToast('剪贴板写入失败，请重试'));
+      return;
+    }
+    const extension = {bibtex:'bib',gbt7714:'txt',markdown:'md',ris:'ris',csljson:'json',json:'json'}[format] || 'txt';
+    const mime = extension === 'json' ? 'application/json' : 'text/plain';
+    const url = URL.createObjectURL(new Blob([exported], {type:`${mime};charset=utf-8`}));
+    const filename = `PaperPilot-${format==='json'?'backup':format}-${new Date().toISOString().slice(0,10)}.${extension}`;
+    if (chrome?.downloads?.download) {
+      chrome.downloads.download({url,filename,saveAs:false}, () => {
+        const error = chrome.runtime.lastError;
+        showToast(error ? `导出失败：${error.message}` : `已导出 ${normalized.length} 篇文献 · ${label}`);
+        setTimeout(()=>URL.revokeObjectURL(url),30000);
+      });
+    } else {
+      const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
+      setTimeout(()=>URL.revokeObjectURL(url),30000);
+    }
+  }
+  exportAllBtn.onclick = () => exportHistory();
+  const copyResults = document.getElementById('library-copy-results');
+  if (copyResults) copyResults.onclick = () => exportHistory(true);
+  if (exportFormatSelect) exportFormatSelect.onchange = () => renderCurrentFootprints();
 
   // Backup JSON Import
   const btnImportHistory = document.getElementById("btn-import-history");
@@ -2561,25 +2611,13 @@ const initPopup = () => {
           const list = Array.isArray(parsed) ? parsed : (parsed.history || []);
           if (!Array.isArray(list) || list.length > 2000) throw new Error("无有效留痕数据架构或记录数过多");
 
-          let addedCount = 0;
-          const existingDois = new Set(historyData.map(i => (i.doi || "").toLowerCase()).filter(Boolean));
-          const existingTitles = new Set(historyData.map(i => (i.title || "").toLowerCase()).filter(Boolean));
-
-          const validItems = list.filter(item => item && typeof item === "object" && (item.title || item.doi));
-          if (!validItems.length && list.length) throw new Error("备份中没有可恢复的文献记录");
-          if (!window.confirm(`将检查并合并 ${validItems.length} 条备份记录；重复文献会跳过。是否继续？`)) return;
-
-          validItems.forEach(item => {
-            const doi = (item.doi || "").toLowerCase();
-            const title = (item.title || "").toLowerCase();
-            if ((doi && existingDois.has(doi)) || (title && existingTitles.has(title))) return;
-            historyData.unshift(item);
-            addedCount++;
-            if (doi) existingDois.add(doi);
-            if (title) existingTitles.add(title);
+          const validItems = list.filter(item => item && typeof item === 'object' && (item.title || item.doi));
+          if (!validItems.length && list.length) throw new Error('备份中没有可恢复的文献记录');
+          sendBackgroundMessage({action:'HISTORY_IMPORT',records:validItems}, response => {
+            if (!response?.success) { showToast(`导入失败：${response?.error || '请重试'}`); return; }
+            applyHistorySnapshot(response.history,response.revision);
+            showToast(`已导入 ${response.added} 篇新文献 · 文献库现有 ${response.retained} 篇`);
           });
-
-          persistHistory(`成功从备份导入 ${addedCount} 篇新文献留痕！`);
         } catch (err) {
           showToast(`导入失败: ${err.message}`);
         } finally {
@@ -2608,17 +2646,19 @@ const initPopup = () => {
 
   // Toast injector
   let toastTimer = null;
-  function showToast(msg) {
+  function showToast(msg, undo = null) {
     const toast = document.getElementById("popup-toast");
     const toastMsg = document.getElementById("popup-toast-msg");
 
     toastMsg.innerText = msg;
+    const action = document.getElementById('popup-toast-undo');
+    if (action) { action.hidden = !undo; action.onclick = undo ? () => { action.hidden = true; undo(); } : null; }
     toast.classList.add("pp-show");
 
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       toast.classList.remove("pp-show");
-    }, 2200);
+    }, undo ? 8000 : 2600);
   }
 
   // Load footprints and settings enhancements on initial popup show

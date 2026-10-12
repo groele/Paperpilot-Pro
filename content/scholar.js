@@ -1194,7 +1194,7 @@
       const authorLineEl = card.querySelector(".gs_a");
       let authors = [];
       let venue = "Other";
-      let year = new Date().getFullYear();
+      let year = null;
 
       if (authorLineEl) {
         const authorText = authorLineEl.innerText;
@@ -1252,6 +1252,7 @@
       card._ppYear = year;
       card._ppVenue = venue;
       card._ppTitle = titleText;
+      card._ppAuthors = authors;
 
       // 6. Highlight Nature Index Papers
       const isNatureIndex = Boolean(resolveNiJournalMatch(venue));
@@ -1558,10 +1559,18 @@
       doiBtn.className = "pp-scholar-action-btn";
       doiBtn.innerHTML = `${window.PP_ICONS.copy} 复制 DOI`;
       doiBtn.onclick = () => {
+        if (doiBtn.disabled) return;
+        const originalHTML = doiBtn.innerHTML;
+        doiBtn.disabled = true;
+        doiBtn.setAttribute('aria-busy', 'true');
+        doiBtn.textContent = '解析中…';
         showToast("正在后台库检索并解析 DOI...");
         safeSendMessage({
           action: "FETCH_METADATA",
-          title: paper.title
+          doi: window.PaperPilotCore?.metadata?.extractDoi?.(paper.scholarUrl) || "",
+          title: paper.title,
+          journal: paper.venue,
+          pageUrl: paper.scholarUrl || ""
         }, (response) => {
           let textToCopy = "";
           let toastMsg = "";
@@ -1578,7 +1587,8 @@
                 year: response.data.year || paper.year,
                 doi: textToCopy,
                 pdfUrl: response.data.pdfUrl || paper.pdfUrl,
-                status: "visited"
+                pageUrl: paper.scholarUrl,
+                status: "copied_doi"
               }
             });
           } else {
@@ -1588,15 +1598,18 @@
 
           robustCopyToClipboard(textToCopy).then(() => {
             showToast(toastMsg);
-            const originalHTML = doiBtn.innerHTML;
-            doiBtn.innerHTML = `${window.PP_ICONS.check} 已复制`;
+            doiBtn.innerHTML = `${window.PP_ICONS.check} ${response?.data?.doi ? '已复制 DOI' : '已复制引用'}`;
             doiBtn.style.color = "#2dd4bf";
             setTimeout(() => {
               doiBtn.innerHTML = originalHTML;
               doiBtn.style.color = "";
             }, 1800);
           }).catch(() => {
+            doiBtn.innerHTML = originalHTML;
             showToast("复制失败，请手动选择复制！");
+          }).finally(() => {
+            doiBtn.disabled = false;
+            doiBtn.removeAttribute('aria-busy');
           });
         });
       };
@@ -1713,44 +1726,19 @@
   // Duplicate Clustering
   function runDuplicateClustering() {
     // 1. Skip already-folded duplicate items to avoid redundant work in infinite scrolling
-    const cards = getScholarArticles().filter(c => c.dataset.foldedAsDuplicate !== "true");
+    const cards = getScholarArticles();
     if (cards.length === 0) return;
-
-    const clusters = [];
-    const processed = new Set();
-
-    for (let i = 0; i < cards.length; i++) {
-      if (processed.has(i)) continue;
-      
-      const t1 = cards[i]._ppTitle || cards[i].dataset.title;
-      if (!t1) continue;
-
-      const cluster = [i];
-      processed.add(i);
-
-      for (let j = i + 1; j < cards.length; j++) {
-        if (processed.has(j)) continue;
-        const t2 = cards[j]._ppTitle || cards[j].dataset.title;
-        if (!t2) continue;
-
-        // 2. Length-difference fast filter: If the titles have a length difference > 18%,
-        // their Levenshtein similarity cannot possibly exceed 0.82. Skip immediately to save 90% cpu cycles!
-        const len1 = t1.length;
-        const len2 = t2.length;
-        const maxLen = Math.max(len1, len2);
-        const minLen = Math.min(len1, len2);
-        if (maxLen > 0 && (maxLen - minLen) / maxLen > 0.18) {
-          continue;
-        }
-
-        const sim = getStringSimilarity(t1, t2);
-        if (sim > 0.82) {
-          cluster.push(j);
-          processed.add(j);
-        }
-      }
-      clusters.push(cluster);
-    }
+    cards.forEach(card => {
+      card.querySelector('.pp-scholar-dup-container')?.remove();
+      if (card.dataset.foldedAsDuplicate === 'true') card.style.removeProperty('display');
+      delete card.dataset.foldedAsDuplicate;
+    });
+    const clusters = window.PaperPilotCore.library.duplicateGroups(cards.map(card => ({
+      title: card._ppTitle || card.dataset.title,
+      doi: window.PaperPilotCore.metadata.extractDoi(card.querySelector('.gs_rt a')?.href || ''),
+      authors: card._ppAuthors || [],
+      year: card._ppYear || card.dataset.year
+    })));
 
     clusters.forEach(cluster => {
       if (cluster.length <= 1) return;
@@ -1760,9 +1748,10 @@
 
       cluster.forEach(idx => {
         const card = cards[idx];
-        const isNi = card.classList.contains("pp-scholar-ni-card");
         const cites = parseInt(card._ppCite !== undefined ? card._ppCite : card.dataset.cite || "0", 10);
-        const score = cites + (isNi ? 1000 : 0);
+        const venue = card._ppVenue || card.dataset.venue || '';
+        const preprint = /arxiv|biorxiv|medrxiv|preprint/i.test(venue);
+        const score = (preprint ? 0 : 30) + Math.log2(1 + cites);
         if (score > maxScore) {
           maxScore = score;
           primaryIndex = idx;
@@ -1781,7 +1770,8 @@
         dupContainer.className = "pp-scholar-dup-container";
         dupContainer.setAttribute("data-pp-theme", currentTheme);
         
-        dupHeader = document.createElement("div");
+        dupHeader = document.createElement("button");
+        dupHeader.type = 'button';
         dupHeader.className = "pp-scholar-dup-header";
         dupContainer.appendChild(dupHeader);
 
@@ -1792,6 +1782,7 @@
         dupHeader.onclick = (e) => {
           e.stopPropagation();
           const isExpanded = dupBody.classList.toggle("pp-expanded");
+          dupHeader.setAttribute('aria-expanded', String(isExpanded));
           dupHeader.querySelector("span:last-child").innerText = isExpanded ? "关闭 ▲" : "展开 ▼";
         };
 
@@ -1845,51 +1836,13 @@
       const isExpanded = dupBody.classList.contains("pp-expanded");
       dupHeader.textContent = "";
       const headerTitle = document.createElement("span");
-      headerTitle.textContent = `已智能折叠另外 ${totalDups} 个重复条目 (预印本/会议版)`;
+      headerTitle.textContent = `收起 ${totalDups} 个相同文献来源`;
       const headerToggle = document.createElement("span");
       headerToggle.textContent = isExpanded ? "关闭 ▲" : "展开 ▼";
       dupHeader.appendChild(headerTitle);
       dupHeader.appendChild(headerToggle);
+      dupHeader.setAttribute('aria-expanded', String(isExpanded));
     });
-  }
-
-  function getStringSimilarity(s1, s2) {
-    let longer = s1.toLowerCase().trim();
-    let shorter = s2.toLowerCase().trim();
-    if (s1.length < s2.length) {
-      longer = s2;
-      shorter = s1;
-    }
-    const longerLength = longer.length;
-    if (longerLength === 0) {
-      return 1.0;
-    }
-    return (longerLength - editDistance(longer, shorter)) / parseFloat(longerLength);
-  }
-
-  function editDistance(s1, s2) {
-    const costs = [];
-    for (let i = 0; i <= s1.length; i++) {
-      let lastValue = i;
-      for (let j = 0; j <= s2.length; j++) {
-        if (i === 0) {
-          costs[j] = j;
-        } else {
-          if (j > 0) {
-            let newValue = costs[j - 1];
-            if (s1.charAt(i - 1) !== s2.charAt(j - 1)) {
-              newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
-            }
-            costs[j - 1] = lastValue;
-            lastValue = newValue;
-          }
-        }
-      }
-      if (i > 0) {
-        costs[s2.length] = lastValue;
-      }
-    }
-    return costs[s2.length];
   }
 
   // Toast
