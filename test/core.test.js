@@ -1161,7 +1161,7 @@ test("Dashboard Overview exposes and synchronizes the PDF save-as shortcut", () 
   assert.match(css, /\.pp-popup-overview-control/);
 });
 
-test("Popup retains a preferred viewport, adapts to narrow windows and delegates scrolling to its panels", () => {
+test("Action popup has intrinsic bounds while standalone extension tabs adapt to their viewport", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "popup/popup.html"), "utf8");
   const popup = fs.readFileSync(path.join(__dirname, "..", "popup/popup.js"), "utf8");
   const css = fs.readFileSync(path.join(__dirname, "..", "popup/popup.css"), "utf8");
@@ -1170,9 +1170,11 @@ test("Popup retains a preferred viewport, adapts to narrow windows and delegates
   assert.match(html, /id="btn-toggle-overview"/);
   assert.match(html, /class="pp-overview-collapsible-body"/);
   assert.match(css, /html\s*\{[\s\S]*width:\s*420px;/);
-  assert.match(css, /html\s*\{[^}]*max-width:\s*100vw;/);
-  assert.match(css, /html\s*\{[^}]*height:\s*min\(600px, 100vh\);/);
-  assert.doesNotMatch(css, /min-width:\s*420px;/);
+  assert.match(css, /html\s*\{[^}]*min-width:\s*420px;/);
+  assert.match(css, /html\s*\{[^}]*min-height:\s*600px;/);
+  assert.doesNotMatch(css, /html\s*\{[^}]*100v[wh]/);
+  assert.match(css, /html\[data-pp-surface="page"\]\s*\{[^}]*max-width:\s*100vw;/);
+  assert.match(popup, /getViews\(\{ type: "popup" \}\)/);
   assert.match(css, /backdrop-filter:\s*none/);
   assert.match(css, /\.pp-popup-body\s*\{\s*flex:\s*1 1 auto;\s*min-height:\s*0;/);
   assert.match(css, /\.pp-popup-section\s*\{[\s\S]*overflow-y:\s*auto;/);

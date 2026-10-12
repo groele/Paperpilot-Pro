@@ -26,7 +26,8 @@ const files = [
   "lib/svg-icons.js",
   "scripts/e2e.js",
   "scripts/test.js",
-  "scripts/browser-smoke.js"
+  "scripts/browser-smoke.js",
+  "scripts/native-popup-smoke.js"
 ];
 
 let failed = false;

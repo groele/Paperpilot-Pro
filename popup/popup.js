@@ -8,6 +8,15 @@ let popupInitialized = false;
 const initPopup = () => {
   if (popupInitialized) return;
   popupInitialized = true;
+  // Chrome sizes action popups from their intrinsic document dimensions.
+  // Only standalone extension tabs can safely size the root from their viewport.
+  let popupSurface = "action";
+  try {
+    if (chrome.extension?.getViews) {
+      popupSurface = chrome.extension.getViews({ type: "popup" }).includes(window) ? "action" : "page";
+    }
+  } catch (_) {}
+  document.documentElement.dataset.ppSurface = popupSurface;
   const getStorage = (keys, callback) => chrome.storage.local.get(keys, callback);
   const setStorage = (data, callback) => chrome.storage.local.set(data, () => {
     const error = chrome.runtime.lastError;

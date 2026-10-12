@@ -1,5 +1,16 @@
 # Changelog
 
+## v4.0.2 - 2026-10-12
+
+### Fixed
+- Fix Chrome toolbar action popups collapsing to 25×25 pixels because their root size depended on the initial popup viewport.
+- Keep intrinsic 420×600 root bounds for action popups and viewport-based root sizing for standalone extension tabs. Constrain the inner container so tools, navigation and settings remain reachable at Chrome's available popup height.
+
+### Verification
+- Add `scripts/native-popup-smoke.js`: open real action popups with Chrome's action API and attach to their CDP targets, instead of treating an extension tab as a toolbar popup.
+- Repeat native opening/closing three times in light/dark themes; check visible feature controls, settings interaction, persistence and bottom-control reachability. `npm run test:browser` runs this regression after the existing 21 browser groups; `npm run verify` passes 130 tests and E2E fixtures.
+- Details: [V4.0.2 popup repair notes](docs/releases/v4.0.2.md).
+
 ## v4.0.1 - 2026-10-12
 
 ### Fixed

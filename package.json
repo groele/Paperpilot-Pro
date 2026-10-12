@@ -1,12 +1,13 @@
 {
   "name": "paperpilot-pro-extension",
-  "version": "4.0.1",
+  "version": "4.0.2",
   "private": true,
   "type": "commonjs",
   "scripts": {
     "test": "node scripts/test.js",
     "test:e2e": "node scripts/e2e.js",
-    "test:browser": "node scripts/browser-smoke.js",
+    "test:browser": "node scripts/browser-smoke.js && node scripts/native-popup-smoke.js",
+    "test:popup": "node scripts/native-popup-smoke.js",
     "lint": "node scripts/lint.js",
     "package": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1",
     "verify": "npm run lint && npm test && npm run test:e2e"
