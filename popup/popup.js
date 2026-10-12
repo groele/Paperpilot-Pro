@@ -1729,14 +1729,11 @@ const initPopup = () => {
     return `${y}-${m}-${d}`;
   }
 
-  function getFilteredHistoryItems() {
-    const q = currentHistoryQuery.toLowerCase().trim();
+  function getDateFilteredHistoryItems() {
     let result = historyData;
 
     if (currentDateFilter) {
       const today = new Date();
-      const todayKey = formatDateKey(today);
-
       result = result.filter(item => {
         const rawTime = item.time || item.updatedAt || item.timestamp;
         const parsed = safeParseDate(rawTime);
@@ -1752,6 +1749,11 @@ const initPopup = () => {
         return formatDateKey(parsed) === currentDateFilter;
       });
     }
+    return result;
+  }
+
+  function getFilteredHistoryItems() {
+    let result = getDateFilteredHistoryItems();
 
     if (currentChipFilter === "starred") {
       result = result.filter(item => item.starred === true);
@@ -1899,7 +1901,8 @@ const initPopup = () => {
     const countsByDate = new Map();
     historyData.forEach(item => {
       const rawTime = item.time || item.updatedAt || item.timestamp;
-      const parsed = safeParseDate(rawTime) || new Date();
+      const parsed = safeParseDate(rawTime);
+      if (!parsed) return;
       const dateKey = formatDateKey(parsed);
       countsByDate.set(dateKey, (countsByDate.get(dateKey) || 0) + 1);
     });
@@ -1919,12 +1922,17 @@ const initPopup = () => {
       else if (count >= 2) lvl = "lvl-2";
       else if (count >= 1) lvl = "lvl-1";
 
-      const cell = document.createElement("div");
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.disabled = isFuture;
+      cell.dataset.date = dateStr;
+      cell.setAttribute("aria-pressed", String(currentDateFilter === dateStr));
       cell.className = `pp-calendar-cell ${lvl} ${isToday ? 'is-today' : ''} ${currentDateFilter === dateStr ? 'active' : ''}`;
 
-      const dObj = new Date(dateStr);
+      const dObj = new Date(`${dateStr}T00:00:00`);
       const weekdayStr = weekdayNames[dObj.getDay()] || "";
       cell.title = `${dateStr} (${weekdayStr}): ${count} 篇文献 ${isFuture ? '(尚未到达)' : '(点击展开本日留痕)'}`;
+      cell.setAttribute("aria-label", cell.title);
 
       const dateEl = document.createElement("span");
       dateEl.className = "pp-calendar-date";
@@ -1970,8 +1978,9 @@ const initPopup = () => {
     }
 
     if (currentDateFilter && activeBar && activeText) {
-      const currentCount = countsByDate.get(currentDateFilter) || 0;
-      activeText.textContent = `正在显示 ${currentDateFilter} 的研读留痕 (${currentCount} 篇)`;
+      const currentCount = getDateFilteredHistoryItems().length;
+      const dateLabel = { "3days": "近 3 天", "week": "本周" }[currentDateFilter] || currentDateFilter;
+      activeText.textContent = `正在显示 ${dateLabel} 的研读留痕 (${currentCount} 篇)`;
       activeBar.style.display = "flex";
     } else if (activeBar) {
       activeBar.style.display = "none";

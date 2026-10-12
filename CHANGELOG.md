@@ -1,5 +1,16 @@
 # Changelog
 
+## v4.0.3 - 2026-10-12
+
+### Fixed
+- Restore the four-week reading heatmap and activity statistics as the default expanded library view; retain optional collapse and the existing heatmap setting. Search and library records remain scrollable below the calendar.
+- Use keyboard-accessible date buttons with selection state and disabled future days. Keep weekday labels aligned with local dates.
+- Exclude unknown reading timestamps from daily heat rather than attributing them to today. Share date filtering between library results and the calendar banner, with correct counts and labels for the three-day and weekly ranges.
+
+### Verification
+- `npm run verify`: lint, 130 tests and E2E fixtures. Browser regression covers the visible 28-day calendar, keyboard date filtering, reset, collapse/reopen and range counts. Native Chrome action checks cover calendar visibility, undated records, light/dark themes, search/list scrolling and three reopenings.
+- Details: [V4.0.3 reading calendar notes](docs/releases/v4.0.3.md).
+
 ## v4.0.2 - 2026-10-12
 
 ### Fixed

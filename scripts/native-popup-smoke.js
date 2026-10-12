@@ -86,7 +86,16 @@ async function attachPopup(cdp, targetId) {
   try {
     const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
     await until(() => worker.evaluate(async () => Boolean((await chrome.storage.local.get('ai_preset')).ai_preset)), 'installation defaults');
-    await worker.evaluate(() => chrome.storage.local.set({ overview_collapsed: true, enable_journal_citation_tools: true, enable_ni: true }));
+    await worker.evaluate(() => {
+      const history = Array.from({ length: 18 }, (_, index) => {
+        const day = new Date();
+        day.setDate(day.getDate() - index % 9);
+        day.setHours(12, 0, 0, 0);
+        return {title:`Native reading sample ${index}`,doi:`10.1000/native-${index}`,status:'visited',time:day.getTime()};
+      });
+      history.push({title:'Undated reading sample',doi:'10.1000/native-undated',status:'visited',time:null});
+      return chrome.storage.local.set({ history, history_revision: 100, overview_collapsed: true, enable_journal_citation_tools: true, enable_ni: true });
+    });
     const extensionId = new URL(worker.url()).host;
     const host = context.pages()[0] || await context.newPage();
     const cdp = await context.browser().newBrowserCDPSession();
@@ -94,7 +103,7 @@ async function attachPopup(cdp, targetId) {
     let citationEnabled = true, niEnabled = true;
     for (let iteration = 0; iteration < 3; iteration++) {
       const theme = iteration === 1 ? 'dark' : 'light';
-      await worker.evaluate(theme => chrome.storage.local.set({ appearance_mode: theme }), theme);
+      await worker.evaluate(theme => chrome.storage.local.set({ appearance_mode: theme, overview_collapsed: true }), theme);
       await host.bringToFront();
       await until(() => worker.evaluate(async windowId => {
         try { await chrome.action.openPopup({ windowId }); return true; }
@@ -111,6 +120,12 @@ async function attachPopup(cdp, targetId) {
       assert.equal(dimensions.native, true);
       assert.ok(dimensions.width >= 420 && dimensions.width <= 450 && dimensions.height >= 450 && dimensions.height <= 600, JSON.stringify(dimensions));
       assert.ok(dimensions.container.bottom <= dimensions.height && dimensions.container.right <= dimensions.width);
+      const calendar = await popup.evaluate('({open:document.querySelector(".pp-library-activity").open,cells:document.querySelectorAll(".pp-calendar-cell").length,bounds:document.querySelector("#heatmap-grid").getBoundingClientRect().toJSON()})');
+      assert.equal(calendar.open,true);
+      assert.equal(calendar.cells,28);
+      assert.equal(await popup.evaluate('document.querySelector(".pp-calendar-cell.is-today .pp-calendar-count").textContent'),'2篇');
+      assert.ok(calendar.bounds.top>=0 && calendar.bounds.bottom<=dimensions.height,JSON.stringify(calendar));
+      await popup.screenshot(`native-popup-calendar-${iteration}-${theme}.png`);
       assert.equal(await popup.evaluate('document.querySelector("#setting-enable-journal-citation-tools").checked'), citationEnabled);
       if (await popup.evaluate('document.querySelector("#btn-toggle-overview").getAttribute("aria-expanded") === "false"')) await popup.click('#btn-toggle-overview');
       await popup.click('#status-ni');
@@ -129,7 +144,12 @@ async function attachPopup(cdp, targetId) {
       assert.ok(bottom.control.top >= 0 && bottom.control.bottom <= bottom.height, JSON.stringify(bottom));
       await popup.click('#tab-btn-foot');
       await until(() => popup.evaluate('document.querySelector("#panel-foot").classList.contains("active")'), 'native library panel');
-      results.push({ iteration, theme, width: dimensions.width, height: dimensions.height, citationEnabled, niEnabled, settingsOpened: true, bottomControlReachable: true });
+      await popup.evaluate('document.querySelector("#history-search").scrollIntoView({block:"center"})');
+      await popup.click('#history-search');
+      await popup.evaluate('document.querySelector(".pp-foot-card").scrollIntoView({block:"start"})');
+      const library = await popup.evaluate('({bounds:document.querySelector(".pp-foot-card").getBoundingClientRect().toJSON(),width:document.querySelector("#panel-foot").clientWidth,scroll:document.querySelector("#panel-foot").scrollWidth})');
+      assert.ok(library.bounds.top>=0 && library.bounds.top<dimensions.height && library.scroll<=library.width,JSON.stringify(library));
+      results.push({ iteration, theme, width: dimensions.width, height: dimensions.height, citationEnabled, niEnabled, settingsOpened: true, bottomControlReachable: true, calendarVisible: true, libraryReachable: true });
       popup.dispose(); popup = null;
       await cdp.send('Target.closeTarget', { targetId: target.targetId });
       await until(async () => !(await cdp.send('Target.getTargets')).targetInfos.some(info => info.targetId === target.targetId), 'native popup closed');

@@ -311,18 +311,38 @@ async function until(fn, label, timeout=10000) {
 
     await worker.evaluate(async () => {
       const now = Date.now();
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(12, 0, 0, 0);
       const rows = [
         {title:'Valley polarization in layered semiconductors',doi:'10.1000/valley',authors:['José Zhang'],year:2026,journal:'Fixture Journal',notes:'Low temperature measurement notes',starred:true,status:'visited',actions:['visited','downloaded'],time:now},
-        ...Array.from({length:64},(_,i)=>({title:`Optical response in semiconductor sample ${i}`,doi:`10.1000/sample-${i}`,authors:['Ada Lovelace'],year:2025-i%5,journal:'Fixture Journal',status:'visited',time:now-1000*(i+1)}))
+        ...Array.from({length:64},(_,i)=>({title:`Optical response in semiconductor sample ${i}`,doi:`10.1000/sample-${i}`,authors:['Ada Lovelace'],year:2025-i%5,journal:'Fixture Journal',status:'visited',time:i<10?yesterday.getTime():now}))
       ];
       await chrome.storage.local.set({history:rows,history_revision:100,overview_collapsed:true,appearance_mode:'light'});
     });
     await popup.bringToFront();
     await popup.locator('#tab-btn-foot').click();
     await until(()=>popup.locator('.pp-foot-card').count().then(n=>n===30),'bounded library rendering');
-    assert.equal(await popup.locator('.pp-library-activity').getAttribute('open'),null);
-    const firstBounds = await popup.locator('.pp-foot-card').first().boundingBox();
-    assert.ok(firstBounds.y<430,JSON.stringify(firstBounds));
+    assert.notEqual(await popup.locator('.pp-library-activity').getAttribute('open'),null);
+    assert.equal(await popup.locator('#heatmap-grid').isVisible(),true);
+    assert.equal(await popup.locator('.pp-calendar-cell').count(),28);
+    const yesterdayCell = popup.locator('.pp-calendar-cell').filter({has:popup.locator('.pp-calendar-count', {hasText:/^10篇$/})});
+    await yesterdayCell.press('Enter');
+    await until(()=>popup.locator('.pp-foot-card').count().then(n=>n===10),'calendar filters yesterday records');
+    assert.equal(await popup.locator('.pp-calendar-cell.active').getAttribute('aria-pressed'),'true');
+    assert.match(await popup.locator('#heatmap-active-text').textContent(),/10 篇/);
+    await popup.locator('#btn-reset-heatmap-filter').click();
+    await until(()=>popup.locator('.pp-foot-card').count().then(n=>n===30),'calendar reset restores library');
+    await popup.locator('#library-advanced-filters').evaluate(element=>{element.open=true;});
+    await popup.locator('#btn-date-3days').click();
+    assert.match(await popup.locator('#heatmap-active-text').textContent(),/近 3 天.*65 篇/);
+    await popup.locator('#btn-reset-heatmap-filter').click();
+    await popup.locator('#library-advanced-filters').evaluate(element=>{element.open=false;});
+    await popup.locator('.pp-library-activity > summary').click();
+    assert.equal(await popup.locator('#heatmap-grid').isVisible(),false);
+    await popup.locator('.pp-library-activity > summary').click();
+    assert.equal(await popup.locator('#heatmap-grid').isVisible(),true);
+    await popup.locator('#history-search').scrollIntoViewIfNeeded();
     await popup.locator('#history-search').fill('author:Jose year:2026 valley');
     await until(()=>popup.locator('.pp-foot-card').count().then(n=>n===1),'compound ranked search');
     await popup.locator('.pp-foot-more summary').click();
@@ -393,7 +413,7 @@ async function until(fn, label, timeout=10000) {
     await until(()=>popup.locator('#nav-pill').boundingBox().then(r=>r.x>200),'settings navigation settles');
     await popup.screenshot({path:path.join(out,'workbench-settings-search.png')});
     assert.equal(await popup.locator('#history-search').isVisible(),false);
-    pass('Library: compact viewport, 30-row batches, compound search, concurrent edit, notes typing, undo, native full JSON backup, atomic import, empty-state recovery and sorting');
+    pass('Library: default reading calendar, keyboard date filtering/reset, collapse/expand, 30-row batches, compound search, concurrent edit, notes typing, undo, native full JSON backup, atomic import, empty-state recovery and sorting');
 
     await context.route('https://scholar.google.com/**', route=>route.fulfill({status:200,contentType:'text/html',body:fs.readFileSync(path.join(root,'test/fixtures/scholar-workbench.html'),'utf8')}));
     const scholar = await context.newPage();

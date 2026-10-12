@@ -8,7 +8,7 @@
 ![Type](https://img.shields.io/badge/type-Chrome%20Extension-blue?style=flat-square)
 ![Workflow](https://img.shields.io/badge/workflow-literature%20engine-green?style=flat-square)
 ![Architecture](https://img.shields.io/badge/architecture-browser--native-purple?style=flat-square)
-![Version](https://img.shields.io/badge/version-4.0.2-6f42c1?style=flat-square)
+![Version](https://img.shields.io/badge/version-4.0.3-6f42c1?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
 
 Part of **ResearchFlow Lab** — a local-first research productivity ecosystem for literature, manuscripts, data, and scientific visualization.
@@ -204,7 +204,7 @@ Developed by **Shikun Hou / groele**.
 
 ## V4.0 workbench
 
-- Start in a compact library view. Expand **工具与页面** or **阅读活动** when needed.
+- Start with the four-week reading heatmap visible. Select a day to filter its papers, or collapse **阅读热度** when you need more space. Expand **工具与页面** when needed.
 - Search multiple words together, use quoted phrases, or qualify a field: `author:Jose year:2026 valley`, `doi:10.1000/example`, `notes:"low temperature"`.
 - Open papers, star them or copy DOI directly. **更多** contains citation formats, editing and removal. A removal can be undone for eight seconds while the popup stays open.
 - **导出文件** saves BibTeX, GB/T 7714, Markdown, RIS, CSL JSON or a complete JSON backup. **复制** keeps clipboard export available. Complete JSON backup includes all library records regardless of active filters.
@@ -212,3 +212,5 @@ Developed by **Shikun Hou / groele**.
 - See [V4.0 release notes](docs/releases/v4.0.0.md) for validation and compatibility boundaries.
 - V4.0.1 repairs live citation controls and restores a readable settings layout. Find the section switch and independent GB/T 7714 / BibTeX switches under **偏好设置 → 引用格式**; see [patch notes](docs/releases/v4.0.1.md).
 - V4.0.2 repairs Chrome toolbar popups collapsing to 25×25 pixels. Reload the extension and use the toolbar icon again; see [popup repair notes](docs/releases/v4.0.2.md). `npm run test:browser` now includes the native action-popup regression; `npm run test:popup` runs it separately.
+
+- V4.0.3 restores the reading heatmap as the default library view, with keyboard-accessible date filtering and accurate date/range counts; see [reading calendar notes](docs/releases/v4.0.3.md).

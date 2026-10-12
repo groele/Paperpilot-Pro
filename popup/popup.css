@@ -948,6 +948,8 @@ body {
 }
 
 .pp-calendar-cell {
+  padding: 0;
+  font: inherit;
   position: relative;
   height: 28px;
   border-radius: 6px;
@@ -965,6 +967,11 @@ body {
   transform: translateY(-2px);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
   z-index: 2;
+}
+
+.pp-calendar-cell:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .pp-calendar-cell.is-future {
@@ -2352,6 +2359,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .pp-search-expand-body { border-top: 0; padding: 8px 12px; }
 .pp-library-activity > summary { display: flex; justify-content: space-between; cursor: pointer; padding: 8px 2px; font-size: 11px; color: var(--text-main); }
 .pp-library-activity > summary span { color: var(--text-muted); font-size: 10px; }
+.pp-library-activity:not([open]) .pp-activity-collapse,
+.pp-library-activity[open] .pp-activity-expand { display: none; }
 .pp-library-filters > summary { font-size: 10px; color: var(--text-muted); cursor: pointer; padding: 8px 0 2px; }
 .pp-library-toolbar { display: flex; align-items: center; gap: 8px; margin: 8px 0; color: var(--text-muted); font-size: 10px; }
 .pp-library-toolbar select { margin-left: auto; border: 0; background: var(--glass-card); color: var(--text-main); padding: 5px; border-radius: 5px; font: inherit; max-width: 142px; }
