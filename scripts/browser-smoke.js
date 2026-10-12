@@ -21,6 +21,8 @@ const server = http.createServer((req, res) => {
     if (name === 'generic-metadata') metadata = '<meta name="dc.identifier" content="10.1000/wrong">';
     if (name === 'encoded-metadata') metadata = '<meta name="citation_doi" content="10%2E1000%2Fcurrent">';
     if (name === 'unicode-metadata') metadata = '<meta name="citation_doi" content="10.1000/研究，补充">';
+    if (name === 'literal-metadata') metadata = '<meta name="citation_doi" content="10.1000/literal)">';
+    if (name === 'bounded-conflict') metadata = Array(128).fill('<meta name="citation_doi" content="10.1000/one">').join('') + '<meta name="citation_doi" content="10.1000/two">';
     if (name === 'unmarked-references') article = '<section><h2>References</h2><p>DOI: 10.1000/reference</p><a href="https://doi.org/10.1000/reference">DOI</a></section>';
     if (name === 'inline-reference') article = '<p>Prior research <a href="https://doi.org/10.1000/reference">DOI</a> motivates our study.</p><p>DOI: 10.1000/current</p>';
     if (name === 'hidden-identifier') article = '<div style="display:none" data-doi="10.1000/wrong"></div><p>DOI: 10.1000/current</p>';
@@ -131,6 +133,33 @@ async function evaluateExtensionWorld(context, page, fn) {
       globalThis.fetch = (url, options) => String(url).startsWith('http://127.0.0.1:')
         ? realFetch(url, options) : Promise.resolve(new Response('{}',{status:503}));
     });
+    const cacheRace = await worker.evaluate(async () => {
+      const previousFetch = globalThis.fetch;
+      const pendingBodies = [];
+      try {
+        await chrome.storage.local.set({pdf_cache:{}});
+        globalThis.fetch = async () => ({ok:true,status:200,json:()=>new Promise(resolve=>pendingBodies.push(resolve))});
+        const old = fetchPaperMetadata('', 'A distinct cache race fixture article', 'Fixture Journal');
+        const waitFor = async read => { const end=Date.now()+5000; while (!read()) { if(Date.now()>end) throw Error('Cache race fixture timeout'); await new Promise(resolve=>setTimeout(resolve,5)); } };
+        await waitFor(()=>pendingBodies.length >= 2);
+        await chrome.storage.local.set({pdf_cache:{clearMarker:{cachedAt:Date.now()}}});
+        // Wait for the genuine browser storage event, not a mocked listener.
+        await waitFor(()=>memoryMetadataCache?.clearMarker);
+        await chrome.storage.local.remove('pdf_cache');
+        await waitFor(()=>memoryMetadataCache && Object.keys(memoryMetadataCache).length===0);
+        pendingBodies.forEach(resolve=>resolve(null));
+        const oldResult = await old;
+        globalThis.fetch = previousFetch;
+        const fresh = await fetchPaperMetadata('', 'A distinct cache race fixture article', 'Fixture Journal');
+        const settled = await Promise.all([scheduleMetadataCacheFlush(),scheduleMetadataCacheFlush()]);
+        return {oldCode:oldResult.errorCode, fresh:fresh.success, settled, keys:Object.keys((await chrome.storage.local.get('pdf_cache')).pdf_cache || {})};
+      } finally { globalThis.fetch=previousFetch; pendingBodies.forEach(resolve=>resolve(null)); }
+    });
+    assert.equal(cacheRace.oldCode,'METADATA_CONTEXT_CHANGED');
+    assert.equal(cacheRace.fresh,true);
+    assert.deepEqual(cacheRace.settled,[true,true]);
+    assert.equal(cacheRace.keys.length,1);
+    pass('Real worker cache deletion rejects late provider bodies, starts a fresh flight and settles coalesced flushes');
     const defaultsPage=await context.newPage();
     await defaultsPage.goto(origin+'/compact-reference');
     const defaultCard=defaultsPage.locator('#pp-journal-metacard');
@@ -211,6 +240,8 @@ async function evaluateExtensionWorld(context, page, fn) {
       ['generic-metadata/10.1000/current','10.1000/current'],
       ['encoded-metadata','10.1000/current'],
       ['unicode-metadata','10.1000/研究，补充'],
+      ['literal-metadata','10.1000/literal)'],
+      ['bounded-conflict','暂无 DOI'],
       ['unmarked-references','暂无 DOI'],
       ['inline-reference','10.1000/current'],
       ['hidden-identifier','10.1000/current'],
@@ -230,7 +261,7 @@ async function evaluateExtensionWorld(context, page, fn) {
       assert.deepEqual(duplicateIds,[],route);
     }
     await doiPage.close();
-    pass('DOI browser fixtures: 23 scenarios covering evidence conflicts, JSON-LD identity, reference exclusion, encoding, Unicode and truncated labels');
+    pass('DOI browser fixtures: 25 scenarios covering evidence conflicts, JSON-LD identity, reference exclusion, encoding, literal Unicode suffixes and incomplete scans');
     const article=await context.newPage();
     await article.goto(origin+'/paper');
     await article.locator('#pp-journal-metacard').waitFor();
@@ -325,6 +356,29 @@ async function evaluateExtensionWorld(context, page, fn) {
     await landingToggle.check();
     await article.locator('#pp-jc-btn-open-landing').waitFor();
     await popup.locator('[data-category="all"].pp-category-chip').click();
+    await popup.evaluate(() => {
+      window.qaInputSet = chrome.storage.local.set;
+      window.qaInputGet = chrome.storage.local.get;
+      chrome.storage.local.set = (data, callback) => {
+        if (!('pdf_download_dir' in data)) return window.qaInputSet.call(chrome.storage.local,data,callback);
+        Object.defineProperty(chrome.runtime,'lastError',{configurable:true,value:{message:'QA input storage failure'}});
+        try { callback(); } finally { delete chrome.runtime.lastError; }
+      };
+      chrome.storage.local.get = (keys, callback) => {
+        if (Array.isArray(keys) && keys.length===1 && keys[0]==='pdf_download_dir' && callback) {
+          return window.qaInputGet.call(chrome.storage.local,keys,values=>{window.qaLateInputRestore=()=>callback(values);});
+        }
+        return window.qaInputGet.call(chrome.storage.local,keys,callback);
+      };
+    });
+    await popup.locator('#setting-pdf-download-dir').fill('An edit that fails to save');
+    await until(()=>popup.evaluate(()=>typeof window.qaLateInputRestore==='function'),'failed input restore paused');
+    await popup.evaluate(()=>{chrome.storage.local.set=window.qaInputSet;chrome.storage.local.get=window.qaInputGet;});
+    await popup.locator('#setting-pdf-download-dir').fill('Latest successful edit');
+    await until(()=>worker.evaluate(async()=> (await chrome.storage.local.get('pdf_download_dir')).pdf_download_dir==='Latest successful edit'),'new input saved');
+    await popup.evaluate(()=>window.qaLateInputRestore());
+    assert.equal(await popup.locator('#setting-pdf-download-dir').inputValue(),'Latest successful edit');
+    pass('A delayed failed-input rollback cannot overwrite a newer successfully saved edit');
     await popup.locator('.pp-settings-presets-bar > summary').click();
     await popup.locator('.pp-preset-btn[data-preset="minimal"]').click();
     await article.locator('.pp-jc-citation-field').waitFor({state:'detached'});

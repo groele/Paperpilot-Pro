@@ -106,6 +106,34 @@ test("DOI parsing bounds hostile structured input without constructing truncated
   assert.equal(m.extractDois(Array.from({length:100},(_,i)=>`10.1000/${i}`).join(' ')).length,64);
 });
 
+test("a bounded scan cannot conceal contradictory identifiers beyond its limit", () => {
+  const repeated = Array(128).fill('10.1000/one');
+  repeated.push('10.1000/two');
+  const deep = { identifier: '10.1000/one', sameAs: { identifier: { identifier: { identifier: { identifier: { identifier: { identifier: { identifier: { identifier: '10.1000/two' } } } } } } } } };
+  for (const value of [repeated, deep]) {
+    assert.equal(m.inspectDois(value).complete, false);
+    assert.equal(m.normalizeDoi(value), '');
+    const result = m.selectDoiEvidence([{source:'metadata',priority:100,authoritative:true,values:value},{source:'url',priority:80,values:'10.1000/one'}]);
+    assert.equal(result.doi, '');
+    assert.equal(result.ambiguous, true);
+  }
+  assert.equal(m.normalizeDoi(Array(128).fill('10.1000/one')), '10.1000/one');
+});
+
+test("literal punctuation and Unicode suffixes survive authoritative DOI round trips", () => {
+  for (const doi of ['10.1000/end)', '10.1000/end]', '10.1000/end\"', "10.1000/end'", '10.1000/a\u200db', '10.1000/path/https://example.test/AbC']) {
+    assert.equal(m.normalizeDoi(doi), doi);
+    assert.equal(m.normalizeDoi(m.doiUrl(doi)), doi);
+  }
+  assert.equal(m.extractDoi('(10.1000/end).'), '10.1000/end');
+});
+
+test("combining individually complete sources cannot hide a later tied conflict", () => {
+  const groups = Array.from({length:129},(_,index)=>({source:`source-${index}`,priority:100,values:index===128?'10.1000/two':'10.1000/one'}));
+  assert.equal(m.selectDoiEvidence(groups).doi,'');
+  assert.equal(m.selectDoiEvidence(groups).ambiguous,true);
+});
+
 test("invalid UTF-16 cannot crash DOI resolver links and supplementary entities stay intact", () => {
   assert.equal(m.normalizeDoi('10.1000/\ud800'), '');
   assert.equal(m.doiUrl('10.1000/\udc00'), '');

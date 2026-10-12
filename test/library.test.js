@@ -39,6 +39,21 @@ test('ranked search combines words, fields, phrases and accent-insensitive autho
   assert.deepEqual(Array.from(library.search(rows,'doi:https://doi.org/10.1000/a')), [rows[0]]);
   assert.equal(library.search(rows,'valley unrelated').length,0);
 });
+
+test('DOI queries preserve Unicode identity for full, partial and unqualified searches', () => {
+  const rows = [{title:'First paper',doi:'10.1000/Á.ABC'}, {title:'Second paper',doi:'10.1000/á.abc'}];
+  for (const query of ['doi:10.1000/Á.abc', 'doi:Á.ABC', '10.1000/Á.abc', 'doi:https://doi.org/10.1000/%C3%81.abc']) {
+    assert.deepEqual(Array.from(library.search(rows, query)), [rows[0]]);
+  }
+  assert.deepEqual(Array.from(library.search(rows,'doi:10.1000/á.ABC')), [rows[1]]);
+});
+
+test('out-of-range imported timestamps stay unknown instead of poisoning calendar dates', () => {
+  for (const time of [1e20, Infinity, '999999999999999999999', 'not-a-date']) {
+    assert.equal(library.normalizeRecord({title:'Paper',time}).time,0);
+  }
+  assert.equal(library.normalizeRecord({title:'Paper',time:8640000000000000}).time,8640000000000000);
+});
 test('duplicate indexing cannot bridge conflicting DOI identities via a missing DOI', () => {
   const groups = library.duplicateGroups([{title:'Same article'}, {title:'Same article',doi:'10.1000/a'}, {title:'Same article',doi:'10.1000/b'}]);
   assert.deepEqual(Array.from(groups, group=>Array.from(group)),[[0,1],[2]]);

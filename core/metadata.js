@@ -17,9 +17,9 @@
     }
   }
 
-  function prepareDoiText(value) {
+  function prepareDoiText(value, authoritative = false) {
     return decodeHtmlEntities(String(value || ""))
-      .replace(/[\u00ad\u200b-\u200d\u2060\ufeff]/g, "")
+      .replace(/[\u00ad\u200b-\u200d\u2060\ufeff]/g, char => authoritative ? char : "")
       // Normalize common copied prefix typography without changing the suffix.
       .replace(/(?:１０|10)[．.]([０-９0-9]{4,9})[／/]/g, (_, digits) =>
         `10.${digits.replace(/[０-９]/g, char => String(char.charCodeAt(0) - 0xff10))}/`)
@@ -28,14 +28,14 @@
 
   function cleanDoiMatch(value, { authoritative = false } = {}) {
     if (/^(?:https?:)?\/\//i.test(String(value || "").trim())) return extractDoi(value, { authoritative });
-    let doi = prepareDoiText(value).trim()
-      .replace(/^(?:urn:doi:|info:doi\/|doi\s*[:：]\s*)/i, "")
-      .replace(/^[\s"'<(\[{]+/, "")
-      .replace(/[\s"']+$/, "");
+    let doi = prepareDoiText(value, authoritative).trim()
+      .replace(/^(?:urn:doi:|info:doi\/|doi\s*[:：]\s*)/i, "");
+    const literal = authoritative && /^10\.\d{4,9}\//i.test(doi);
+    if (!literal) doi = doi.replace(/^[\s"'<(\[{]+/, "").replace(/[\s"']+$/, "");
     const pairs = { ")": "(", "]": "[", "}": "{", ">": "<" };
     // Remove one character at a time: stripping a run of punctuation can
     // destroy the balanced closing parenthesis of an old-style DOI.
-    while (doi) {
+    while (doi && !literal) {
       const last = doi.slice(-1);
       if (pairs[last]) {
         const count = char => doi.split(char).length - 1;
@@ -49,9 +49,14 @@
     return /^10\.\d{4,9}\/[^\s\u0000-\u001f\u007f]+$/i.test(doi) ? doi : "";
   }
 
-  function doiCandidateStrings(value, output = [], depth = 0, budget = { remaining: 512 }) {
-    if (depth > 8 || output.length >= 128 || budget.remaining-- <= 0 || value === null || value === undefined) return output;
+  function doiCandidateStrings(value, output, depth, budget) {
+    if (value === null || value === undefined) return output;
+    if (depth > 8 || output.length >= 128 || budget.remaining-- <= 0) {
+      budget.complete = false;
+      return output;
+    }
     if (Array.isArray(value)) {
+      if (value.length > 128) budget.complete = false;
       value.slice(0, 128).forEach(item => doiCandidateStrings(item, output, depth + 1, budget));
     } else if (typeof value === "object") {
       // PropertyValue identifiers such as ISBN must not be mistaken for DOI.
@@ -65,11 +70,12 @@
     return output;
   }
 
-  function extractDois(values, options = {}) {
+  function inspectDois(values, options = {}) {
     const found = new Map();
+    const budget = { remaining: 512, complete: true };
     const addText = (raw, authoritative = options.authoritative === true, depth = 0) => {
-      if (depth > 3 || raw.length > 16000 || found.size >= 64) return;
-      let text = prepareDoiText(raw).trim();
+      if (depth > 3 || raw.length > 16000 || found.size >= 64) { budget.complete = false; return; }
+      let text = prepareDoiText(raw, authoritative).trim();
       // Decode an encoded DOI prefix once. A literal percent sequence in an
       // already plain DOI suffix is not an invitation to decode it again.
       if (/^(?:(?:urn:doi:|info:doi\/|doi\s*[:：]\s*))?10(?:%2e\d{4,9}(?:\/|%2f)|\.\d{4,9}%2f)|^https?%3a%2f%2f/i.test(text)) {
@@ -97,6 +103,13 @@
           return;
         } catch (_) { return; }
       }
+      // A complete authoritative identifier has an opaque suffix. Quotes and
+      // unmatched brackets there are literal characters, not prose wrappers.
+      if (authoritative && /^(?:(?:urn:doi:|info:doi\/|doi\s*[:：]\s*))?10\.\d{4,9}\/\S+$/i.test(text) && !/[,;](?=\s*10\.\d{4,9}\/)/.test(text)) {
+        const doi = cleanDoiMatch(text, { authoritative });
+        if (doi && !found.has(foldDoiCase(doi))) found.set(foldDoiCase(doi), doi);
+        return;
+      }
       text = text.replace(/https?:\/\/[^\s"'，。；！？）】》]+/gi, url => {
         addText(authoritative ? url : url.replace(/[.,;:]+$/, ""), authoritative, depth + 1);
         return " ";
@@ -116,13 +129,17 @@
       }
       const regex = /(?<![\p{L}\p{N}_.])10\.\d{4,9}\/[^\s"'，。；：！？、（）【】《》「」『』]+/igu;
       for (const match of text.matchAll(regex)) {
-        if (found.size >= 64) break;
+        if (found.size >= 64) { budget.complete = false; break; }
         const doi = cleanDoiMatch(match[0], { authoritative });
         if (doi && !found.has(foldDoiCase(doi))) found.set(foldDoiCase(doi), doi);
       }
     };
-    for (const value of doiCandidateStrings(values)) addText(value);
-    return Array.from(found.values());
+    for (const value of doiCandidateStrings(values, [], 0, budget)) addText(value);
+    return { candidates: Array.from(found.values()), complete: budget.complete };
+  }
+
+  function extractDois(values, options = {}) {
+    return inspectDois(values, options).candidates;
   }
 
   function extractDoi(values, options = {}) {
@@ -130,25 +147,28 @@
   }
 
   function normalizeDoi(doi) {
-    const candidates = extractDois(doi, { authoritative: true });
-    return candidates.length === 1 ? candidates[0] : "";
+    const result = inspectDois(doi, { authoritative: true });
+    return result.complete && result.candidates.length === 1 ? result.candidates[0] : "";
   }
 
   function selectDoiEvidence(groups) {
     const evidence = (groups || []).map(group => ({
       ...group,
-      candidates: extractDois(group.values, { authoritative: group.authoritative === true })
-    })).filter(group => group.candidates.length).sort((a, b) => b.priority - a.priority);
+      ...inspectDois(group.values, { authoritative: group.authoritative === true })
+    })).filter(group => group.candidates.length || !group.complete).sort((a, b) => b.priority - a.priority);
     if (!evidence.length) return { doi: "", source: "", ambiguous: false };
     const highest = evidence[0].priority;
     const leaders = evidence.filter(group => group.priority === highest);
-    const candidates = extractDois(leaders.flatMap(group => group.candidates), { authoritative: true });
+    if (leaders.some(group => !group.complete)) return { doi: "", source: leaders[0].source, ambiguous: true };
+    const combined = inspectDois(leaders.flatMap(group => group.candidates), { authoritative: true });
+    if (!combined.complete) return { doi: "", source: leaders[0].source, ambiguous: true };
+    const candidates = combined.candidates;
     if (candidates.length === 1) return { doi: candidates[0], source: leaders[0].source, ambiguous: false };
     // Count independent sources, never duplicate tags/links. A conflicted
     // source cannot corroborate one of its own alternatives.
     const support = new Map(candidates.map(doi => [foldDoiCase(doi), new Set()]));
     const leaderSources = new Set(leaders.map(group => group.source));
-    for (const group of evidence.filter(group => group.priority < highest && group.candidates.length === 1 && !leaderSources.has(group.source))) {
+    for (const group of evidence.filter(group => group.complete && group.priority < highest && group.candidates.length === 1 && !leaderSources.has(group.source))) {
       support.get(foldDoiCase(group.candidates[0]))?.add(group.source);
     }
     const corroborated = candidates.filter(doi => support.get(foldDoiCase(doi)).size > 0);
@@ -385,6 +405,7 @@
   const UNPAYWALL_EMAIL = "paperpilot@gmail.com";
 
   root.metadata = {
+    inspectDois,
     UNPAYWALL_EMAIL,
     normalizeDoi,
     doiKey,

@@ -40,7 +40,7 @@
       status,
       actions: Array.from(new Set([...(Array.isArray(record.actions) ? record.actions : []), status])).filter(action => STATUSES.includes(action)),
       starred: record.starred === true,
-      time: Number.isFinite(parsedTime) && parsedTime > 0 ? parsedTime : 0,
+      time: Number.isFinite(parsedTime) && parsedTime > 0 && Number.isFinite(new Date(parsedTime).getTime()) ? parsedTime : 0,
       pdfUrl: /^https?:\/\//i.test(String(record.pdfUrl || '')) ? String(record.pdfUrl) : '',
       pageUrl: /^https?:\/\//i.test(String(record.pageUrl || '')) ? String(record.pageUrl) : ''
     };
@@ -82,14 +82,18 @@
   }
 
   function search(records, query) {
-    const parts = Array.from(String(query || '').matchAll(/(?:(title|author|journal|doi|year|notes):)?(?:"([^"]+)"|(\S+))/gi), match => ({ field: match[1]?.toLowerCase(), value: normalize(match[1]?.toLowerCase() === 'doi' ? root.metadata.normalizeDoi(match[2] || match[3]) || match[2] || match[3] : match[2] || match[3]) }));
+    const parts = Array.from(String(query || '').matchAll(/(?:(title|author|journal|doi|year|notes):)?(?:"([^"]+)"|(\S+))/gi), match => {
+      const raw = match[2] || match[3];
+      const doi = root.metadata.normalizeDoi(raw);
+      return { field: match[1]?.toLowerCase(), value: normalize(raw), doiValue: (doi || raw).replace(/[A-Z]/g, char => char.toLowerCase()) };
+    });
     if (!parts.length) return records;
     return records.map((record, index) => {
       const fields = { title: normalize(record.title), author: normalize(authors(record.authors).join(' ')), journal: normalize(record.journal), doi: doiKey(record.doi), year: String(record.year || ''), notes: normalize(record.notes) };
       let score = 0;
       for (const part of parts) {
         const eligible = part.field ? [part.field] : Object.keys(fields);
-        const matched = eligible.filter(field => fields[field].includes(part.value));
+        const matched = eligible.filter(field => fields[field].includes(field === 'doi' ? part.doiValue : part.value));
         if (!matched.length) return null;
         score += Math.max(...matched.map(field => field === 'doi' ? 8 : field === 'title' ? 5 : field === 'notes' ? 1 : 2));
       }

@@ -28,6 +28,104 @@ function loadCore(...files) {
   return sandbox.PaperPilotCore;
 }
 
+test('metadata flush coalesces callers, reports failure and can retry', async () => {
+  const {sandbox,storageData} = loadBackgroundHarness();
+  const cache = await sandbox.getOrLoadMetadataCache();
+  cache.demo = {title:'First'};
+  const first = sandbox.scheduleMetadataCacheFlush();
+  cache.second = {title:'Second'};
+  const second = sandbox.scheduleMetadataCacheFlush();
+  const result = await Promise.race([Promise.all([first,second]), new Promise(resolve => setTimeout(()=>resolve('hung'),250))]);
+  assert.deepEqual(Array.from(result),[true,true]);
+  assert.equal(storageData.pdf_cache.second.title,'Second');
+  const original = sandbox.chrome.storage.local.set;
+  cache.third = {title:'Third'};
+  sandbox.chrome.storage.local.set = async () => { throw new Error('Storage unavailable'); };
+  assert.equal(await sandbox.scheduleMetadataCacheFlush(),false);
+  sandbox.chrome.storage.local.set = original;
+  assert.equal(await sandbox.scheduleMetadataCacheFlush(),true);
+});
+
+test('an own cache echo cannot discard newly completed records, and external replacements invalidate', async () => {
+  const {sandbox,listeners} = loadBackgroundHarness();
+  const cache = await sandbox.getOrLoadMetadataCache();
+  cache.first = {title:'First'};
+  await sandbox.scheduleMetadataCacheFlush();
+  cache.second = {title:'Second'};
+  listeners.storage({pdf_cache:{newValue:{first:{title:'First'}}}},'local');
+  assert.equal((await sandbox.getOrLoadMetadataCache()).second.title,'Second');
+  listeners.storage({pdf_cache:{newValue:{replacement:{title:'Replacement'}}}},'local');
+  assert.equal(Object.keys(await sandbox.getOrLoadMetadataCache()).join(','),'replacement');
+});
+
+test('cache clearing defeats a delayed storage load and settles cancelled flushes', async () => {
+  const {sandbox,listeners,storageData} = loadBackgroundHarness();
+  let release;
+  const original = sandbox.chrome.storage.local.get;
+  sandbox.chrome.storage.local.get = keys => keys === 'pdf_cache' ? new Promise(resolve => { release=resolve; }) : original(keys);
+  const load = sandbox.getOrLoadMetadataCache();
+  storageData.pdf_cache = {};
+  listeners.storage({pdf_cache:{oldValue:{old:{title:'Old'}},newValue:{}}},'local');
+  release({pdf_cache:{old:{title:'Old'}}});
+  assert.equal(Object.keys(await load).length,0);
+  const pending = sandbox.scheduleMetadataCacheFlush();
+  listeners.storage({pdf_cache:{oldValue:{},newValue:undefined}},'local');
+  assert.equal(await pending,false);
+  assert.equal(Object.keys(await sandbox.getOrLoadMetadataCache()).length,0);
+});
+
+test('late metadata results cannot refill a cleared cache or join a new generation', async () => {
+  const releases = [];
+  let started;
+  const ready = new Promise(resolve => { started=resolve; });
+  const {sandbox,listeners,storageData} = loadBackgroundHarness({fetchResponse:()=>({ok:true,status:200,json:()=>{ started(); return new Promise(resolve=>{releases.push(resolve);}); }})});
+  const first = sandbox.fetchPaperMetadata('', 'A distinctive article title for cache generation', 'Journal');
+  await ready;
+  while (releases.length < 2) await new Promise(resolve=>setTimeout(resolve,1));
+  listeners.storage({pdf_cache:{newValue:{}}},'local');
+  storageData.pdf_cache = {};
+  sandbox.fetch = async () => ({ok:true,status:200,json:async()=>null});
+  const second = sandbox.fetchPaperMetadata('', 'A distinctive article title for cache generation', 'Journal');
+  assert.notEqual(first, second);
+  const newResult = await second;
+  releases.forEach(resolve=>resolve(null));
+  assert.equal((await first).errorCode,'METADATA_CONTEXT_CHANGED');
+  assert.equal(newResult.success,true);
+  await sandbox.scheduleMetadataCacheFlush();
+  assert.equal(Object.keys(storageData.pdf_cache).length,1);
+  assert.equal(Object.values(storageData.pdf_cache)[0].cachedAt,newResult.data.cachedAt);
+});
+
+test('legacy metadata cache entries refresh under the new recognition schema', async () => {
+  const {sandbox,storageData} = loadBackgroundHarness({fetchResponse:()=>({ok:true,status:200,json:async()=>null})});
+  storageData.pdf_cache = {'10.1000/test':{doi:'10.1000/test',title:'A trusted looking old title',cacheSchemaVersion:4,cachedAt:Date.now(),expiresAt:Date.now()+100000}};
+  const result = await sandbox.fetchPaperMetadata('10.1000/test','The current local article title','Journal');
+  assert.equal(result.fromCache,false);
+  assert.equal(result.data.title,'The current local article title');
+  assert.equal(result.data.cacheSchemaVersion,5);
+});
+
+test('provider error logs omit credential queries and signed URLs from thrown errors', async () => {
+  const url = 'https://api.openalex.org/works?api_key=qa-secret&mailto=qa-contact@example.test';
+  const {sandbox} = loadBackgroundHarness({fetchResponse:()=>({ok:true,status:200,json:async()=>{throw new Error(url);}})});
+  const warnings = [];
+  sandbox.console.warn = (...args)=>warnings.push(args.join(' '));
+  assert.equal(await sandbox.fetchJsonResponse(url),null);
+  assert.equal(warnings.length,1);
+  assert.match(warnings[0],/api\.openalex\.org/);
+  assert.doesNotMatch(warnings[0],/qa-secret|qa-contact|api_key|mailto/);
+});
+
+test('PDF dedupe preserves signed query bytes and case-sensitive resource identity', () => {
+  const core = loadCore('core/pdf.js');
+  const url = 'https://EXAMPLE.test/Article.PDF?token=A%20B%7e%2f&literal=+&flag&broken=%ZZ';
+  const key = core.pdf.normalizeCandidateDedupeKey(url);
+  assert.equal(key,'https://example.test/Article.PDF?token=A%20B%7e%2f&literal=+&flag&broken=%ZZ');
+  assert.equal(core.pdf.normalizeCandidateDedupeKey(url+'&utm_source=test#page=2'),key);
+  assert.notEqual(key,core.pdf.normalizeCandidateDedupeKey(url.replace('Article','article')));
+  assert.notEqual(key,core.pdf.normalizeCandidateDedupeKey(url.replace('A%20B','a%20b')));
+});
+
 test("all favorites survive beyond the regular history capacity", () => {
   const {sandbox}=loadBackgroundHarness();
   const records=Array.from({length:550},(_,i)=>({title:`Favorite ${i}`,doi:`10.1000/fav-${i}`,starred:true}));

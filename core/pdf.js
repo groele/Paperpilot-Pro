@@ -29,9 +29,15 @@
       url.hash = "";
       // Only remove tracking parameters. Publisher download parameters may be
       // functional (or signed) and must remain part of the candidate identity.
-      ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid", "fbclid"].forEach(param => {
-        url.searchParams.delete(param);
+      const tracking = new Set(["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid", "fbclid"]);
+      // URLSearchParams mutations re-encode the entire query (including signed
+      // tokens). Filter raw segments so functional parameter bytes stay intact.
+      const segments = url.search.slice(1).split('&').filter(segment => {
+        try { return !tracking.has(decodeURIComponent(segment.split('=')[0].replace(/\+/g, ' '))); }
+        catch (_) { return true; }
       });
+      const query = segments.join('&');
+      url.search = query ? `?${query}` : '';
       return url.href.replace(/\?$/, "");
     } catch (e) {
       return normalizeDownloadUrlKey(rawUrl);

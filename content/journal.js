@@ -210,9 +210,9 @@
     try {
       const url = new URL(rawUrl, window.location.href);
       url.hash = "";
-      return url.href.replace(/\/$/, "").toLowerCase();
+      return url.href;
     } catch (e) {
-      return String(rawUrl || "").replace(/#.*$/, "").replace(/\/$/, "").toLowerCase();
+      return String(rawUrl || "").replace(/#.*$/, "");
     }
   }
 
@@ -1585,17 +1585,7 @@
       const cachedLandingUrl = config.pdf_landing_cache ? config.pdf_landing_cache[currentUrl] : null;
       const resolvedLandingUrl = deduceLandingPage(currentUrl, paperMeta.doi, paperMeta.title, cachedLandingUrl);
 
-      // Clean URL helper for comparison (ignores trailing slashes, hashes, query case, etc.)
-      function cleanUrlForCompare(u) {
-        if (!u) return "";
-        try {
-          const urlObj = new URL(u);
-          return (urlObj.hostname + urlObj.pathname + urlObj.search).replace(/\/$/, "").toLowerCase();
-        } catch(e) {
-          return u.replace(/\/$/, "").toLowerCase();
-        }
-      }
-      const showLandingBtn = resolvedLandingUrl && cleanUrlForCompare(resolvedLandingUrl) !== cleanUrlForCompare(currentUrl);
+      const showLandingBtn = resolvedLandingUrl && !isSameUrl(resolvedLandingUrl, currentUrl);
       const pdfDiagnostics = getPdfCandidateDiagnostics();
       const display = {
         journal: escapeHtml(paperMeta.journal || "学术期刊"),

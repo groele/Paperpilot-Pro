@@ -16,7 +16,7 @@ importScripts(
 
 const PP_CORE = globalThis.PaperPilotCore || {};
 const PP_BACKGROUND = globalThis.PaperPilotBackground || {};
-const METADATA_CACHE_SCHEMA_VERSION = 4;
+const METADATA_CACHE_SCHEMA_VERSION = 5;
 const METADATA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const METADATA_TITLE_MATCH_THRESHOLD = 0.9;
 const DEFAULT_METADATA_CONTACT_EMAIL = PP_CORE.metadata?.UNPAYWALL_EMAIL || "paperpilot@gmail.com";
@@ -231,7 +231,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     withMessageDuration("pdf-service", () => checkPdfUrl(message.url))
       .then(result => sendResponse(result))
       .catch(err => {
-        console.error("PDF head check failed for url:", message.url, err);
+        console.error("PDF verification failed:", err?.name || 'Error');
         sendResponse({ valid: false, error: err.message });
       });
     return true; // Keep message channel open for async response
@@ -627,13 +627,28 @@ let metadataCachePromise = null;
 let memoryMetadataCache = null;
 let metadataCacheWriteTimer = null;
 let metadataCacheWritePromise = Promise.resolve();
+let metadataCacheGeneration = 0;
+let metadataCacheFlushWaiters = [];
+const metadataCacheOwnWrites = new Map();
 const METADATA_CACHE_FLUSH_DELAY_MS = 60;
+
+function invalidateMetadataCache(value = {}) {
+  metadataCacheGeneration += 1;
+  memoryMetadataCache = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  clearTimeout(metadataCacheWriteTimer);
+  metadataCacheWriteTimer = null;
+  metadataCacheFlushWaiters.splice(0).forEach(resolve => resolve(false));
+}
 
 async function getOrLoadMetadataCache() {
   if (memoryMetadataCache) return memoryMetadataCache;
   if (!metadataCachePromise) {
+    const generation = metadataCacheGeneration;
     metadataCachePromise = chrome.storage.local.get("pdf_cache").then(storage => {
-      memoryMetadataCache = (storage && typeof storage.pdf_cache === "object" && storage.pdf_cache) || {};
+      if (generation === metadataCacheGeneration) {
+        const loaded = storage?.pdf_cache;
+        memoryMetadataCache = loaded && typeof loaded === 'object' && !Array.isArray(loaded) ? loaded : {};
+      }
       return memoryMetadataCache;
     }).finally(() => {
       metadataCachePromise = null;
@@ -645,18 +660,46 @@ async function getOrLoadMetadataCache() {
 function scheduleMetadataCacheFlush() {
   if (metadataCacheWriteTimer) clearTimeout(metadataCacheWriteTimer);
   return new Promise((resolve) => {
+    metadataCacheFlushWaiters.push(resolve);
     metadataCacheWriteTimer = setTimeout(() => {
+      metadataCacheWriteTimer = null;
+      const waiters = metadataCacheFlushWaiters.splice(0);
+      const generation = metadataCacheGeneration;
       metadataCacheWritePromise = metadataCacheWritePromise.then(async () => {
+        let saved = false;
         try {
           const cache = await getOrLoadMetadataCache();
-          await chrome.storage.local.set({ pdf_cache: cache });
+          if (generation === metadataCacheGeneration) {
+            // Ignore our own storage echo: replacing the live object with an
+            // older serialized snapshot can discard newly completed requests.
+            const snapshot = JSON.stringify(cache);
+            const stored = await chrome.storage.local.get('pdf_cache');
+            if (generation === metadataCacheGeneration) {
+              if (JSON.stringify(stored.pdf_cache) === snapshot) saved = true;
+              else {
+                metadataCacheOwnWrites.set(snapshot, (metadataCacheOwnWrites.get(snapshot) || 0) + 1);
+                if (metadataCacheOwnWrites.size > 4) metadataCacheOwnWrites.delete(metadataCacheOwnWrites.keys().next().value);
+                try { await chrome.storage.local.set({ pdf_cache: JSON.parse(snapshot) }); saved = true; }
+                catch (error) { consumeMetadataCacheWrite(snapshot); throw error; }
+              }
+            }
+          }
         } catch (e) {
           console.warn("PaperPilot Pro: Failed to flush metadata cache", e);
+        } finally {
+          waiters.forEach(done => done(saved));
         }
-        resolve();
       });
     }, METADATA_CACHE_FLUSH_DELAY_MS);
   });
+}
+
+function consumeMetadataCacheWrite(snapshot) {
+  const count = metadataCacheOwnWrites.get(snapshot) || 0;
+  if (!count) return false;
+  if (count === 1) metadataCacheOwnWrites.delete(snapshot);
+  else metadataCacheOwnWrites.set(snapshot, count - 1);
+  return true;
 }
 
 let pdfRuntimeStatePromise = null;
@@ -742,8 +785,11 @@ if (chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local") return;
     updatePdfRuntimeState(changes);
-    if (changes.pdf_cache && changes.pdf_cache.newValue) {
-      memoryMetadataCache = changes.pdf_cache.newValue;
+    if (changes.pdf_cache && !consumeMetadataCacheWrite(JSON.stringify(changes.pdf_cache.newValue))) {
+      invalidateMetadataCache(changes.pdf_cache.newValue);
+    } else if (["enable_easyscholar", "enable_metrics_auto_detect", "easyscholar_key", "openalex_api_key", "scholarly_contact_email"].some(key => changes[key])) {
+      invalidateMetadataCache();
+      void scheduleMetadataCacheFlush();
     }
     if (changes.enable_easyscholar || changes.easyscholar_key) easyScholarConfigGeneration += 1;
     broadcastPublicSettingsChanged(changes);
@@ -1373,12 +1419,13 @@ function getMetadataFlightKey(doi, title, pageUrl = "") {
 }
 
 function fetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
-  const key = getMetadataFlightKey(doi, title, pageUrl);
+  const key = `${metadataCacheGeneration}|${getMetadataFlightKey(doi, title, pageUrl)}`;
+  const generation = metadataCacheGeneration;
   if (metadataSingleFlight) {
-    return metadataSingleFlight.run(key, () => performFetchPaperMetadata(doi, title, clientJournal, pageUrl));
+    return metadataSingleFlight.run(key, () => performFetchPaperMetadata(doi, title, clientJournal, pageUrl, generation));
   }
   if (metadataFlights.has(key)) return metadataFlights.get(key);
-  const flight = performFetchPaperMetadata(doi, title, clientJournal, pageUrl)
+  const flight = performFetchPaperMetadata(doi, title, clientJournal, pageUrl, generation)
     .finally(() => metadataFlights.delete(key));
   metadataFlights.set(key, flight);
   return flight;
@@ -1407,12 +1454,14 @@ async function fetchJsonResponse(url, options = {}) {
     if (!response || !response.ok) return null;
     return await response.json();
   } catch (err) {
-    console.warn("fetchJsonResponse failed for", url, err?.message);
+    let origin = 'invalid URL';
+    try { origin = new URL(url).origin; } catch (_) {}
+    console.warn("Metadata provider request failed:", origin, err?.name || 'Error');
     return null;
   }
 }
 
-async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = "") {
+async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = "", generation = metadataCacheGeneration) {
   // If DOI is missing, try to resolve via title using OpenAlex
   let paperDoi = normalizeDoiForLookup(doi);
   const normalizedRequestedTitle = PP_CORE.metadata?.normalizeTitle?.(title) || String(title || "").trim().toLowerCase();
@@ -1432,6 +1481,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
 
   // Check cache first (incorporating 7-day Cache Expiration & Eviction mechanism)
   const cache = await getOrLoadMetadataCache();
+  if (generation !== metadataCacheGeneration) return metadataContextChanged();
   if (cache[cacheKey]) {
     const cachedData = cache[cacheKey];
     if (cachedData.cacheSchemaVersion !== METADATA_CACHE_SCHEMA_VERSION) {
@@ -1618,6 +1668,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
   metadata.source = metadata.sources && metadata.sources.length ? metadata.sources.join(", ") : "local";
 
   const targetCache = await getOrLoadMetadataCache();
+  if (generation !== metadataCacheGeneration) return metadataContextChanged();
   targetCache[cacheKey] = metadata;
   PP_CORE.cache?.pruneRecordObject?.(targetCache, {
     maxEntries: 500,
@@ -1635,6 +1686,10 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
     expiresAt: metadata.expiresAt,
     stale: metadata.stale
   };
+}
+
+function metadataContextChanged() {
+  return { success: false, ok: false, errorCode: 'METADATA_CONTEXT_CHANGED', error: '设置或缓存已更新，请重试' };
 }
 
 /**
@@ -2023,7 +2078,7 @@ async function fetchEasyScholarDirect(journalName, secretKey) {
       console.warn("PaperPilot Pro: easyScholar HTTP status error:", response.status);
     }
   } catch (e) {
-    console.warn("fetchEasyScholarDirect error for", journalName, e.message);
+    console.warn("fetchEasyScholarDirect error for", journalName, e?.name || 'Error');
   }
   return null;
 }

@@ -1,5 +1,18 @@
 # Changelog
 
+## v4.0.6 - 2026-10-12
+
+### Fixed
+- Persist text settings on input before native popup closure; delay only success feedback and prevent stale failed-save rollback from overriding newer edits.
+- Settle coalesced cache flush callers on success, failure and cancellation. Isolate cache loads, request flights and late results across deletion, replacement and credential changes; preserve newer records when own storage events arrive.
+- Track incomplete DOI scans and refuse truncated evidence; preserve authoritative literal suffixes and use ASCII-only DOI query folding in the library.
+- Preserve signed PDF query bytes and case-sensitive URL identity; reject out-of-range import timestamps and omit credential query strings from provider failure logs.
+- Remove duplicate input-save and URL-comparison branches; refresh schema-4 metadata under schema 5 while keeping user preferences, records and notes.
+
+### Verification
+- 169 tests, E2E fixtures, 24 real-extension check groups including 25 DOI pages, plus three native popup reopenings with immediate-close input persistence.
+- [System audit and verification boundaries](docs/system-audit-2026-10-12.md).
+
 ## v4.0.5 - 2026-10-12
 
 ### Fixed

@@ -94,6 +94,7 @@ async function attachPopup(cdp, targetId) {
         return {title:`Native reading sample ${index}`,doi:`10.1000/native-${index}`,status:'visited',time:day.getTime()};
       });
       history.push({title:'Undated reading sample',doi:'10.1000/native-undated',status:'visited',time:null});
+      history.push({title:'Invalid imported time',doi:'10.1000/native-invalid-time',status:'visited',time:1e20});
       return chrome.storage.local.set({ history, history_revision: 100, overview_collapsed: true, enable_journal_citation_tools: true, enable_ni: true });
     });
     const extensionId = new URL(worker.url()).host;
@@ -101,6 +102,7 @@ async function attachPopup(cdp, targetId) {
     const cdp = await context.browser().newBrowserCDPSession();
     const windowId = await worker.evaluate(async () => (await chrome.windows.getLastFocused()).id);
     let citationEnabled = true, niEnabled = true;
+    let lastTypedModel = null;
     for (let iteration = 0; iteration < 3; iteration++) {
       const theme = iteration === 1 ? 'dark' : 'light';
       await worker.evaluate(theme => chrome.storage.local.set({ appearance_mode: theme, overview_collapsed: true }), theme);
@@ -116,6 +118,7 @@ async function attachPopup(cdp, targetId) {
       }, 'native action popup target');
       popup = await attachPopup(cdp, target.targetId);
       await until(() => popup.evaluate('document.documentElement.dataset.ppSurface === "action" && document.querySelector("#status-ni")?.getAttribute("aria-disabled") === "false"'), 'native popup ready');
+      if (lastTypedModel) assert.equal(await popup.evaluate('document.querySelector("#setting-ai-model").value'),lastTypedModel);
       const dimensions = await popup.evaluate('({width:innerWidth,height:innerHeight,native:chrome.extension.getViews({type:"popup"}).includes(window),container:document.querySelector(".pp-popup-container").getBoundingClientRect().toJSON()})');
       assert.equal(dimensions.native, true);
       assert.ok(dimensions.width >= 420 && dimensions.width <= 450 && dimensions.height >= 450 && dimensions.height <= 600, JSON.stringify(dimensions));
@@ -123,6 +126,7 @@ async function attachPopup(cdp, targetId) {
       const calendar = await popup.evaluate('({open:document.querySelector(".pp-library-activity").open,cells:document.querySelectorAll(".pp-calendar-cell").length,bounds:document.querySelector("#heatmap-grid").getBoundingClientRect().toJSON()})');
       assert.equal(calendar.open,true);
       assert.equal(calendar.cells,28);
+      assert.equal(await popup.evaluate('document.querySelector("#heatmap-grid").textContent.includes("NaN")'),false);
       assert.equal(await popup.evaluate('document.querySelector(".pp-calendar-cell.is-today .pp-calendar-count").textContent'),'2篇');
       assert.ok(calendar.bounds.top>=0 && calendar.bounds.bottom<=dimensions.height,JSON.stringify(calendar));
       await popup.screenshot(`native-popup-calendar-${iteration}-${theme}.png`);
@@ -150,9 +154,18 @@ async function attachPopup(cdp, targetId) {
       const library = await popup.evaluate('({bounds:document.querySelector(".pp-foot-card").getBoundingClientRect().toJSON(),width:document.querySelector("#panel-foot").clientWidth,scroll:document.querySelector("#panel-foot").scrollWidth})');
       assert.ok(library.bounds.top>=0 && library.bounds.top<dimensions.height && library.scroll<=library.width,JSON.stringify(library));
       results.push({ iteration, theme, width: dimensions.width, height: dimensions.height, citationEnabled, niEnabled, settingsOpened: true, bottomControlReachable: true, calendarVisible: true, libraryReachable: true });
+      // Input, then close the native target immediately without blur/change or
+      // waiting for the former 500 ms debounce. Storage must retain the edit.
+      lastTypedModel = `native-immediate-close-${iteration}`;
+      await popup.click('#tab-btn-set');
+      await popup.click('.pp-category-chip[data-category="ai"]');
+      await popup.evaluate("(() => { const input = document.querySelector('#setting-ai-model'); input.scrollIntoView({block:'center'}); input.focus(); input.select(); })()");
+      await popup.send('Input.insertText',{text:lastTypedModel});
+      results.at(-1).immediateInputClose = true;
       popup.dispose(); popup = null;
       await cdp.send('Target.closeTarget', { targetId: target.targetId });
       await until(async () => !(await cdp.send('Target.getTargets')).targetInfos.some(info => info.targetId === target.targetId), 'native popup closed');
+      await until(() => worker.evaluate(async () => (await chrome.storage.local.get('ai_model')).ai_model).then(value=>value===lastTypedModel), 'last input survives immediate native close');
       console.log(`PASS native action popup ${iteration + 1}: ${dimensions.width}x${dimensions.height}, feature/settings controls and persistence`);
     }
     fs.writeFileSync(path.join(out, 'native-popup-results.json'), JSON.stringify({ results }, null, 2));

@@ -192,7 +192,8 @@ const initPopup = () => {
   let currentHistoryQuery = "";
   let currentDiagnostics = null;
   let currentPdfDownloadSaveAs = false;
-  const inputSaveTimers = new Map();
+  const inputFeedbackTimers = new Map();
+  const inputSaveVersions = new Map();
   const HISTORY_PAGE_SIZE = 30;
   let renderedHistoryLimit = HISTORY_PAGE_SIZE;
   let historySearchTimer = null;
@@ -861,14 +862,14 @@ const initPopup = () => {
     updateFeatureStatusGrid();
   });
 
-  function restoreStoredCheckboxes(keys) {
+  function restoreStoredCheckboxes(keys, shouldRestore = () => true) {
     chrome.storage.local.get(keys, values => {
-      if (chrome.runtime.lastError) return;
+      if (chrome.runtime.lastError || !shouldRestore()) return;
       values = Object.fromEntries(keys.map(key => [key, PaperPilotCore.settings.value(key, values[key])]));
       keys.forEach(key => {
         const input = document.getElementById(`setting-${key.replace(/_/g, "-")}`);
         if (input?.type === "checkbox") input.checked = values[key] === true;
-        else if (input && values[key] !== undefined) input.value = values[key];
+        else if (input) input.value = values[key] ?? "";
       });
       if (keys.includes("appearance_mode")) updateTheme(values.appearance_mode);
       if (keys.includes("enable_easyscholar")) syncEasyScholarControls();
@@ -921,20 +922,33 @@ const initPopup = () => {
     });
   };
 
-  const saveSettingDebounced = (key, value, successMsg, delay = 500) => {
-    clearTimeout(inputSaveTimers.get(key));
-    inputSaveTimers.set(key, setTimeout(() => {
-      saveSetting(key, value, successMsg);
-      inputSaveTimers.delete(key);
-    }, delay));
+  // Submit storage writes during input, before an action popup can disappear.
+  // Only the success feedback is delayed; closing the popup loses no values.
+  const saveInputSettings = (key, data, successMsg, delay = 500) => {
+    clearTimeout(inputFeedbackTimers.get(key));
+    inputFeedbackTimers.delete(key);
+    const version = (inputSaveVersions.get(key) || 0) + 1;
+    inputSaveVersions.set(key, version);
+    setStorage(data, error => {
+      if (inputSaveVersions.get(key) !== version) return;
+      if (error) {
+        restoreStoredCheckboxes([key], () => inputSaveVersions.get(key) === version);
+        showToast("设置保存失败，请重试");
+        return;
+      }
+      inputFeedbackTimers.set(key, setTimeout(() => {
+        inputFeedbackTimers.delete(key);
+        showToast(successMsg);
+      }, delay));
+    });
   };
 
-  const flushSettingSave = (key, value, successMsg) => {
-    if (inputSaveTimers.has(key)) {
-      clearTimeout(inputSaveTimers.get(key));
-      inputSaveTimers.delete(key);
-      saveSetting(key, value, successMsg);
-    }
+  const saveSettingInput = (key, value, successMsg, delay) => saveInputSettings(key, { [key]: value }, successMsg, delay);
+  const finishSettingInput = (key, successMsg) => {
+    if (!inputFeedbackTimers.has(key)) return;
+    clearTimeout(inputFeedbackTimers.get(key));
+    inputFeedbackTimers.delete(key);
+    showToast(successMsg);
   };
 
   configRedirect.onchange = () => saveSetting("auto_redirect", configRedirect.checked, "自动重定向设置已同步");
@@ -974,8 +988,8 @@ const initPopup = () => {
     });
   }
   configPdfNaming.onchange = () => saveSetting("pdf_naming", configPdfNaming.value, "文件命名模板保存成功");
-  configPdfDownloadDir.oninput = () => saveSettingDebounced("pdf_download_dir", configPdfDownloadDir.value.trim(), "PDF 下载子目录已保存");
-  configPdfDownloadDir.onchange = () => flushSettingSave("pdf_download_dir", configPdfDownloadDir.value.trim(), "PDF 下载子目录已保存");
+  configPdfDownloadDir.oninput = () => saveSettingInput("pdf_download_dir", configPdfDownloadDir.value.trim(), "PDF 下载子目录已保存");
+  configPdfDownloadDir.onchange = () => finishSettingInput("pdf_download_dir", "PDF 下载子目录已保存");
   configAiProvider.onchange = () => {
     const nextDefaults = applyAiProviderDefaults(configAiProvider.value, true);
     saveSettings({
@@ -984,14 +998,14 @@ const initPopup = () => {
     }, "AI 提供商已切换");
     setAiTestStatus("Provider changed. Test connection before using it.");
   };
-  configAiModel.oninput = () => saveSettingDebounced("ai_model", configAiModel.value.trim(), "AI 模型已保存");
-  configAiModel.onchange = () => flushSettingSave("ai_model", configAiModel.value.trim(), "AI 模型已保存");
-  configAiBaseUrl.oninput = () => saveSettingDebounced("ai_base_url", configAiBaseUrl.value.trim(), "AI Base URL 已保存");
-  configAiBaseUrl.onchange = () => flushSettingSave("ai_base_url", configAiBaseUrl.value.trim(), "AI Base URL 已保存");
-  configAiKey.oninput = () => saveSettingDebounced("ai_api_key", configAiKey.value.trim(), "API 密钥已更新保存");
-  configAiKey.onchange = () => flushSettingSave("ai_api_key", configAiKey.value.trim(), "API 密钥已更新保存");
-  configAiPrompt.oninput = () => saveSettingDebounced("ai_prompt", configAiPrompt.value, "自定义提示词已更新", 700);
-  configAiPrompt.onchange = () => flushSettingSave("ai_prompt", configAiPrompt.value, "自定义提示词已更新");
+  configAiModel.oninput = () => saveSettingInput("ai_model", configAiModel.value.trim(), "AI 模型已保存");
+  configAiModel.onchange = () => finishSettingInput("ai_model", "AI 模型已保存");
+  configAiBaseUrl.oninput = () => saveSettingInput("ai_base_url", configAiBaseUrl.value.trim(), "AI Base URL 已保存");
+  configAiBaseUrl.onchange = () => finishSettingInput("ai_base_url", "AI Base URL 已保存");
+  configAiKey.oninput = () => saveSettingInput("ai_api_key", configAiKey.value.trim(), "API 密钥已更新保存");
+  configAiKey.onchange = () => finishSettingInput("ai_api_key", "API 密钥已更新保存");
+  configAiPrompt.oninput = () => saveSettingInput("ai_prompt", configAiPrompt.value, "自定义提示词已更新", 700);
+  configAiPrompt.onchange = () => finishSettingInput("ai_prompt", "自定义提示词已更新");
 
   if (configAiPreset) {
     configAiPreset.onchange = () => {
@@ -1031,44 +1045,28 @@ const initPopup = () => {
   };
 
   easyScholarKeyInput.oninput = () => {
-    const keyVal = easyScholarKeyInput.value.trim();
-    clearTimeout(inputSaveTimers.get("easyscholar_key"));
-    inputSaveTimers.set("easyscholar_key", setTimeout(() => {
-      saveSettings({
-        easyscholar_key: keyVal,
-        pdf_cache: {},
-        easyscholar_cache: {}
-      }, "easyScholar Key 已保存，历史指标缓存已自动清除");
-      inputSaveTimers.delete("easyscholar_key");
-    }, 650));
-  };
-
-  easyScholarKeyInput.onchange = () => {
-    if (!inputSaveTimers.has("easyscholar_key")) return;
-    clearTimeout(inputSaveTimers.get("easyscholar_key"));
-    inputSaveTimers.delete("easyscholar_key");
-    saveSettings({
+    saveInputSettings("easyscholar_key", {
       easyscholar_key: easyScholarKeyInput.value.trim(),
       pdf_cache: {},
       easyscholar_cache: {}
-    }, "easyScholar Key 已保存，历史指标缓存已自动清除");
+    }, "easyScholar Key 已保存，历史指标缓存已自动清除", 650);
+  };
+
+  easyScholarKeyInput.onchange = () => {
+    finishSettingInput("easyscholar_key", "easyScholar Key 已保存，历史指标缓存已自动清除");
   };
 
   if (configOpenAlexApiKey) {
-    configOpenAlexApiKey.oninput = () => saveSettingDebounced(
+    configOpenAlexApiKey.oninput = () => saveSettingInput(
       "openalex_api_key", configOpenAlexApiKey.value.trim(), "OpenAlex API Key 已保存", 700
     );
-    configOpenAlexApiKey.onchange = () => flushSettingSave(
-      "openalex_api_key", configOpenAlexApiKey.value.trim(), "OpenAlex API Key 已保存"
-    );
+    configOpenAlexApiKey.onchange = () => finishSettingInput("openalex_api_key", "OpenAlex API Key 已保存");
   }
   if (configScholarlyContactEmail) {
-    configScholarlyContactEmail.oninput = () => saveSettingDebounced(
+    configScholarlyContactEmail.oninput = () => saveSettingInput(
       "scholarly_contact_email", configScholarlyContactEmail.value.trim(), "学术 API 联系邮箱已保存", 700
     );
-    configScholarlyContactEmail.onchange = () => flushSettingSave(
-      "scholarly_contact_email", configScholarlyContactEmail.value.trim(), "学术 API 联系邮箱已保存"
-    );
+    configScholarlyContactEmail.onchange = () => finishSettingInput("scholarly_contact_email", "学术 API 联系邮箱已保存");
   }
 
   toggleEasyScholarBtn.onclick = () => {
@@ -1574,12 +1572,13 @@ const initPopup = () => {
   function safeParseDate(val) {
     if (!val) return null;
     if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
-    if (typeof val === "number") return isNaN(val) ? null : new Date(val);
+    if (typeof val === "number") { const d = new Date(val); return Number.isFinite(d.getTime()) ? d : null; }
     if (typeof val === "string") {
       const trimmed = val.trim();
       if (/^\d+$/.test(trimmed)) {
         const num = Number(trimmed);
-        return isNaN(num) ? null : new Date(num);
+        const d = new Date(num);
+        return Number.isFinite(d.getTime()) ? d : null;
       }
       const d = new Date(trimmed);
       return isNaN(d.getTime()) ? null : d;
