@@ -51,3 +51,14 @@ test('backup imports retain distinct DOI editions, deduplicate canonical identif
   assert.equal(result.added,1); assert.equal(result.history.length,2);
   assert.equal(result.history.find(row=>row.doi==='10.1000/a').notes,'Recent local notes');
 });
+
+test('copied backup IDs cannot merge unrelated papers or address two records at once', () => {
+  assert.equal(library.samePaper({id:'copied-id',title:'First article'},{id:'copied-id',title:'Different article'}),false);
+  const result=library.importRecords([],[{id:'copied-id',title:'First article',doi:'10.1000/a'},{id:'copied-id',title:'Second article',doi:'10.1000/b'}]);
+  assert.equal(result.history.length,2);
+  assert.equal(new Set(result.history.map(library.recordKey)).size,2);
+  const repaired=library.normalizeRecords([{id:'shared',title:'A'},{id:'shared',title:'B'},{id:'shared#2',title:'C'},null]);
+  assert.equal(repaired[2].id,'shared#2');
+  assert.equal(repaired.length,3);
+  assert.equal(new Set(repaired.map(library.recordKey)).size,3);
+});

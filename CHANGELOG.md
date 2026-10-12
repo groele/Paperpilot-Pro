@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.0.1 - 2026-10-12
+
+### Fixed
+- Connect journal GB/T 7714, BibTeX and landing-page switches to public settings reads and live updates; connect Scholar GB and favorite controls throughout the runtime.
+- Add the citation section switch under **偏好设置 → 引用格式**, retaining independent button preferences when the section is hidden.
+- Restore the original compact header typography and gradient, keep the original settings cards, and make all categories visible in a two-row grid. Put optional presets in a collapsible area and increase setting text readability.
+- Search across all settings regardless of the selected category; restore the category when clearing the search, and synchronize category keyboard/ARIA state.
+- Adapt the popup to narrow viewports so switches stay reachable. Restore saved checkbox states on storage failure and synchronize open settings with external updates.
+- Preserve active AI streams and results during citation/appearance-only card redraws, including rapid successive updates.
+- Preserve every saved feature switch during extension upgrades; migrate the retired shared DOI setting once and remove it.
+- Repair duplicate backup IDs, invalid records and ambiguous DOI-less revisits; preserve all favorites and reject ambiguous note updates. Synchronize open libraries and ignore older snapshots.
+- Keep PDF and metadata timeouts active through body consumption; reject empty AI connection/summary replies and preserve records when a clear operation fails.
+- Restore Scholar sorting/filtering, per-query preferences and its dedicated switch. Consolidate AI providers and Nature Index matching; remove retired search UI and unused watchdog/preview paths.
+
+### Verification
+- `npm run verify`: lint, 130 tests and E2E fixtures. Chromium MV3 browser regression covers live citation controls, reloads, presets, failed saves/clear, active streams, Scholar sorting/filtering and switches, distinct-query preferences, and 320/420-pixel settings layouts.
+- Details: [V4.0.1 patch notes](docs/releases/v4.0.1.md).
+
 ## v4.0.0 - 2026-10-12
 
 ### Changed

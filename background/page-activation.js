@@ -5,6 +5,7 @@
     "core/sanitize.js",
     "core/metadata.js",
     "core/site-profiles.js",
+    "core/nature-index.js",
     "core/citation.js",
     "core/pdf.js",
     "core/pdf-discovery.js",

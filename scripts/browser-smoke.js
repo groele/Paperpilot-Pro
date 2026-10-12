@@ -66,7 +66,7 @@ async function until(fn, label, timeout=10000) {
     channel:process.env.PP_CHROMIUM_EXECUTABLE ? undefined : 'chromium', headless:true,
     ignoreDefaultArgs:['--disable-extensions'],
     acceptDownloads:true, downloadsPath:path.join(out,'downloads'),
-    args:[`--disable-extensions-except=${root}`,`--load-extension=${root}`],
+    args:[`--disable-extensions-except=${root}`,`--load-extension=${root}`,`--explicitly-allowed-ports=${server.address().port}`],
     viewport:{width:1100,height:800}
   });
   try {
@@ -99,6 +99,8 @@ async function until(fn, label, timeout=10000) {
       const field = doiPage.locator('#pp-jc-doi-val-box .pp-jc-meta-val');
       await field.waitFor();
       assert.equal(await field.textContent(), expected, route);
+      const duplicateIds=await doiPage.evaluate(()=>{const ids=Array.from(document.querySelectorAll('[id]'),el=>el.id);return ids.filter((id,i)=>ids.indexOf(id)!==i);});
+      assert.deepEqual(duplicateIds,[],route);
     }
     await doiPage.close();
     pass('DOI browser fixtures: page identity, metadata priority, JSON-LD, labels, reference exclusion, ambiguity and encoding');
@@ -146,6 +148,64 @@ async function until(fn, label, timeout=10000) {
 
     await popup.locator('#tab-btn-set').click();
     assert.equal(await popup.locator('#panel-foot').evaluate(el=>el.inert),true);
+    await popup.locator('[data-category="citation"].pp-category-chip').click();
+    const citationMaster = popup.locator('#setting-enable-journal-citation-tools');
+    const gbtToggle = popup.locator('#setting-enable-journal-copy-gbt-btn');
+    const bibToggle = popup.locator('#setting-enable-journal-copy-bib-btn');
+    await gbtToggle.uncheck();
+    await article.locator('#pp-jc-btn-copy-gb').waitFor({state:'detached'});
+    assert.equal(await article.locator('#pp-jc-btn-copy-bib').isVisible(),true);
+    await bibToggle.uncheck();
+    await article.locator('.pp-jc-citation-field').waitFor({state:'detached'});
+    await gbtToggle.check();
+    await article.locator('#pp-jc-btn-copy-gb').waitFor();
+    await citationMaster.uncheck();
+    await article.locator('.pp-jc-citation-field').waitFor({state:'detached'});
+    await popup.reload();
+    await popup.locator('#tab-btn-set').click();
+    await until(()=>citationMaster.isChecked().then(checked=>!checked),'citation master persisted');
+    assert.equal(await gbtToggle.isChecked(),true);
+    assert.equal(await bibToggle.isChecked(),false);
+    await article.reload();
+    await article.locator('#pp-journal-metacard').waitFor();
+    assert.equal(await article.locator('.pp-jc-citation-field').count(),0);
+    await citationMaster.check();
+    await article.locator('#pp-jc-btn-copy-gb').waitFor();
+    assert.equal(await article.locator('#pp-jc-btn-copy-bib').count(),0);
+    await bibToggle.check();
+    await article.locator('#pp-jc-btn-copy-bib').waitFor();
+    await popup.evaluate(() => {
+      window.qaOriginalSet = chrome.storage.local.set;
+      chrome.storage.local.set = (data, callback) => {
+        Object.defineProperty(chrome.runtime, 'lastError', {configurable:true,value:{message:'QA citation storage failure'}});
+        try { callback(); } finally { delete chrome.runtime.lastError; }
+      };
+    });
+    await citationMaster.click();
+    await until(()=>citationMaster.isChecked(),'citation setting failure rollback');
+    assert.equal(await article.locator('.pp-jc-citation-field').isVisible(),true);
+    await popup.evaluate(() => { chrome.storage.local.set = window.qaOriginalSet; delete window.qaOriginalSet; });
+    await popup.locator('[data-category="core"].pp-category-chip').click();
+    await popup.locator('#setting-search-input').fill('BibTeX');
+    assert.equal(await bibToggle.isVisible(),true);
+    await popup.locator('#btn-clear-settings-search').click();
+    assert.equal(await bibToggle.isVisible(),false);
+    await popup.locator('[data-category="buttons"].pp-category-chip').click();
+    const landingToggle = popup.locator('#setting-enable-journal-open-landing-btn');
+    assert.equal(await article.locator('#pp-jc-btn-open-landing').isVisible(),true);
+    await landingToggle.uncheck();
+    await article.locator('#pp-jc-btn-open-landing').waitFor({state:'detached'});
+    await landingToggle.check();
+    await article.locator('#pp-jc-btn-open-landing').waitFor();
+    await popup.locator('[data-category="all"].pp-category-chip').click();
+    await popup.locator('.pp-settings-presets-bar > summary').click();
+    await popup.locator('.pp-preset-btn[data-preset="minimal"]').click();
+    await article.locator('.pp-jc-citation-field').waitFor({state:'detached'});
+    assert.equal(await citationMaster.isChecked(),false);
+    await popup.locator('.pp-preset-btn[data-preset="recommended"]').click();
+    await article.locator('#pp-jc-btn-copy-bib').waitFor();
+    await popup.locator('.pp-settings-presets-bar > summary').click();
+    pass('Citation controls: independent GB/Bib, master hiding, saved child preferences, popup/article reload, live landing control and global settings search');
     assert.equal(await popup.locator('#setting-ai-preset').inputValue(),'methodology');
     await popup.locator('#setting-ai-preset').selectOption('custom');
     await article.locator('[data-preset="custom"][aria-pressed="true"]').waitFor();
@@ -166,6 +226,25 @@ async function until(fn, label, timeout=10000) {
     mode='slow';
     await generate.click();
     await until(()=>article.locator('#pp-jc-ai-content').textContent().then(t=>t.includes('论文陈述')),'slow stream chunk');
+    const requestsBeforeToggle = requests, abortedBeforeToggle = aborted;
+    await popup.locator('#setting-enable-journal-citation-tools').uncheck();
+    await article.locator('.pp-jc-citation-field').waitFor({state:'detached'});
+    assert.equal(await article.locator('#pp-jc-ai-box').getAttribute('aria-busy'),'true');
+    assert.equal(requests,requestsBeforeToggle);
+    assert.equal(aborted,abortedBeforeToggle);
+    await popup.locator('#setting-enable-journal-citation-tools').check();
+    await article.locator('.pp-jc-citation-field').waitFor();
+    await worker.evaluate(async () => {
+      await chrome.storage.local.set({enable_journal_copy_gbt_btn:false});
+      await chrome.storage.local.set({enable_journal_copy_bib_btn:false});
+      await chrome.storage.local.set({enable_journal_copy_gbt_btn:true,enable_journal_copy_bib_btn:true});
+    });
+    await article.locator('#pp-jc-btn-copy-gb').waitFor();
+    await article.locator('#pp-jc-btn-copy-bib').waitFor();
+    assert.equal(await article.locator('#pp-jc-ai-box').getAttribute('aria-busy'),'true');
+    assert.equal(aborted,abortedBeforeToggle);
+    assert.match(await article.locator('#pp-jc-ai-content').textContent(),/论文陈述/);
+    pass('Changing citation visibility preserves an active AI stream and its content');
     await article.locator('#pp-jc-ai-stop').click();
     await until(()=>Promise.resolve(aborted>0),'provider abort');
     assert.match(await status.textContent(),/已停止/);
@@ -294,6 +373,22 @@ async function until(fn, label, timeout=10000) {
       await popup.screenshot({path:path.join(out,`workbench-library-${theme}.png`)});
     }
     await popup.locator('#tab-btn-set').click();
+    await popup.locator('[data-category="citation"].pp-category-chip').click();
+    for (const [width, theme] of [[420,'light'],[420,'dark'],[320,'light']]) {
+      await popup.setViewportSize({width,height:650});
+      await worker.evaluate(theme=>chrome.storage.local.set({appearance_mode:theme}),theme);
+      await until(()=>popup.locator('html').getAttribute('data-pp-theme').then(x=>x===theme),'settings theme');
+      await popup.locator('#panel-set').evaluate(el=>{el.scrollTop=0;});
+      const categories=await popup.locator('#settings-category-tabs').evaluate(el=>({width:el.clientWidth,scroll:el.scrollWidth}));
+      assert.ok(categories.scroll<=categories.width+1,JSON.stringify(categories));
+      const toggleBounds=await popup.locator('#setting-enable-journal-citation-tools').evaluate(el=>el.closest('label').getBoundingClientRect().toJSON());
+      assert.ok(toggleBounds.x>=0 && toggleBounds.right<=width,JSON.stringify(toggleBounds));
+      assert.ok(await popup.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      assert.equal(await popup.locator('#setting-enable-journal-citation-tools').isVisible(),true);
+      await popup.waitForTimeout(350); // Capture the settled theme/category transitions.
+      await popup.screenshot({path:path.join(out,`settings-citation-${theme}-${width}.png`)});
+    }
+    await popup.setViewportSize({width:420,height:600});
     await popup.locator('#setting-search-input').fill('DOI');
     await until(()=>popup.locator('#nav-pill').boundingBox().then(r=>r.x>200),'settings navigation settles');
     await popup.screenshot({path:path.join(out,'workbench-settings-search.png')});
@@ -309,6 +404,65 @@ async function until(fn, label, timeout=10000) {
     await scholar.locator('.pp-scholar-dup-header').press('Enter');
     assert.equal(await scholar.locator('.pp-scholar-dup-header').getAttribute('aria-expanded'),'true');
     assert.equal(await scholar.locator('.gs_r:visible').count(),4);
+    await popup.locator('#setting-search-input').fill('收藏');
+    await popup.locator('#setting-enable-scholar-star-btn').uncheck();
+    await until(()=>scholar.locator('.pp-scholar-star-btn').count().then(n=>n===0),'Scholar favorite control');
+    await popup.locator('#setting-search-input').fill('国标');
+    await popup.locator('#setting-enable-scholar-copy-gbt-btn').uncheck();
+    await until(()=>scholar.locator('.pp-scholar-action-btn').filter({hasText:'国标 GB'}).count().then(n=>n===0),'Scholar citation control');
+    await scholar.reload();
+    await until(()=>scholar.locator('.gs_r[data-pp-enhanced="true"]').count().then(n=>n===5),'Scholar reloaded');
+    assert.equal(await scholar.locator('.pp-scholar-star-btn').count(),0);
+    assert.equal(await scholar.locator('.pp-scholar-action-btn').filter({hasText:'国标 GB'}).count(),0);
+    await popup.locator('#setting-enable-scholar-copy-gbt-btn').check();
+    await until(()=>scholar.locator('.pp-scholar-action-btn').filter({hasText:'国标 GB'}).count().then(n=>n>0),'Scholar citation restored');
+    await popup.locator('#setting-search-input').fill('收藏');
+    await popup.locator('#setting-enable-scholar-star-btn').check();
+    await until(()=>scholar.locator('.pp-scholar-star-btn').count().then(n=>n>0),'Scholar favorite restored');
+    pass('Scholar GB and favorite switches update open results, persist across reload and restore');
+    await scholar.locator('#pp-sort-citations').waitFor();
+    await scholar.locator('#pp-sort-citations').click();
+    await scholar.locator('#pp-slider-cite').evaluate(el=>{el.value='10';el.dispatchEvent(new Event('input',{bubbles:true}));});
+    await until(()=>scholar.locator('.gs_r:visible').count().then(n=>n===3),'Scholar citation filtering');
+    await scholar.reload();
+    await scholar.locator('#pp-slider-cite').waitFor();
+    assert.equal(await scholar.locator('#pp-slider-cite').inputValue(),'10');
+    assert.ok((await scholar.locator('#pp-sort-citations').getAttribute('class')).includes('active'));
+    await until(()=>scholar.locator('.gs_r:visible').count().then(n=>n===3),'Scholar restored filter');
+    await popup.locator('#setting-search-input').fill('排序');
+    await popup.locator('#setting-enable-sorting-filter').uncheck();
+    await scholar.locator('#pp-scholar-sorting-toolbar').waitFor({state:'detached'});
+    await scholar.locator('.pp-scholar-sidebar-panel').waitFor({state:'detached'});
+    assert.equal(await scholar.locator('.gs_r:visible').count(),4);
+    await popup.locator('#setting-enable-sorting-filter').check();
+    await scholar.locator('#pp-sort-citations').waitFor();
+    await until(()=>scholar.locator('.gs_r:visible').count().then(n=>n===3),'Scholar filter re-enabled');
+    await scholar.locator('#pp-scholar-sorting-toolbar').evaluate(el=>el.remove());
+    await scholar.locator('#pp-sort-citations').waitFor();
+    await scholar.goto('https://scholar.google.com/scholar?q=other-fixture-query');
+    await scholar.locator('#pp-slider-cite').waitFor();
+    assert.equal(await scholar.locator('#pp-slider-cite').inputValue(),'0');
+    assert.equal(await scholar.locator('.gs_r:visible').count(),4);
+    pass('Scholar sorting/filtering works, persists per query, disables/restores correctly and repairs a replaced toolbar');
+
+    await popup.locator('#tab-btn-foot').click();
+    const beforeClear=await worker.evaluate(async()=> (await chrome.storage.local.get('history')).history.length);
+    await worker.evaluate(()=>{
+      globalThis.qaOriginalSet=chrome.storage.local.set;
+      chrome.storage.local.set=async(data,...args)=>{
+        if ('history' in data) throw new Error('QA clear failure');
+        return globalThis.qaOriginalSet.call(chrome.storage.local,data,...args);
+      };
+    });
+    popup.once('dialog',dialog=>dialog.accept());
+    await popup.locator('#btn-clear-history').click();
+    await until(()=>popup.locator('#popup-toast-msg').textContent().then(t=>t.includes('QA clear failure')),'failed clear notice');
+    assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('history')).history.length),beforeClear);
+    assert.equal(await popup.locator('.pp-foot-card').count(),30);
+    await worker.evaluate(()=>{chrome.storage.local.set=globalThis.qaOriginalSet;delete globalThis.qaOriginalSet;});
+    const popupDuplicateIds=await popup.evaluate(()=>{const ids=Array.from(document.querySelectorAll('[id]'),el=>el.id);return ids.filter((id,i)=>ids.indexOf(id)!==i);});
+    assert.deepEqual(popupDuplicateIds,[]);
+    pass('Failed library clear preserves stored and visible records; no duplicate popup IDs');
     await scholar.screenshot({path:path.join(out,'workbench-scholar.png'),fullPage:true});
     pass('Scholar: real content runtime, DOI-aware indexed clustering, conflicting identities retained and keyboard-accessible source drawer');
 

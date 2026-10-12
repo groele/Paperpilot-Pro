@@ -34,7 +34,7 @@
     });
   }
 
-  function createTimedFetch(fetchImpl, url, options, timeoutMs, parentSignal) {
+  function createTimedFetch(fetchImpl, url, options, timeoutMs, parentSignal, consume = response => response) {
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     if (parentSignal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
@@ -42,20 +42,27 @@
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     return Promise.resolve()
       .then(() => fetchImpl(url, { ...options, signal: controller.signal }))
+      .then(response => consume(response, controller.signal))
       .finally(() => {
         clearTimeout(timer);
         parentSignal?.removeEventListener("abort", onAbort);
       });
   }
 
-  async function readResponsePrefix(response, maxBytes = DEFAULTS.maxPrefixBytes) {
+  async function readResponsePrefix(response, maxBytes = DEFAULTS.maxPrefixBytes, signal = null) {
     if (!response?.body?.getReader) return null;
     const reader = response.body.getReader();
     const chunks = [];
     let total = 0;
+    let onAbort;
+    const aborted = new Promise((_, reject) => {
+      onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
     try {
       while (total < maxBytes) {
-        const part = await reader.read();
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        const part = await Promise.race([reader.read(), aborted]);
         if (part.done) break;
         if (!part.value?.length) continue;
         const remaining = maxBytes - total;
@@ -64,6 +71,7 @@
         total += value.length;
       }
     } finally {
+      signal?.removeEventListener("abort", onAbort);
       try {
         await reader.cancel();
       } catch (_) {}
@@ -112,15 +120,16 @@
 
     async function verifyRange(url, signal) {
       try {
-        const response = await createTimedFetch(fetchImpl, url, {
+        return await createTimedFetch(fetchImpl, url, {
           method: "GET",
           credentials: "include",
           headers: { Range: `bytes=0-${config.maxPrefixBytes - 1}`, Accept: "application/pdf, */*" }
-        }, config.rangeTimeoutMs, signal);
-        const prefix = (response.ok || response.status === 206)
-          ? await readResponsePrefix(response, config.maxPrefixBytes)
-          : null;
-        return root.pdf?.classifyPdfResponse?.(response, prefix) || { valid: false, errorCode: "PDF_NOT_CONFIRMED" };
+        }, config.rangeTimeoutMs, signal, async (response, bodySignal) => {
+          const prefix = (response.ok || response.status === 206)
+            ? await readResponsePrefix(response, config.maxPrefixBytes, bodySignal)
+            : null;
+          return root.pdf?.classifyPdfResponse?.(response, prefix) || { valid: false, errorCode: "PDF_NOT_CONFIRMED" };
+        });
       } catch (error) {
         return signal?.aborted ? abortedResult() : root.pdf?.classifyPdfError?.(error) || { valid: false, error: String(error) };
       }

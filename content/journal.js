@@ -17,11 +17,13 @@
   let initGeneration = 0;
   let cardRenderGeneration = 0;
   let disposeAnalysis = null;
+  let pendingAnalysis = null;
   let disposeDrag = null;
 
   function removeMetacard(preserveAnalysis = false) {
     ++cardRenderGeneration;
-    const analysis = preserveAnalysis ? cardEl?.querySelector(".pp-jc-ai-section") : null;
+    const analysis = preserveAnalysis ? cardEl?.querySelector(".pp-jc-ai-section") || pendingAnalysis : null;
+    pendingAnalysis = analysis;
     if (!analysis) {
       disposeAnalysis?.();
       disposeAnalysis = null;
@@ -1184,13 +1186,16 @@
     const redrawKeys = [
       "enable_metacard", "enable_metrics_display", "enable_metrics_auto_detect",
       "enable_journal_copy_doi_btn", "enable_pdf_download_btn", "enable_ai_summary_btn",
+      "enable_journal_citation_tools", "enable_journal_copy_gbt_btn",
+      "enable_journal_copy_bib_btn", "enable_journal_open_landing_btn",
       "enable_ccf_badge", "enable_core_badge", "enable_warn_badge", "enable_if_badge",
       "enable_cas_badge", "enable_jcr_badge", "enable_cite_badge", "enable_pdf_badge",
       "metacard_pinned", "ai_preset"
     ];
     if (!redrawKeys.some(key => changed.has(key))) return;
-    removeMetacard();
-    injectMetacard();
+    const preserveAnalysis = !["enable_metacard", "enable_ai_summary_btn", "ai_preset"].some(key => changed.has(key));
+    const analysis = removeMetacard(preserveAnalysis);
+    injectMetacard(analysis);
   }
 
   // Local DOM PDF Link Sniffer for both OA and Institutional Paid Databases
@@ -1474,7 +1479,6 @@
   }
 
   // Inject beautiful Glassmorphic Float Panel
-  // Inject beautiful Glassmorphic Float Panel
   function injectMetacard(preservedAnalysis = null) {
     const renderGeneration = ++cardRenderGeneration;
     const pageGeneration = initGeneration;
@@ -1482,8 +1486,11 @@
       "enable_metacard",
       "enable_metrics_display",
       "enable_metrics_auto_detect",
-      "enable_copy_doi_btn",
       "enable_journal_copy_doi_btn",
+      "enable_journal_citation_tools",
+      "enable_journal_copy_gbt_btn",
+      "enable_journal_copy_bib_btn",
+      "enable_journal_open_landing_btn",
       "pdf_landing_cache",
       "enable_pdf_download_btn",
       "enable_ai_summary_btn",
@@ -1502,6 +1509,7 @@
       if (config.enable_metacard === false) {
         disposeAnalysis?.();
         disposeAnalysis = null;
+        pendingAnalysis = null;
         console.log("PaperPilot Pro: Metacard is disabled in settings. Skipping injection.");
         return;
       }
@@ -1523,13 +1531,7 @@
       const enable_pdf_download_btn = config.enable_pdf_download_btn !== false;
       const enable_ai_summary_btn = config.enable_ai_summary_btn !== false;
 
-      // Legacy fallback and new independent setting mapping
-      let enable_journal_copy_doi_btn = config.enable_journal_copy_doi_btn;
-      if (enable_journal_copy_doi_btn === undefined) {
-        enable_journal_copy_doi_btn = config.enable_copy_doi_btn !== false;
-      } else {
-        enable_journal_copy_doi_btn = enable_journal_copy_doi_btn !== false;
-      }
+      const enable_journal_copy_doi_btn = config.enable_journal_copy_doi_btn !== false;
 
       // Deduce original landing page URL
       const currentUrl = window.location.href;
@@ -1630,7 +1632,7 @@
           </div>
 
           <!-- Academic Citation Field (Moved out of DOI box) -->
-          ${(paperMeta.title && (config.enable_journal_copy_gbt_btn !== false || config.enable_journal_copy_bib_btn !== false)) ? `
+          ${(paperMeta.title && config.enable_journal_citation_tools !== false && (config.enable_journal_copy_gbt_btn !== false || config.enable_journal_copy_bib_btn !== false)) ? `
           <div class="pp-jc-citation-field">
             <div class="pp-jc-citation-hdr">
               <span class="pp-jc-meta-lbl">学术引用格式</span>
@@ -1739,7 +1741,7 @@
                 ${window.PP_ICONS.download} 一键下载 PDF 全文
               </button>
             ` : (!paperMeta.pdfUrl && enable_journal_copy_doi_btn) ? `
-              <button type="button" class="pp-jc-action-btn pp-jc-btn-doi" id="pp-jc-btn-scihub-jump">
+              <button type="button" class="pp-jc-action-btn pp-jc-btn-doi" id="pp-jc-btn-copy-doi-action">
                 ${window.PP_ICONS.copy} 一键复制 DOI
               </button>
             ` : ''}
@@ -1771,6 +1773,7 @@
       `;
 
       document.body.appendChild(cardEl);
+      pendingAnalysis = null;
       if (preservedAnalysis && config.enable_ai_summary_btn !== false) {
         cardEl.querySelector(".pp-jc-ai-section")?.replaceWith(preservedAnalysis);
       } else if (preservedAnalysis) {
@@ -1795,7 +1798,7 @@
     const drawerHdr = cardEl.querySelector("#pp-jc-drawer-hdr");
     const copyDoiBtn = cardEl.querySelector("#pp-jc-btn-copy-doi");
     const downloadBtn = cardEl.querySelector("#pp-jc-btn-download");
-    const scihubJumpBtn = cardEl.querySelector("#pp-jc-btn-scihub-jump");
+    const copyDoiActionBtn = cardEl.querySelector("#pp-jc-btn-copy-doi-action");
     const aiBtn = cardEl.querySelector("#pp-jc-btn-ai-sum");
     const helpBtn = cardEl.querySelector("#pp-jc-btn-help");
     const openLandingBtn = cardEl.querySelector("#pp-jc-btn-open-landing");
@@ -2102,7 +2105,7 @@
       });
     };
 
-    if (scihubJumpBtn) scihubJumpBtn.onclick = () => handleCopyDoi(scihubJumpBtn);
+    if (copyDoiActionBtn) copyDoiActionBtn.onclick = () => handleCopyDoi(copyDoiActionBtn);
 
     // One active request per analysis section; late messages cannot mutate newer runs.
     if (aiBtn && !aiBtn.dataset.bound) {
@@ -2338,15 +2341,7 @@
 
   // Match standard Nature Index Journals list
   function checkNatureIndexMatch(journalName) {
-    if (window.PaperPilotCore?.natureIndex?.isNatureIndex) {
-      return window.PaperPilotCore.natureIndex.isNatureIndex(journalName);
-    }
-    const list = [
-      "nature", "science", "cell", "american chemical society", "angewandte", "advanced materials",
-      "physical review", "pnas", "cancer research", "neuron", "plos biology"
-    ];
-    const name = (journalName || "").toLowerCase();
-    return list.some(item => name.includes(item));
+    return window.PaperPilotCore.natureIndex.isNatureIndex(journalName);
   }
 
   // Logs Footprint history event to background database

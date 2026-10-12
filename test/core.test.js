@@ -28,6 +28,84 @@ function loadCore(...files) {
   return sandbox.PaperPilotCore;
 }
 
+test("all favorites survive beyond the regular history capacity", () => {
+  const {sandbox}=loadBackgroundHarness();
+  const records=Array.from({length:550},(_,i)=>({title:`Favorite ${i}`,doi:`10.1000/fav-${i}`,starred:true}));
+  assert.equal(sandbox.trimHistoryWithStarredProtection(records).length,550);
+});
+
+test("invalid notes cannot insert an empty history record", async () => {
+  const {sandbox,storageData}=loadBackgroundHarness();
+  const result=await sandbox.updateFootprintNotes('', '', 'Orphaned note');
+  assert.equal(result.success,false);
+  assert.equal(storageData.history?.length || 0,0);
+  const invalid=await sandbox.addFootprint({doi:'not-a-doi',title:' '});
+  assert.equal(invalid.success,false);
+});
+
+test("metadata JSON body stalls time out even after successful headers", async () => {
+  const {sandbox}=loadBackgroundHarness({fetchResponse:()=>({ok:true,status:200,json:()=>new Promise(()=>{})})});
+  await assert.rejects(sandbox.fetchResponseWithTimeout('https://example.org/stalled',{},20),/Timed out/);
+});
+
+test("AI connection and summary reject empty replies instead of claiming success", async () => {
+  const {sandbox,storageData}=loadBackgroundHarness({fetchResponse:()=>({ok:true,status:200,json:async()=>({choices:[]})})});
+  Object.assign(storageData,{ai_provider:'custom',ai_model:'qa',ai_base_url:'https://example.org'});
+  await assert.rejects(sandbox.testAIConnection(),/未返回有效内容/);
+  const summary=await sandbox.callAISummarize('An abstract','A paper');
+  assert.equal(summary.success,false);
+  assert.equal(summary.errorCode,'AI_RESPONSE_EMPTY');
+});
+
+test("extension updates preserve every existing feature switch and citation section preference", async () => {
+  const {listeners,storageData}=loadBackgroundHarness();
+  Object.assign(storageData,{enable_journal_citation_tools:false,enable_journal_copy_gbt_btn:false,enable_scholar_star_btn:false,enable_footprint_stats:false});
+  listeners.installed();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(storageData.enable_journal_citation_tools,false);
+  assert.equal(storageData.enable_journal_copy_gbt_btn,false);
+  assert.equal(storageData.enable_scholar_star_btn,false);
+  assert.equal(storageData.enable_footprint_stats,false);
+});
+
+test("an identifier-less revisit cannot bridge or erase conflicting DOI editions", async () => {
+  const {sandbox,storageData}=loadBackgroundHarness();
+  await sandbox.addFootprint({title:'Shared article title',doi:'10.1000/a',notes:'Notes A'});
+  await sandbox.addFootprint({title:'Shared article title',doi:'10.1000/b',notes:'Notes B'});
+  const ambiguous=await sandbox.updateFootprintNotes('', 'Shared article title', 'Unknown edition');
+  assert.equal(ambiguous.errorCode,'HISTORY_AMBIGUOUS');
+  await sandbox.addFootprint({title:'Shared article title'});
+  await sandbox.addFootprint({title:'Shared article title'});
+  assert.equal(storageData.history.length,3);
+  assert.equal(storageData.history.find(row=>row.doi==='10.1000/a').notes,'Notes A');
+  assert.equal(storageData.history.find(row=>row.doi==='10.1000/b').notes,'Notes B');
+});
+
+test("legacy DOI preference migrates once without overwriting independent settings", async () => {
+  const {listeners,storageData}=loadBackgroundHarness();
+  Object.assign(storageData,{enable_copy_doi_btn:false,enable_scholar_copy_doi_btn:true});
+  listeners.installed();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(storageData.enable_scholar_copy_doi_btn,true);
+  assert.equal(storageData.enable_journal_copy_doi_btn,false);
+  assert.equal('enable_copy_doi_btn' in storageData,false);
+});
+
+test("PDF prefix reading stays bounded when headers arrive but the body stalls", async () => {
+  const core=loadCore('core/pdf.js','core/pdf-verifier.js');
+  let cancelled=false;
+  const verifier=core.pdfVerifier.create({headTimeoutMs:20,rangeTimeoutMs:25,hedgeDelayMs:0,fetchImpl:async(_url,options)=>({
+    ok:true,status:200,url:'https://example.org/stalled',headers:{'content-type':'application/octet-stream'},
+    body:options.method==='HEAD'?null:{getReader:()=>({read:()=>new Promise(()=>{}),cancel:async()=>{cancelled=true;}})}
+  })});
+  let timer;
+  try {
+    const result=await Promise.race([verifier.verify('https://example.org/stalled'),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Stalled PDF body left verification pending')),200);})]);
+    assert.equal(result.valid,false);
+    assert.equal(cancelled,true);
+  } finally {clearTimeout(timer);}
+});
+
 function loadBackgroundHarness(options = {}) {
   const fetchResponse = options.fetchResponse;
   const calls = { downloads: [], fetches: [], cancellations: [], messages: [] };
@@ -49,6 +127,11 @@ function loadBackgroundHarness(options = {}) {
     set(values, callback) {
       Object.assign(data, values);
       if (callback) queueMicrotask(() => callback());
+      return Promise.resolve();
+    },
+    remove(keys, callback) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) delete data[key];
+      if (callback) queueMicrotask(callback);
       return Promise.resolve();
     }
   });
@@ -1078,7 +1161,7 @@ test("Dashboard Overview exposes and synchronizes the PDF save-as shortcut", () 
   assert.match(css, /\.pp-popup-overview-control/);
 });
 
-test("Popup action window keeps one fixed viewport and delegates scrolling to its panels", () => {
+test("Popup retains a preferred viewport, adapts to narrow windows and delegates scrolling to its panels", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "popup/popup.html"), "utf8");
   const popup = fs.readFileSync(path.join(__dirname, "..", "popup/popup.js"), "utf8");
   const css = fs.readFileSync(path.join(__dirname, "..", "popup/popup.css"), "utf8");
@@ -1087,14 +1170,9 @@ test("Popup action window keeps one fixed viewport and delegates scrolling to it
   assert.match(html, /id="btn-toggle-overview"/);
   assert.match(html, /class="pp-overview-collapsible-body"/);
   assert.match(css, /html\s*\{[\s\S]*width:\s*420px;/);
-  assert.match(css, /html\s*\{[\s\S]*min-width:\s*420px;/);
-  assert.match(css, /body\s*\{[\s\S]*width:\s*420px;/);
-  assert.match(css, /body\s*\{[\s\S]*min-width:\s*420px;/);
-  assert.doesNotMatch(css, /body\s*\{[\s\S]*max-width:\s*100vw/);
-  assert.match(css, /\.pp-popup-container\s*\{[\s\S]*width:\s*420px;/);
-  assert.match(css, /\.pp-popup-container\s*\{[\s\S]*min-width:\s*420px;/);
-  assert.match(css, /\.pp-popup-container\s*\{[\s\S]*height:\s*600px;/);
-  assert.doesNotMatch(css, /\.pp-popup-container\s*\{[\s\S]*max-height:\s*100vh/);
+  assert.match(css, /html\s*\{[^}]*max-width:\s*100vw;/);
+  assert.match(css, /html\s*\{[^}]*height:\s*min\(600px, 100vh\);/);
+  assert.doesNotMatch(css, /min-width:\s*420px;/);
   assert.match(css, /backdrop-filter:\s*none/);
   assert.match(css, /\.pp-popup-body\s*\{\s*flex:\s*1 1 auto;\s*min-height:\s*0;/);
   assert.match(css, /\.pp-popup-section\s*\{[\s\S]*overflow-y:\s*auto;/);

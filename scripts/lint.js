@@ -23,6 +23,7 @@ const files = [
   "core/pdf-discovery.js",
   "core/ai.js",
   "core/citation.js",
+  "lib/svg-icons.js",
   "scripts/e2e.js",
   "scripts/test.js",
   "scripts/browser-smoke.js"
@@ -46,6 +47,16 @@ for (const file of files) {
 }
 
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
+const popupHtml = fs.readFileSync(path.join(root, "popup/popup.html"), "utf8");
+const ids = Array.from(popupHtml.matchAll(/\bid="([^"]+)"/g), match => match[1]);
+if (new Set(ids).size !== ids.length) { console.error("Popup contains duplicate element IDs."); failed = true; }
+const references = [manifest.background.service_worker, manifest.action.default_popup,
+  ...manifest.content_scripts.flatMap(script => [...(script.js || []), ...(script.css || [])]),
+  ...Object.values(manifest.icons),
+  ...Array.from(popupHtml.matchAll(/<script\s+src="([^"]+)"/g), match => path.join("popup", match[1]))];
+for (const file of references) {
+  if (!fs.existsSync(path.resolve(root, file))) { console.error(`Missing runtime dependency: ${file}`); failed = true; }
+}
 const packageVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
 const popupVersion = fs.readFileSync(path.join(root, "popup/popup.html"), "utf8").match(/class="pp-popup-version">v([^<]+)</)?.[1];
 const readmeVersion = fs.readFileSync(path.join(root, "README.md"), "utf8").match(/badge\/version-([\d.]+)-/)?.[1];

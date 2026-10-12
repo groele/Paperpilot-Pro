@@ -417,13 +417,14 @@
     const provider = config.provider || "openai";
     try {
       const summary = await callProvider(config);
+      if (!summary.trim()) throw Object.assign(new Error("AI provider returned an empty response"), { code: "AI_RESPONSE_EMPTY" });
       return messaging.ok({
         summary,
         provider,
         model: config.model || getDefaults(provider).model
       }, `ai/${provider}`);
     } catch (error) {
-      const errorCode = error.code === "AI_API_KEY_MISSING" || error.code === "AI_MODEL_MISSING"
+      const errorCode = ["AI_API_KEY_MISSING", "AI_MODEL_MISSING", "AI_RESPONSE_EMPTY"].includes(error.code)
         ? error.code
         : "AI_PROVIDER_ERROR";
       return messaging.fail(errorCode, error.message, {

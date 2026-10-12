@@ -1,5 +1,4 @@
-try {
-  importScripts(
+importScripts(
     "../core/messaging.js",
     "../core/cache.js",
     "../core/sanitize.js",
@@ -12,10 +11,7 @@ try {
     "../core/citation.js",
     "../core/library.js",
     "page-activation.js"
-  );
-} catch (err) {
-  console.warn("PaperPilot Pro: core modules could not be loaded", err);
-}
+);
 
 const PP_CORE = globalThis.PaperPilotCore || {};
 const PP_BACKGROUND = globalThis.PaperPilotBackground || {};
@@ -28,9 +24,9 @@ const PUBLIC_SETTING_KEYS = new Set([
   "auto_redirect", "pdf_download_save_as", "pdf_naming", "pdf_download_dir",
   "appearance_mode", "enable_ni", "enable_dedup",
   "enable_badges", "enable_metacard", "enable_markdown_note", "enable_metrics_display",
-  "enable_metrics_auto_detect", "enable_bibtex_btn", "enable_scholar_copy_doi_btn",
+  "enable_metrics_auto_detect", "enable_sorting_filter", "enable_bibtex_btn", "enable_scholar_copy_doi_btn",
   "enable_scholar_copy_gbt_btn", "enable_scholar_star_btn",
-  "enable_journal_copy_doi_btn", "enable_journal_copy_gbt_btn", "enable_journal_copy_bib_btn",
+  "enable_journal_copy_doi_btn", "enable_journal_citation_tools", "enable_journal_copy_gbt_btn", "enable_journal_copy_bib_btn",
   "enable_journal_open_landing_btn", "pdf_landing_cache", "enable_pdf_download_btn",
   "enable_ai_summary_btn", "enable_ccf_badge", "enable_core_badge", "enable_warn_badge",
   "enable_if_badge", "enable_cas_badge", "enable_jcr_badge", "enable_cite_badge",
@@ -131,49 +127,6 @@ restrictLocalStorageToTrustedContexts();
 // Initialize default settings on install
 chrome.runtime.onInstalled.addListener(() => {
     restrictLocalStorageToTrustedContexts();
-    chrome.storage.local.get([
-      "auto_redirect",
-      "pdf_download_save_as",
-      "pdf_naming",
-      "pdf_download_dir",
-      "ai_provider",
-      "ai_model",
-      "ai_base_url",
-      "ai_api_key",
-      "ai_prompt",
-      "ai_preset",
-      "history",
-      "history_revision",
-      "pdf_cache",
-      "appearance_mode",
-      "enable_ni",
-      "enable_dedup",
-      "enable_badges",
-      "enable_metacard",
-      "enable_markdown_note",
-      "enable_metrics_display",
-      "enable_metrics_auto_detect",
-      "enable_bibtex_btn",
-      "enable_scholar_copy_doi_btn",
-      "enable_journal_copy_doi_btn",
-      "pdf_landing_cache",
-      "enable_pdf_download_btn",
-      "enable_ai_summary_btn",
-      "enable_easyscholar",
-      "easyscholar_key",
-      "easyscholar_cache",
-      "openalex_api_key",
-      "scholarly_contact_email",
-      "enable_ccf_badge",
-      "enable_core_badge",
-      "enable_warn_badge",
-      "enable_if_badge",
-      "enable_cas_badge",
-      "enable_jcr_badge",
-      "enable_cite_badge",
-      "enable_pdf_badge",
-      "metacard_pinned"
-    ], (result) => {
       const defaults = {
         auto_redirect: false,
         pdf_download_save_as: false,
@@ -190,6 +143,7 @@ chrome.runtime.onInstalled.addListener(() => {
         pdf_cache: {},
         appearance_mode: "system",
         enable_ni: true,
+        enable_sorting_filter: true,
         enable_dedup: true,
         enable_badges: true,
         enable_metacard: true,
@@ -201,6 +155,7 @@ chrome.runtime.onInstalled.addListener(() => {
         enable_scholar_copy_gbt_btn: true,
         enable_scholar_star_btn: true,
         enable_journal_copy_doi_btn: true,
+        enable_journal_citation_tools: true,
         enable_journal_copy_gbt_btn: true,
         enable_journal_copy_bib_btn: true,
         enable_journal_open_landing_btn: true,
@@ -230,6 +185,15 @@ chrome.runtime.onInstalled.addListener(() => {
         enable_footprint_star_btn: true
       };
 
+    chrome.storage.local.get([...Object.keys(defaults), "enable_copy_doi_btn"], (result) => {
+      if (chrome.runtime.lastError) return;
+      if (typeof result.enable_copy_doi_btn === "boolean") {
+        defaults.enable_scholar_copy_doi_btn = result.enable_copy_doi_btn;
+        defaults.enable_journal_copy_doi_btn = result.enable_copy_doi_btn;
+      }
+      const removeMigratedKey = () => {
+        if (result.enable_copy_doi_btn !== undefined && chrome.storage.local.remove) chrome.storage.local.remove("enable_copy_doi_btn", () => void chrome.runtime.lastError);
+      };
     const updates = {};
     for (const key in defaults) {
       if (result[key] === undefined) {
@@ -239,9 +203,9 @@ chrome.runtime.onInstalled.addListener(() => {
 
     if (Object.keys(updates).length > 0) {
       chrome.storage.local.set(updates, () => {
-        console.log("PaperPilot Pro: Default settings initialized.", updates);
+        if (!chrome.runtime.lastError) removeMigratedKey();
       });
-    }
+    } else removeMigratedKey();
   });
 });
 
@@ -284,7 +248,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const history = trimHistoryWithStarredProtection(merged.history, 500);
       const revision = snapshot.revision + 1;
       await chrome.storage.local.set({ history, history_revision: revision });
-      return { success: true, ok: true, history, revision, added: merged.added, retained: history.length };
+      return { success: true, ok: true, history, revision, added: merged.added, retained: history.length, evicted: merged.history.length - history.length };
     }).then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
@@ -340,7 +304,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (action === "AI_SUMMARIZE" || action === "ai.summarize") {
-    withMessageDuration("ai-service", () => callAISummarize(message.abstract, message.title))
+    withMessageDuration("ai-service", () => callAISummarize(message.abstract, message.title, message.preset))
       .then(result => sendResponse(result))
       .catch(err => {
         console.error("AI summarization failed:", err);
@@ -1724,7 +1688,7 @@ async function performFetchPaperMetadata(doi, title, clientJournal, pageUrl = ""
 async function getHistorySnapshot() {
   const storage = await chrome.storage.local.get(["history", "history_revision"]);
   return {
-    history: Array.isArray(storage.history) ? storage.history : [],
+    history: PP_CORE.library.normalizeRecords(storage.history),
     revision: Number.isInteger(storage.history_revision) ? storage.history_revision : 0
   };
 }
@@ -1740,13 +1704,11 @@ function trimHistoryWithStarredProtection(records, maxLimit = 500) {
   // Allow as many unstarred items as remaining capacity
   const unstarredAllowance = Math.max(0, maxLimit - starred.length);
   const keptUnstarred = new Set(unstarred.slice(0, unstarredAllowance));
-  return records.filter(item => item.starred || keptUnstarred.has(item)).slice(0, maxLimit);
+  return records.filter(item => item.starred || keptUnstarred.has(item));
 }
 
 function normalizeHistoryRecords(records) {
-  const normalized = (Array.isArray(records) ? records : [])
-    .filter(item => item && typeof item === "object" && (String(item.title || "").trim() || String(item.doi || "").trim()))
-    .map(item => PP_CORE.library.normalizeRecord(item));
+  const normalized = PP_CORE.library.normalizeRecords(records);
   return trimHistoryWithStarredProtection(normalized, 500);
 }
 
@@ -1760,6 +1722,7 @@ function mutateHistoryItem(message) {
       const record = PP_CORE.library.normalizeRecord(message.restore);
       if (!record.title && !record.doi) return { success: false, error: '无效文献' };
       if (history.some(item => PP_CORE.library.samePaper(item, record))) return { success: false, error: '文献已存在，无需恢复' };
+      if (history.some(item => item.id === record.id)) record.id = PP_CORE.library.normalizeRecords([...history, record]).at(-1).id;
       history.splice(Math.min(Math.max(0, Number(message.index) || 0), history.length), 0, record);
     } else {
       if (index < 0) return { success: false, errorCode: 'HISTORY_NOT_FOUND', error: '文献已被移除，请重新选择' };
@@ -1767,6 +1730,7 @@ function mutateHistoryItem(message) {
       else {
         const patch = Object.fromEntries(Object.entries(message.patch || {}).filter(([field]) => ['title','doi','journal','year','authors','notes','status','starred','pdfUrl','pageUrl'].includes(field)));
         const updated = PP_CORE.library.normalizeRecord({ ...history[index], ...patch, actions: [...history[index].actions, patch.status].filter(Boolean), updatedAt: Date.now() });
+        if (!updated.title && !updated.doi) return { success: false, errorCode: 'HISTORY_INVALID_RECORD', error: '请保留文献标题或有效 DOI' };
         if (history.some((item, i) => i !== index && PP_CORE.library.samePaper(item, updated))) return { success: false, errorCode: 'HISTORY_DUPLICATE', error: '另一条文献已使用该标识，请检查 DOI 或标题' };
         history[index] = updated;
       }
@@ -1806,15 +1770,18 @@ async function replaceHistorySnapshot(records, expectedRevision) {
 }
 
 async function addFootprint(footprint) {
-  if (!footprint || (!footprint.title && !footprint.doi)) {
+  if (!footprint || typeof footprint !== 'object' || (!String(footprint.title || '').trim() && !PP_CORE.metadata.normalizeDoi(footprint.doi))) {
     return { success: false, ok: false, errorCode: "HISTORY_INVALID_RECORD", error: "Invalid footprint data" };
   }
   return enqueueHistoryMutation(async snapshot => {
     let history = snapshot.history;
-    const sameFootprint = item => PP_CORE.library.samePaper(item, footprint);
-    const existing = history.find(sameFootprint) || null;
+    const doi = PP_CORE.metadata.normalizeDoi(footprint.doi).toLowerCase();
+    const matches = history.filter(item => PP_CORE.library.samePaper(item, footprint));
+    const existing = (doi && matches.find(item => PP_CORE.metadata.normalizeDoi(item.doi).toLowerCase() === doi)) || matches.find(item => !item.doi) || (matches.length === 1 ? matches[0] : null);
     const newItem = PP_CORE.library.mergeRecord(existing, footprint);
-    const rawMerged = [newItem, ...history.filter(item => !sameFootprint(item))];
+    const remaining = history.filter(item => item !== existing);
+    const rawMerged = PP_CORE.library.normalizeRecords([...remaining, newItem]);
+    rawMerged.unshift(rawMerged.pop());
     history = trimHistoryWithStarredProtection(rawMerged, 500);
     const revision = snapshot.revision + 1;
     await chrome.storage.local.set({ history, history_revision: revision });
@@ -1831,10 +1798,13 @@ async function addFootprint(footprint) {
 }
 
 async function updateFootprintNotes(doi, title, notes) {
+  if (!String(title || '').trim() && !PP_CORE.metadata.normalizeDoi(doi)) return { success: false, errorCode: 'HISTORY_INVALID_RECORD', error: '请提供标题或有效 DOI' };
   return enqueueHistoryMutation(async snapshot => {
     let history = snapshot.history;
     const sameFootprint = item => PP_CORE.library.samePaper(item, { doi, title });
-    const existing = history.find(sameFootprint) || null;
+    const matches = history.filter(sameFootprint);
+    const existing = matches.find(item => !item.doi) || (matches.length === 1 ? matches[0] : null);
+    if (matches.length > 1 && !existing) return { success: false, errorCode: 'HISTORY_AMBIGUOUS', error: '同名文献不止一篇，请提供 DOI 或在文献库中编辑对应记录' };
     if (!existing) {
       const newItem = normalizeHistoryRecords([{
         doi,
@@ -1875,28 +1845,6 @@ async function updateFootprintNotes(doi, title, notes) {
  * Interfaces optional AI API keys for a high-quality summary.
  * Missing credentials and provider failures are returned explicitly to the page.
  */
-const AI_PROVIDER_DEFAULTS = {
-  openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
-  gemini: { model: "gemini-1.5-flash", baseUrl: "https://generativelanguage.googleapis.com/v1beta" },
-  deepseek: { model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1" },
-  anthropic: { model: "claude-3-5-haiku-latest", baseUrl: "https://api.anthropic.com/v1" },
-  openrouter: { model: "openai/gpt-4o-mini", baseUrl: "https://openrouter.ai/api/v1" },
-  ollama: { model: "llama3.1", baseUrl: "http://127.0.0.1:11434" },
-  custom: { model: "", baseUrl: "" }
-};
-
-function getAiDefaults(provider) {
-  return AI_PROVIDER_DEFAULTS[provider] || AI_PROVIDER_DEFAULTS.openai;
-}
-
-function normalizeBaseUrl(baseUrl, fallback) {
-  return String(baseUrl || fallback || "").trim().replace(/\/+$/, "");
-}
-
-function providerNeedsApiKey(provider) {
-  return !["ollama", "custom"].includes(provider);
-}
-
 async function loadAiConfig() {
   const config = await chrome.storage.local.get([
     "ai_provider",
@@ -1907,157 +1855,45 @@ async function loadAiConfig() {
     "ai_preset"
   ]);
   const provider = config.ai_provider || "openai";
-  const defaults = getAiDefaults(provider);
+  const defaults = PP_CORE.ai.getDefaults(provider);
   return {
     provider,
     model: (config.ai_model || defaults.model || "").trim(),
-    baseUrl: normalizeBaseUrl(config.ai_base_url, defaults.baseUrl),
+    baseUrl: PP_CORE.ai.normalizeBaseUrl(config.ai_base_url, defaults.baseUrl),
     apiKey: (config.ai_api_key || "").trim(),
     prompt: config.ai_prompt || "请用中文以3行精简要点总结以下学术论文摘要，以TL;DR形式呈现：",
     preset: config.ai_preset || "tldr"
   };
 }
 
-function buildAcademicMessages(prompt, title, abstract, testOnly = false) {
-  if (testOnly) {
-    return [
-      { role: "system", content: "You are a concise academic assistant." },
-      { role: "user", content: "Connection test. Reply with OK." }
-    ];
-  }
-  return [
-    { role: "system", content: "You are a helpful academic assistant. Be concise and do not invent paper details." },
-    { role: "user", content: `${prompt}\n\nTitle: ${title || ""}\nAbstract: ${abstract || ""}` }
-  ];
-}
-
 async function fetchResponseWithTimeout(endpoint, options = {}, timeoutMs = 9000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timer;
   try {
-    return await fetch(endpoint, { ...options, signal: controller.signal });
+    return await Promise.race([
+      fetch(endpoint, { ...options, signal: controller.signal }).then(async response => {
+        if (!response.ok) { response.body?.cancel?.().catch(() => {}); return response; }
+        const data = await response.json();
+        return { ok: response.ok, status: response.status, json: async () => data };
+      }),
+      new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new DOMException("Timed out", "AbortError")); }, timeoutMs); })
+    ]);
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function fetchJsonWithTimeout(endpoint, options, timeoutMs = 25000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(endpoint, { ...options, signal: controller.signal });
-    let body = null;
-    try {
-      body = await response.json();
-    } catch (_) {}
-    if (!response.ok) {
-      const details = body?.error?.message || body?.message || `HTTP ${response.status}`;
-      throw new Error(details);
-    }
-    return body;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function extractCompatibleChatText(data) {
-  return data?.choices?.[0]?.message?.content ||
-         data?.choices?.[0]?.text ||
-         data?.output_text ||
-         "";
-}
-
-async function callAIProvider({ provider, model, baseUrl, apiKey, prompt, title, abstract, testOnly = false }) {
-  if (!model) {
-    throw new Error("AI model is empty");
-  }
-  if (providerNeedsApiKey(provider) && !apiKey) {
-    throw new Error("Missing API key for selected provider");
-  }
-
-  const messages = buildAcademicMessages(prompt, title, abstract, testOnly);
-  const userText = messages.map(item => `${item.role}: ${item.content}`).join("\n");
-
-  if (provider === "gemini") {
-    const endpoint = `${normalizeBaseUrl(baseUrl, getAiDefaults(provider).baseUrl)}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const data = await fetchJsonWithTimeout(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: userText }] }],
-        generationConfig: { temperature: testOnly ? 0 : 0.4, maxOutputTokens: testOnly ? 16 : 700 }
-      })
-    });
-    return data?.candidates?.[0]?.content?.parts?.map(part => part.text || "").join("").trim() || "";
-  }
-
-  if (provider === "anthropic") {
-    const endpoint = `${normalizeBaseUrl(baseUrl, getAiDefaults(provider).baseUrl)}/messages`;
-    const data = await fetchJsonWithTimeout(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: testOnly ? 16 : 700,
-        temperature: testOnly ? 0 : 0.4,
-        system: messages[0].content,
-        messages: [{ role: "user", content: messages[1].content }]
-      })
-    });
-    return data?.content?.map(item => item.text || "").join("").trim() || "";
-  }
-
-  if (provider === "ollama") {
-    const endpoint = `${normalizeBaseUrl(baseUrl, getAiDefaults(provider).baseUrl)}/api/chat`;
-    const data = await fetchJsonWithTimeout(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream: false,
-        options: { temperature: testOnly ? 0 : 0.4 }
-      })
-    }, 30000);
-    return data?.message?.content?.trim() || "";
-  }
-
-  const defaultBase = getAiDefaults(provider).baseUrl;
-  const endpoint = `${normalizeBaseUrl(baseUrl, defaultBase)}/chat/completions`;
-  const headers = { "Content-Type": "application/json" };
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const data = await fetchJsonWithTimeout(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: testOnly ? 0 : 0.4,
-      max_tokens: testOnly ? 16 : 700
-    })
-  });
-  return extractCompatibleChatText(data).trim();
 }
 
 async function testAIConnection() {
   const config = await loadAiConfig();
-  const text = await callAIProvider({
+  const text = await PP_CORE.ai.callProvider({
     ...config,
     title: "Connection test",
     abstract: "Return OK if the API request is valid.",
     testOnly: true
   });
-  return {
-    success: true,
-    ok: true,
-    provider: config.provider,
-    model: config.model,
-    sample: text || "OK"
-  };
+  if (!text.trim()) throw new Error("AI 服务未返回有效内容，请检查模型和接口地址");
+  return { success: true, ok: true, provider: config.provider, model: config.model, sample: text };
+
 }
 
 
@@ -2090,14 +1926,14 @@ chrome.runtime?.onConnect?.addListener(port => {
           abortController.abort();
         }, 180000);
         try {
-          const settings = await chrome.storage.local.get(["enable_ai_summary_btn"]);
+          const settings = await chrome.storage.local.get(["enable_ai_summary_btn", "enable_metacard"]);
           if (settings.enable_ai_summary_btn === false) throw new Error("学术分析视角已关闭，请在 Dashboard Overview 中开启。");
+          if (settings.enable_metacard === false) throw new Error("期刊详情元卡已关闭。");
+          if (!String(msg.abstract || '').trim()) throw new Error("未找到摘要，请先打开包含摘要的论文页面。");
           const config = await loadAiConfig();
           if (abortController.signal.aborted) return;
           const presetKey = msg.preset || config.preset || "tldr";
-          const prompt = PP_CORE.ai?.resolvePrompt
-            ? PP_CORE.ai.resolvePrompt(presetKey, msg.customPrompt || config.prompt)
-            : (msg.customPrompt || config.prompt);
+          const prompt = PP_CORE.ai.resolvePrompt(presetKey, msg.customPrompt || config.prompt);
 
           port.postMessage({
             type: "start",
@@ -2106,7 +1942,6 @@ chrome.runtime?.onConnect?.addListener(port => {
             preset: presetKey
           });
 
-          if (PP_CORE.ai?.callProviderStream) {
             const streamResult = await PP_CORE.ai.callProviderStream({
               ...config,
               prompt,
@@ -2130,28 +1965,6 @@ chrome.runtime?.onConnect?.addListener(port => {
                 preset: presetKey
               });
             }
-          } else {
-            const fallbackText = await callAIProvider({
-              ...config,
-              prompt,
-              title: msg.title,
-              abstract: msg.abstract
-            });
-            if (!abortController.signal.aborted) {
-              port.postMessage({
-                type: "chunk",
-                chunk: fallbackText,
-                accumulated: fallbackText
-              });
-              port.postMessage({
-                type: "done",
-                fullText: fallbackText,
-                provider: config.provider,
-                model: config.model,
-                preset: presetKey
-              });
-            }
-          }
         } catch (err) {
           if (abortController.signal.aborted) return;
           const code = err.code === "AI_API_KEY_MISSING" || err.code === "AI_MODEL_MISSING"
@@ -2173,36 +1986,11 @@ chrome.runtime?.onConnect?.addListener(port => {
 
 async function callAISummarize(abstract, title, presetKey = "") {
   const config = await loadAiConfig();
-
-  try {
-    if (PP_CORE.ai?.summarize) {
-      const result = await PP_CORE.ai.summarize({
-        ...config,
-        title,
-        abstract
-      });
-      return {
-        ...result,
-        success: result.ok,
-        summary: result.data?.summary || "",
-        provider: result.data?.provider || config.provider,
-        model: result.data?.model || config.model
-      };
-    }
-    const summaryText = await callAIProvider({ ...config, title, abstract });
-    return { success: true, ok: true, summary: summaryText, provider: config.provider, source: `ai/${config.provider}` };
-  } catch (err) {
-    const code = err.code === "AI_API_KEY_MISSING" || err.code === "AI_MODEL_MISSING" ? err.code : "AI_PROVIDER_ERROR";
-    return {
-      success: false,
-      ok: false,
-      summary: "",
-      provider: config.provider,
-      source: `ai/${config.provider}`,
-      errorCode: code,
-      error: err.message
-    };
-  }
+  const result = await PP_CORE.ai.summarize({
+    ...config, title, abstract,
+    prompt: PP_CORE.ai.resolvePrompt(presetKey || config.preset, config.prompt)
+  });
+  return { ...result, success: result.ok, summary: result.data?.summary || "", provider: config.provider, model: config.model };
 }
 
 // FIFO rate-limiting queue for easyScholar API (max 2 requests per second)
@@ -2277,48 +2065,7 @@ async function fetchEasyScholarDirect(journalName, secretKey) {
 }
 
 function mapEasyScholarRank(metadata, rankData) {
-  if (PP_CORE.metadata?.applyEasyScholarRank) {
-    PP_CORE.metadata.applyEasyScholarRank(metadata, rankData);
-    return;
-  }
-  if (!rankData || !rankData.officialRank || !rankData.officialRank.all) return;
-  const all = rankData.officialRank.all;
-
-  // Set isEstimated to false as we have official ranks resolved from easyScholar
-  metadata.isEstimated = false;
-  metadata.metricsSource = "easyScholar";
-
-  // 1. Impact Factor
-  if (all.sciif) {
-    metadata.impactFactor = String(all.sciif);
-  }
-
-  // 2. JCR Quartile
-  if (all.sci) {
-    let quartile = String(all.sci);
-    if (quartile.match(/^\d+$/)) quartile = `Q${quartile}`;
-    metadata.jcrQuartile = quartile;
-  }
-
-  // 3. CAS Partition
-  const cas = all.sciUp || all.sciBase;
-  if (cas) {
-    metadata.casPartition = cas;
-  }
-
-  // 4. Special Chinese Ranks
-  if (all.ccf) {
-    metadata.ccfRank = String(all.ccf);
-  }
-  if (all.cssci && (all.cssci === "是" || all.cssci === "收录")) {
-    metadata.isCssci = true;
-  }
-  if (all.pku && (all.pku === "是" || all.pku === "收录")) {
-    metadata.isPku = true;
-  }
-  if (all.sciwarn && all.sciwarn !== "无" && all.sciwarn !== "否") {
-    metadata.sciWarn = String(all.sciwarn);
-  }
+  PP_CORE.metadata.applyEasyScholarRank(metadata, rankData);
 }
 
 async function fetchEasyScholarForScholar(journalName) {

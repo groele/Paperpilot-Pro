@@ -8,7 +8,7 @@
 ![Type](https://img.shields.io/badge/type-Chrome%20Extension-blue?style=flat-square)
 ![Workflow](https://img.shields.io/badge/workflow-literature%20engine-green?style=flat-square)
 ![Architecture](https://img.shields.io/badge/architecture-browser--native-purple?style=flat-square)
-![Version](https://img.shields.io/badge/version-4.0.0-6f42c1?style=flat-square)
+![Version](https://img.shields.io/badge/version-4.0.1-6f42c1?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
 
 Part of **ResearchFlow Lab** — a local-first research productivity ecosystem for literature, manuscripts, data, and scientific visualization.
@@ -200,7 +200,7 @@ Developed by **Shikun Hou / groele**.
 - 浏览器烟测需要环境中已有 Playwright 及带扩展支持的 Chromium。可通过 `PP_PLAYWRIGHT_MODULE` 指向现有 Playwright 模块目录、`PP_CHROMIUM_EXECUTABLE` 指定 Chromium 可执行文件；未指定时使用 `playwright` 模块及其 Chromium channel。
 - 截图和结果保存在 `output/playwright/`。第三方元数据请求在烟测中使用受控失败响应；它不等于真实出版商下载或远程 AI 服务验收。
 
-详细审查见 [优化审查报告](docs/optimization-audit-2026-09-20.md)。
+当前详细审查见 [V4.0.1 逻辑与清理报告](docs/quality-audit-2026-10-12.md)。
 
 ## V4.0 workbench
 
@@ -208,5 +208,6 @@ Developed by **Shikun Hou / groele**.
 - Search multiple words together, use quoted phrases, or qualify a field: `author:Jose year:2026 valley`, `doi:10.1000/example`, `notes:"low temperature"`.
 - Open papers, star them or copy DOI directly. **更多** contains citation formats, editing and removal. A removal can be undone for eight seconds while the popup stays open.
 - **导出文件** saves BibTeX, GB/T 7714, Markdown, RIS, CSL JSON or a complete JSON backup. **复制** keeps clipboard export available. Complete JSON backup includes all library records regardless of active filters.
-- Import merges records through the background queue, keeps local notes, and retains distinct DOI identities. The library retains up to 500 records with favorite protection.
+- Import merges records through the background queue, keeps local notes, repairs duplicate record IDs, and retains distinct DOI identities. Regular history has a 500-record budget; favorites are preserved even when they exceed that budget. Import reports evicted non-favorites.
 - See [V4.0 release notes](docs/releases/v4.0.0.md) for validation and compatibility boundaries.
+- V4.0.1 repairs live citation controls and restores a readable settings layout. Find the section switch and independent GB/T 7714 / BibTeX switches under **偏好设置 → 引用格式**; see [patch notes](docs/releases/v4.0.1.md).

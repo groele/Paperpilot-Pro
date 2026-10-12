@@ -8,53 +8,11 @@ let popupInitialized = false;
 const initPopup = () => {
   if (popupInitialized) return;
   popupInitialized = true;
-  // Safe Storage wrappers to support both chrome.storage and localStorage fallback (for local previews)
-  const getStorage = (keys, callback) => {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get(keys, callback);
-    } else {
-      console.warn("chrome.storage.local is not available. Falling back to localStorage.");
-      const result = {};
-      let keyList = [];
-      let defaults = {};
-      if (typeof keys === 'string') {
-        keyList = [keys];
-      } else if (Array.isArray(keys)) {
-        keyList = keys;
-      } else if (keys && typeof keys === 'object') {
-        keyList = Object.keys(keys);
-        defaults = keys;
-      }
-      keyList.forEach(k => {
-        try {
-          const val = localStorage.getItem(k);
-          result[k] = val ? JSON.parse(val) : (defaults[k] !== undefined ? defaults[k] : undefined);
-        } catch (e) {
-          result[k] = defaults[k] !== undefined ? defaults[k] : undefined;
-        }
-      });
-      callback(result);
-    }
-  };
-
-  const setStorage = (data, callback) => {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set(data, () => {
-        const error = chrome.runtime?.lastError;
-        if (callback) callback(error ? new Error(error.message) : null);
-      });
-    } else {
-      console.warn("chrome.storage.local is not available. Falling back to localStorage.");
-      try {
-        Object.keys(data).forEach(k => {
-          localStorage.setItem(k, JSON.stringify(data[k]));
-        });
-        if (callback) callback(null);
-      } catch (error) {
-        if (callback) callback(error);
-      }
-    }
-  };
+  const getStorage = (keys, callback) => chrome.storage.local.get(keys, callback);
+  const setStorage = (data, callback) => chrome.storage.local.set(data, () => {
+    const error = chrome.runtime.lastError;
+    callback?.(error ? new Error(error.message) : null);
+  });
 
   const sendBackgroundMessage = (message, callback) => {
     if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.runtime?.sendMessage) {
@@ -188,6 +146,8 @@ const initPopup = () => {
 
   const configScholarCopyGbtBtn = document.getElementById("setting-enable-scholar-copy-gbt-btn");
   const configScholarStarBtn = document.getElementById("setting-enable-scholar-star-btn");
+  const configSortingFilter = document.getElementById("setting-enable-sorting-filter");
+  const configJournalCitationTools = document.getElementById("setting-enable-journal-citation-tools");
   const configJournalCopyGbtBtn = document.getElementById("setting-enable-journal-copy-gbt-btn");
   const configJournalCopyBibBtn = document.getElementById("setting-enable-journal-copy-bib-btn");
   const configJournalOpenLandingBtn = document.getElementById("setting-enable-journal-open-landing-btn");
@@ -228,16 +188,7 @@ const initPopup = () => {
   let renderedHistoryLimit = HISTORY_PAGE_SIZE;
   let historySearchTimer = null;
   let historyStats = { all: 0, starred: 0, downloaded: 0, copied: 0 };
-  const AI_PROVIDER_DEFAULTS = {
-    openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
-    gemini: { model: "gemini-1.5-flash", baseUrl: "https://generativelanguage.googleapis.com/v1beta" },
-    deepseek: { model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1" },
-    anthropic: { model: "claude-3-5-haiku-latest", baseUrl: "https://api.anthropic.com/v1" },
-    openrouter: { model: "openai/gpt-4o-mini", baseUrl: "https://openrouter.ai/api/v1" },
-    ollama: { model: "llama3.1", baseUrl: "http://127.0.0.1:11434" },
-    custom: { model: "", baseUrl: "" }
-  };
-
+  const AI_PROVIDER_DEFAULTS = PaperPilotCore.ai.PROVIDER_DEFAULTS;
 
   const coreModules = [
     { card: statusNi, control: configNi, key: "enable_ni", name: "自然指数高亮" },
@@ -454,10 +405,7 @@ const initPopup = () => {
       if (clearBtn) clearBtn.style.display = "none";
     }
     const allChip = document.querySelector('.pp-category-chip[data-category="all"]');
-    if (allChip && !allChip.classList.contains("active")) {
-      document.querySelectorAll(".pp-category-chip").forEach(c => c.classList.toggle("active", c === allChip));
-      document.querySelectorAll(".pp-popup-settings-card").forEach(c => c.style.display = "");
-    }
+    allChip?.click();
     document.querySelectorAll(".pp-popup-setting-item").forEach(item => item.style.display = "");
     document.querySelectorAll(".pp-settings-subgroup").forEach(sg => sg.style.display = "");
     const emptyState = document.getElementById("settings-empty-state");
@@ -780,6 +728,7 @@ const initPopup = () => {
     "appearance_mode",
     "overview_collapsed",
     "enable_ni",
+    "enable_sorting_filter",
     "enable_dedup",
     "enable_badges",
     "enable_metacard",
@@ -789,7 +738,6 @@ const initPopup = () => {
     "enable_bibtex_btn",
     "enable_scholar_copy_doi_btn",
     "enable_journal_copy_doi_btn",
-    "enable_copy_doi_btn",
     "enable_pdf_download_btn",
     "enable_ai_summary_btn",
     "enable_easyscholar",
@@ -805,6 +753,7 @@ const initPopup = () => {
     "enable_cite_badge",
     "enable_scholar_copy_gbt_btn",
     "enable_scholar_star_btn",
+    "enable_journal_citation_tools",
     "enable_journal_copy_gbt_btn",
     "enable_journal_copy_bib_btn",
     "enable_journal_open_landing_btn",
@@ -846,6 +795,7 @@ const initPopup = () => {
 
     // Set feature switches (default to true if undefined)
     configNi.checked = config.enable_ni !== false;
+    configSortingFilter.checked = config.enable_sorting_filter !== false;
     configDedup.checked = config.enable_dedup !== false;
     configBadges.checked = config.enable_badges !== false;
     configMetacard.checked = config.enable_metacard !== false;
@@ -854,17 +804,8 @@ const initPopup = () => {
     configMetricsAutoDetect.checked = config.enable_metrics_auto_detect !== false;
     configBibtexBtn.checked = config.enable_bibtex_btn !== false;
 
-    // Legacy migration support
-    let enableScholarDoi = config.enable_scholar_copy_doi_btn;
-    let enableJournalDoi = config.enable_journal_copy_doi_btn;
-    if (enableScholarDoi === undefined) {
-      enableScholarDoi = config.enable_copy_doi_btn !== false;
-    }
-    if (enableJournalDoi === undefined) {
-      enableJournalDoi = config.enable_copy_doi_btn !== false;
-    }
-    configScholarCopyDoiBtn.checked = enableScholarDoi;
-    configJournalCopyDoiBtn.checked = enableJournalDoi;
+    configScholarCopyDoiBtn.checked = config.enable_scholar_copy_doi_btn !== false;
+    configJournalCopyDoiBtn.checked = config.enable_journal_copy_doi_btn !== false;
 
     configPdfDownloadBtn.checked = config.enable_pdf_download_btn !== false;
     configAiSummaryBtn.checked = config.enable_ai_summary_btn !== false;
@@ -880,6 +821,7 @@ const initPopup = () => {
 
     if (configScholarCopyGbtBtn) configScholarCopyGbtBtn.checked = config.enable_scholar_copy_gbt_btn !== false;
     if (configScholarStarBtn) configScholarStarBtn.checked = config.enable_scholar_star_btn !== false;
+    if (configJournalCitationTools) configJournalCitationTools.checked = config.enable_journal_citation_tools !== false;
     if (configJournalCopyGbtBtn) configJournalCopyGbtBtn.checked = config.enable_journal_copy_gbt_btn !== false;
     if (configJournalCopyBibBtn) configJournalCopyBibBtn.checked = config.enable_journal_copy_bib_btn !== false;
     if (configJournalOpenLandingBtn) configJournalOpenLandingBtn.checked = config.enable_journal_open_landing_btn !== false;
@@ -909,6 +851,18 @@ const initPopup = () => {
     updateFeatureStatusGrid();
   });
 
+  function restoreStoredCheckboxes(keys) {
+    chrome.storage.local.get(keys, values => {
+      if (chrome.runtime.lastError) return;
+      keys.forEach(key => {
+        const input = document.getElementById(`setting-${key.replace(/_/g, "-")}`);
+        if (input?.type === "checkbox") input.checked = ["auto_redirect", "pdf_download_save_as", "enable_easyscholar"].includes(key) ? values[key] === true : values[key] !== false;
+      });
+      applyPopupCustomLayout(values);
+      updateCardStatusBadges();
+    });
+  }
+
   const saveSetting = (key, value, successMsg = "设置已保存") => {
     const module = coreModules.find(item => item.key === key);
     if (module?.pending) return;
@@ -930,17 +884,20 @@ const initPopup = () => {
         updateFeatureStatusGrid();
       }
       if (error) {
+        restoreStoredCheckboxes([key]);
         showToast("设置保存失败，请重试");
         return;
       }
       showToast(successMsg);
       updateFeatureStatusGrid();
+      updateCardStatusBadges();
     });
   };
 
   const saveSettings = (data, successMsg = "设置已保存") => {
     setStorage(data, (error) => {
       if (error) {
+        restoreStoredCheckboxes(Object.keys(data));
         showToast("设置保存失败，请重试");
         return;
       }
@@ -978,6 +935,13 @@ const initPopup = () => {
         module.savedValue = changes[module.key].newValue !== false;
         module.control.checked = module.savedValue;
       });
+      Object.entries(changes).forEach(([key, change]) => {
+        const input = document.getElementById(`setting-${key.replace(/_/g, "-")}`);
+        if (input?.type === "checkbox") input.checked = ["auto_redirect", "pdf_download_save_as", "enable_easyscholar"].includes(key) ? change.newValue === true : change.newValue !== false;
+      });
+      if (changes.history) applyHistorySnapshot(changes.history.newValue, changes.history_revision?.newValue ?? historyRevision);
+      if (changes.enable_easyscholar) syncEasyScholarControls();
+      updateCardStatusBadges();
       updateFeatureStatusGrid();
       if (changes.ai_preset && configAiPreset) configAiPreset.value = changes.ai_preset.newValue || "tldr";
       if (changes.appearance_mode) {
@@ -1143,8 +1107,10 @@ const initPopup = () => {
   }
 
   // Scholar & Journal & Footprint custom toggles saves
+  configSortingFilter.onchange = () => saveSetting("enable_sorting_filter", configSortingFilter.checked, "Scholar 排序与筛选开关已同步");
   if (configScholarCopyGbtBtn) configScholarCopyGbtBtn.onchange = () => saveSetting("enable_scholar_copy_gbt_btn", configScholarCopyGbtBtn.checked, "谷歌学术 GB/T 7714 按钮开关已同步");
   if (configScholarStarBtn) configScholarStarBtn.onchange = () => saveSetting("enable_scholar_star_btn", configScholarStarBtn.checked, "谷歌学术收藏按钮开关已同步");
+  if (configJournalCitationTools) configJournalCitationTools.onchange = () => saveSetting("enable_journal_citation_tools", configJournalCitationTools.checked, "学术引用格式区域开关已同步");
   if (configJournalCopyGbtBtn) configJournalCopyGbtBtn.onchange = () => saveSetting("enable_journal_copy_gbt_btn", configJournalCopyGbtBtn.checked, "悬浮卡 GB/T 7714 按钮开关已同步");
   if (configJournalCopyBibBtn) configJournalCopyBibBtn.onchange = () => saveSetting("enable_journal_copy_bib_btn", configJournalCopyBibBtn.checked, "悬浮卡 BibTeX 按钮开关已同步");
   if (configJournalOpenLandingBtn) configJournalOpenLandingBtn.onchange = () => saveSetting("enable_journal_open_landing_btn", configJournalOpenLandingBtn.checked, "悬浮卡网页端入口开关已同步");
@@ -1179,6 +1145,7 @@ const initPopup = () => {
 
   function updateCardStatusBadges() {
     const cards = [
+      { id: "card-settings-citation", pillId: "badge-count-citation" },
       { id: "card-settings-core", pillId: "badge-count-core" },
       { id: "card-settings-buttons", pillId: "badge-count-buttons" },
       { id: "card-settings-views", pillId: "badge-count-views" },
@@ -1261,22 +1228,29 @@ const initPopup = () => {
       };
     }
 
-    // 2. Category Tab Filter & Mouse Wheel Horizontal Scroll
+    // 2. Categories remain visible without sideways scrolling.
     const categoryTabs = document.getElementById("settings-category-tabs");
     if (categoryTabs) {
-      categoryTabs.addEventListener("wheel", (e) => {
-        if (e.deltaY !== 0) {
-          e.preventDefault();
-          categoryTabs.scrollLeft += e.deltaY;
-        }
-      }, { passive: false });
+      categoryTabs.addEventListener("keydown", (e) => {
+        const chips = Array.from(categoryTabs.querySelectorAll(".pp-category-chip"));
+        const index = chips.indexOf(document.activeElement);
+        if (index < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+        e.preventDefault();
+        const next = e.key === "Home" ? 0 : e.key === "End" ? chips.length - 1 : (index + (e.key === "ArrowRight" ? 1 : -1) + chips.length) % chips.length;
+        chips[next].focus();
+        chips[next].click();
+      });
     }
 
     const categoryChips = document.querySelectorAll(".pp-category-chip");
     categoryChips.forEach(chip => {
       chip.addEventListener("click", () => {
         const category = chip.dataset.category || "all";
-        categoryChips.forEach(c => c.classList.toggle("active", c === chip));
+        categoryChips.forEach(c => {
+          c.classList.toggle("active", c === chip);
+          c.setAttribute("aria-selected", String(c === chip));
+          c.tabIndex = c === chip ? 0 : -1;
+        });
         try {
           localStorage.setItem("pp_pref_settings_category", category);
         } catch (_) {}
@@ -1293,9 +1267,7 @@ const initPopup = () => {
         updateToggleAllButtonText();
 
         const searchInput = document.getElementById("setting-search-input");
-        if (searchInput && searchInput.value.trim()) {
-          applySettingsSearch(searchInput.value.trim());
-        }
+        applySettingsSearch(searchInput?.value || "");
       });
     });
 
@@ -1320,7 +1292,7 @@ const initPopup = () => {
       const currentCategory = activeChip ? activeChip.dataset.category : "all";
 
       allCards.forEach(card => {
-        const categoryMatch = currentCategory === "all" || card.dataset.category === currentCategory;
+        const categoryMatch = !!q || currentCategory === "all" || card.dataset.category === currentCategory;
         if (!categoryMatch) {
           card.style.display = "none";
           return;
@@ -1461,6 +1433,7 @@ const initPopup = () => {
 
       const presetMaps = {
         recommended: {
+          enable_sorting_filter: true,
           enable_ni: true,
           enable_dedup: true,
           enable_badges: true,
@@ -1473,6 +1446,7 @@ const initPopup = () => {
           enable_scholar_copy_doi_btn: true,
           enable_scholar_star_btn: true,
           enable_journal_copy_doi_btn: true,
+          enable_journal_citation_tools: true,
           enable_journal_copy_gbt_btn: true,
           enable_journal_copy_bib_btn: true,
           enable_journal_open_landing_btn: true,
@@ -1494,6 +1468,7 @@ const initPopup = () => {
           enable_cite_badge: true
         },
         minimal: {
+          enable_sorting_filter: false,
           enable_ni: true,
           enable_dedup: true,
           enable_badges: true,
@@ -1506,6 +1481,7 @@ const initPopup = () => {
           enable_scholar_copy_doi_btn: false,
           enable_scholar_star_btn: false,
           enable_journal_copy_doi_btn: false,
+          enable_journal_citation_tools: false,
           enable_journal_copy_gbt_btn: true,
           enable_journal_copy_bib_btn: true,
           enable_journal_open_landing_btn: false,
@@ -1527,6 +1503,7 @@ const initPopup = () => {
           enable_cite_badge: false
         },
         expert: {
+          enable_sorting_filter: true,
           enable_ni: true,
           enable_dedup: true,
           enable_badges: true,
@@ -1539,6 +1516,7 @@ const initPopup = () => {
           enable_scholar_copy_doi_btn: true,
           enable_scholar_star_btn: true,
           enable_journal_copy_doi_btn: true,
+          enable_journal_citation_tools: true,
           enable_journal_copy_gbt_btn: true,
           enable_journal_copy_bib_btn: true,
           enable_journal_open_landing_btn: true,
@@ -1560,6 +1538,7 @@ const initPopup = () => {
           enable_cite_badge: true
         },
         reset: {
+          enable_sorting_filter: true,
           enable_ni: true,
           enable_dedup: true,
           enable_badges: true,
@@ -1572,6 +1551,7 @@ const initPopup = () => {
           enable_scholar_copy_doi_btn: true,
           enable_scholar_star_btn: true,
           enable_journal_copy_doi_btn: true,
+          enable_journal_citation_tools: true,
           enable_journal_copy_gbt_btn: true,
           enable_journal_copy_bib_btn: true,
           enable_journal_open_landing_btn: true,
@@ -1600,6 +1580,7 @@ const initPopup = () => {
       if (!target) return;
 
       const keyToInput = {
+        enable_sorting_filter: configSortingFilter,
         enable_ni: configNi,
         enable_dedup: configDedup,
         enable_badges: configBadges,
@@ -1612,6 +1593,7 @@ const initPopup = () => {
         enable_scholar_copy_doi_btn: configScholarCopyDoiBtn,
         enable_scholar_star_btn: configScholarStarBtn,
         enable_journal_copy_doi_btn: configJournalCopyDoiBtn,
+        enable_journal_citation_tools: configJournalCitationTools,
         enable_journal_copy_gbt_btn: configJournalCopyGbtBtn,
         enable_journal_copy_bib_btn: configJournalCopyBibBtn,
         enable_journal_open_landing_btn: configJournalOpenLandingBtn,
@@ -1679,6 +1661,8 @@ const initPopup = () => {
 
     // Also update badges whenever any setting checkbox changes
     document.querySelectorAll('#panel-set input[type="checkbox"]').forEach(cb => {
+      const label = cb.closest(".pp-popup-setting-item")?.querySelector(".pp-popup-setting-lbl");
+      if (label) cb.setAttribute("aria-label", label.textContent.trim());
       cb.addEventListener("change", () => {
         updateCardStatusBadges();
       });
@@ -1799,24 +1783,19 @@ const initPopup = () => {
       .filter(Boolean);
   }
 
-  function persistHistory(successMsg) {
-    sendBackgroundMessage({ action: "HISTORY_REPLACE", history: historyData, revision: historyRevision }, response => {
+  function persistHistory(records, successMsg) {
+    sendBackgroundMessage({ action: "HISTORY_REPLACE", history: records, revision: historyRevision }, response => {
       if (!response?.success) {
         if (response?.errorCode === "HISTORY_CONFLICT" && Array.isArray(response.history)) {
-          historyData = response.history;
-          historyRevision = Number.isInteger(response.revision) ? response.revision : historyRevision;
-          refreshHistoryStats();
-          renderCurrentFootprints();
+          applyHistorySnapshot(response.history, response.revision);
           showToast("留痕已在其他页面更新，本次修改未覆盖；请刷新后重试");
           return;
         }
-        showToast(`Research Record 保存失败：${response?.error || "未知错误"}`);
+        showToast(`文献库保存失败：${response?.error || "未知错误"}`);
         return;
       }
-      historyData = Array.isArray(response.history) ? response.history : historyData;
-      historyRevision = Number.isInteger(response.revision) ? response.revision : historyRevision;
-      refreshHistoryStats();
-      renderCurrentFootprints();
+      applyHistorySnapshot(response.history, response.revision);
+      closeRecordEditor();
       if (successMsg) showToast(successMsg);
     });
   }
@@ -1842,9 +1821,7 @@ const initPopup = () => {
   function loadFootprints() {
     sendBackgroundMessage({ action: "HISTORY_GET" }, response => {
       if (!response?.success) {
-        // Keep the standalone preview usable; Chrome extension contexts always use
-        // the serialized background path above.
-        getStorage(["history", "history_revision"], fallback => applyHistorySnapshot(fallback?.history, fallback?.history_revision));
+        showToast(`文献库加载失败：${response?.error || '请重试'}`);
         return;
       }
       applyHistorySnapshot(response.history, response.revision);
@@ -1852,8 +1829,9 @@ const initPopup = () => {
   }
 
   function applyHistorySnapshot(rawHistory, revision) {
+      if (Number.isInteger(revision) && revision < historyRevision) return;
       const raw = Array.isArray(rawHistory) ? rawHistory : [];
-      historyData = raw.map(item => PaperPilotCore.library.normalizeRecord(item));
+      historyData = PaperPilotCore.library.normalizeRecords(raw);
       historyRevision = Number.isInteger(revision) ? revision : 0;
       refreshHistoryStats();
       renderCurrentFootprints();
@@ -2055,26 +2033,7 @@ const initPopup = () => {
     const copyButton = document.getElementById('library-copy-results');
     if (copyButton) copyButton.disabled = !items.length;
 
-    const activeDateTag = document.getElementById("search-active-date-tag");
-    const resultCountBadge = document.getElementById("search-result-count-badge");
     const btnDateReset = document.getElementById("btn-date-reset");
-    const searchExpandPanel = document.getElementById("pp-search-expand-panel");
-
-    if (activeDateTag) {
-      if (currentDateFilter) {
-        let dateLabel = currentDateFilter;
-        if (currentDateFilter === "3days") dateLabel = "近 3 天";
-        else if (currentDateFilter === "week") dateLabel = "本周";
-        activeDateTag.textContent = `📅 ${dateLabel}`;
-        activeDateTag.style.display = "inline-block";
-      } else {
-        activeDateTag.style.display = "none";
-      }
-    }
-
-    if (resultCountBadge) {
-      resultCountBadge.textContent = `共 ${items.length} 篇`;
-    }
 
     if (btnDateReset) {
       btnDateReset.style.display = currentDateFilter ? "inline-block" : "none";
@@ -2088,10 +2047,6 @@ const initPopup = () => {
     if (btnDateToday) btnDateToday.classList.toggle("active", currentDateFilter === todayStr);
     if (btnDate3days) btnDate3days.classList.toggle("active", currentDateFilter === "3days");
     if (btnDateWeek) btnDateWeek.classList.toggle("active", currentDateFilter === "week");
-
-    if (currentDateFilter && searchExpandPanel) {
-      searchExpandPanel.classList.add("expanded");
-    }
 
     if (items.length === 0) {
       if (currentDateFilter) {
@@ -2414,20 +2369,11 @@ const initPopup = () => {
   }
 
   // 5. Expandable Search Panel & Quick Date Shortcuts
-  const searchExpandPanel = document.getElementById("pp-search-expand-panel");
-  const searchExpandToggle = document.getElementById("search-expand-toggle");
   const btnDateToday = document.getElementById("btn-date-today");
   const btnDate3days = document.getElementById("btn-date-3days");
   const btnDateWeek = document.getElementById("btn-date-week");
   const btnDateReset = document.getElementById("btn-date-reset");
   const searchClearBtn = document.getElementById("history-search-clear");
-
-  if (searchExpandToggle && searchExpandPanel) {
-    searchExpandToggle.onclick = () => {
-      const filters = document.getElementById('library-advanced-filters');
-      if (filters) filters.open = !filters.open;
-    };
-  }
 
   if (btnDateToday) {
     btnDateToday.onclick = () => {
@@ -2616,7 +2562,7 @@ const initPopup = () => {
           sendBackgroundMessage({action:'HISTORY_IMPORT',records:validItems}, response => {
             if (!response?.success) { showToast(`导入失败：${response?.error || '请重试'}`); return; }
             applyHistorySnapshot(response.history,response.revision);
-            showToast(`已导入 ${response.added} 篇新文献 · 文献库现有 ${response.retained} 篇`);
+            showToast(`已合并 ${response.added} 篇新文献 · 文献库现有 ${response.retained} 篇${response.evicted ? ` · 超出容量移除 ${response.evicted} 篇非收藏记录` : ''}`);
           });
         } catch (err) {
           showToast(`导入失败: ${err.message}`);
@@ -2624,6 +2570,7 @@ const initPopup = () => {
           fileImportHistory.value = "";
         }
       };
+      reader.onerror = () => { fileImportHistory.value = ""; showToast("备份文件读取失败，请重新选择文件"); };
       reader.readAsText(file);
     };
   }
@@ -2637,9 +2584,7 @@ const initPopup = () => {
         return;
       }
       if (window.confirm("确定要清空全部文过留痕记录吗？此操作无法撤销。")) {
-        historyData = [];
-        closeRecordEditor();
-        persistHistory("已清空全部文过留痕记录");
+        persistHistory([], "已清空全部文过留痕记录");
       }
     };
   }

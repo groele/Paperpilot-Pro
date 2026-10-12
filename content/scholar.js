@@ -9,51 +9,15 @@
   const escapeHtml = sanitize.escapeHtml || (s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"));
   const escapeAttr = sanitize.escapeAttr || (s => escapeHtml(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;"));
 
-  // Built-in Nature Index journals normalized matching list
-  const NATURE_INDEX_JOURNALS = new Set([
-    "nature", "science", "cell", "journal of the american chemical society", "j. am. chem. soc.",
-    "jacs", "angewandte chemie", "angew. chem.", "advanced materials", "adv. mater.",
-    "physical review letters", "phys. rev. lett.", "prl", "nature energy", "nat. energy",
-    "nature materials", "nat. mater.", "chemical communications", "chem. commun.",
-    "nano letters", "nano lett.", "acs nano", "nature communications", "nat. commun.",
-    "proceedings of the national academy of sciences", "pnas", "nature nanotechnology", "nat. nanotechnol.",
-    "nature chemistry", "nat. chem.", "nature biotechnology", "nat. biotech.", "nature medicine", "nat. med.",
-    "nature physics", "nat. phys.", "nature photonics", "nat. photon.", "nature methods", "nat. methods",
-    "nature genetics", "nat. genet.", "nature neuroscience", "nat. neurosci.", "nature cell biology", "nat. cell biol.",
-    "nature structural & molecular biology", "nat. struct. mol. biol.", "nature immunology", "nat. immunol.",
-    "clinical cancer research", "clin. cancer res.", "cancer research", "cancer res.", "the journal of clinical investigation", "j. clin. invest.",
-    "the journal of experimental medicine", "j. exp. med.", "neuron", "plos biology", "plos biol.",
-    "journal of cell biology", "j. cell biol.", "developmental cell", "dev. cell", "molecular cell", "mol. cell",
-    "genes & development", "genes dev.", "systematic biology", "syst. biol.", "molecular biology and evolution", "mol. biol. evol.",
-    "nature ecology & evolution", "nat. ecol. evol.", "ecology letters", "ecol. lett.", "the american naturalist", "am. nat.",
-    "astrophysical journal", "astrophys. j.", "monthly notices of the royal astronomical society", "mon. not. r. astron. soc.",
-    "astronomy & astrophysics", "astron. astrophys.", "physical review d", "phys. rev. d", "physical review b", "phys. rev. b",
-    "physical review a", "phys. rev. a", "physical review x", "phys. rev. x", "journal of high energy physics", "j. high energy phys.",
-    "physical review c", "phys. rev. c", "journal of geophysical research", "j. geophys. res.", "geophysical research letters", "geophys. res. lett.",
-    "earth and planetary science letters", "earth planet. sci. lett.", "geochimica et cosmochimica acta", "geochim. cosmochim. acta",
-    "journal of petrology", "j. petrol.", "geology", "paleoceanography", "water resources research", "water resour. res."
-  ]);
-  const NATURE_INDEX_JOURNALS_LIST = Array.from(NATURE_INDEX_JOURNALS).sort((a, b) => b.length - a.length);
-
   function resolveNiJournalMatch(venue) {
-    if (window.PaperPilotCore?.natureIndex?.getNatureIndexMatch) {
-      return window.PaperPilotCore.natureIndex.getNatureIndexMatch(venue);
-    }
-    const cleanNormVenue = String(venue || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-    if (!cleanNormVenue) return null;
-    for (const niJournal of NATURE_INDEX_JOURNALS_LIST) {
-      const cleanNi = niJournal.replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-      if (cleanNormVenue === cleanNi) {
-        return { matched: true, canonicalName: niJournal };
-      }
-    }
-    return null;
+    return window.PaperPilotCore.natureIndex.getNatureIndexMatch(venue);
   }
 
   const STORAGE_PREFIX = 'paperpilot-pro:scholar:v1';
   const SETTINGS_KEYS = [
     "appearance_mode",
     "enable_ni",
+    "enable_sorting_filter",
     "enable_dedup",
     "enable_badges",
     "enable_markdown_note",
@@ -61,6 +25,8 @@
     "enable_metrics_auto_detect",
     "enable_bibtex_btn",
     "enable_scholar_copy_doi_btn",
+    "enable_scholar_copy_gbt_btn",
+    "enable_scholar_star_btn",
     "enable_pdf_download_btn",
     "enable_ccf_badge",
     "enable_core_badge",
@@ -85,7 +51,6 @@
     toolbarObserver: null,
     toolbarObserverAttached: false,
     toolbarObserverTarget: null,
-    toolbarWatchdog: null,
     toolbarRepairTimer: null,
     isInternalUpdating: false,
     refreshTimer: null,
@@ -243,14 +208,14 @@
         state.currentSortType = data.sortType;
       }
       state.currentExpanded = !!data.expanded;
-      if (typeof data.citeThreshold === 'number') {
-        state.citeThreshold = data.citeThreshold;
+      if (Number.isFinite(data.citeThreshold)) {
+        state.citeThreshold = Math.max(0, data.citeThreshold);
       }
-      if (typeof data.yearThreshold === 'number') {
-        state.yearThreshold = data.yearThreshold;
+      if (Number.isFinite(data.yearThreshold)) {
+        state.yearThreshold = Math.max(0, data.yearThreshold);
       }
       if (data.filters && typeof data.filters === 'object') {
-        state.sourceFilterState = new Map(Object.entries(data.filters));
+        state.sourceFilterState = new Map(Object.entries(data.filters).filter(([, value]) => typeof value === 'boolean'));
       }
     } catch (_) {}
   }
@@ -364,6 +329,7 @@
       state.settings = {
         appearance_mode: settings.appearance_mode || "system",
         enable_ni: settings.enable_ni !== false,
+        enable_sorting_filter: settings.enable_sorting_filter !== false,
         enable_dedup: settings.enable_dedup !== false,
         enable_badges: settings.enable_badges !== false,
         enable_markdown_note: settings.enable_markdown_note !== false,
@@ -371,6 +337,8 @@
         enable_metrics_auto_detect: settings.enable_metrics_auto_detect !== false,
         enable_bibtex_btn: settings.enable_bibtex_btn !== false,
         enable_scholar_copy_doi_btn: settings.enable_scholar_copy_doi_btn !== false,
+        enable_scholar_copy_gbt_btn: settings.enable_scholar_copy_gbt_btn !== false,
+        enable_scholar_star_btn: settings.enable_scholar_star_btn !== false,
         enable_pdf_download_btn: settings.enable_pdf_download_btn !== false,
         easyscholarConfigured: false,
         enable_ccf_badge: settings.enable_ccf_badge !== false,
@@ -573,22 +541,6 @@
 
     updateSortButtonState();
     attachToolbarObserver();
-  }
-
-  function startToolbarWatchdog() {
-    if (state.toolbarWatchdog) return;
-
-    state.toolbarWatchdog = setInterval(() => {
-      if (document.visibilityState === "hidden") return;
-      if (!isScholarPage() || !state.settings || !state.settings.enable_sorting_filter) return;
-      if (!getResultsContainer()) return;
-
-      const toolbarContainer = getToolbarMountNode();
-      const toolbar = document.getElementById("pp-scholar-sorting-toolbar");
-      if (toolbarContainer && (!toolbar || toolbar.parentNode !== toolbarContainer)) {
-        ensureSortingToolbar();
-      }
-    }, 6000);
   }
 
   function setSortType(sortType, silent = false) {
@@ -1075,6 +1027,7 @@
     if (newUrl === state.lastUrl && newQueryKey === state.lastQueryKey) return;
 
     state.lastUrl = newUrl;
+    if (newQueryKey !== state.lastQueryKey) loadPersistedState();
     state.lastQueryKey = newQueryKey;
     state.lastResultSetKey = '';
     state.lastArticleSignature = '';
@@ -1133,9 +1086,7 @@
     clearTimeout(state.saveTimer);
     clearTimeout(state.urlWatchTimer);
     clearTimeout(state.initRetryTimer);
-    clearInterval(state.toolbarWatchdog);
     state.refreshTimer = state.saveTimer = state.urlWatchTimer = state.initRetryTimer = null;
-    state.toolbarWatchdog = null;
   }
 
   function resumeLifecycle() {
@@ -1973,6 +1924,7 @@
 
     state.lastUrl = location.href;
     state.lastQueryKey = getQueryKey();
+    if (!state.initialized) loadPersistedState();
     fetchSettingsAndRun(() => {
       state.initializing = false;
       if (state.suspended) return;

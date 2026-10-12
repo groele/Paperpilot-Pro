@@ -24,7 +24,7 @@
       </div>
       <div class="pp-header-badges">
         <button class="pp-theme-toggle-btn" id="btn-quick-theme-toggle" type="button" title="一键切换深浅色主题">🌙</button>
-        <span class="pp-popup-version">v4.0.0</span>
+        <span class="pp-popup-version">v4.0.1</span>
       </div>
     </header>
 
@@ -238,26 +238,6 @@
 
         <!-- Expandable Search & Date Filter Panel Card -->
         <div class="pp-search-expand-panel expanded" id="pp-search-expand-panel">
-          <div class="pp-search-expand-hdr" id="search-expand-toggle">
-            <div class="pp-search-hdr-left">
-              <svg class="pp-search-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
-                stroke-width="2">
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-              <span class="pp-search-hdr-title">文献搜索与日期筛选面板</span>
-              <span class="pp-search-active-tag" id="search-active-date-tag" style="display: none;">📅 2026-07-23</span>
-            </div>
-            <div class="pp-search-hdr-right">
-              <span class="pp-search-count-badge" id="search-result-count-badge">共 0 篇</span>
-              <button type="button" class="pp-search-toggle-btn" id="btn-toggle-search-panel" title="展开/折叠搜索面板">
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
-              </button>
-            </div>
-          </div>
-
           <div class="pp-search-expand-body">
             <!-- Search Input Wrapper -->
             <div class="pp-popup-search-wrapper">
@@ -351,7 +331,7 @@
                 <circle cx="11" cy="11" r="8"></circle>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
-              <input type="text" id="setting-search-input" class="pp-settings-search-input" placeholder="搜索配置项 (如: BibTeX, 徽章, DOI, PDF)..." autocomplete="off" spellcheck="false">
+              <input type="text" id="setting-search-input" class="pp-settings-search-input" placeholder="搜索全部设置：引用、DOI、PDF…" autocomplete="off" spellcheck="false">
               <span class="pp-search-count-pill" id="search-count-pill" style="display: none;">0 项</span>
               <button type="button" id="btn-clear-settings-search" class="pp-settings-clear-btn" title="清空搜索 (Esc)" aria-label="清空搜索" style="display: none;">✕</button>
             </div>
@@ -359,25 +339,27 @@
           </div>
           <!-- Category Quick Filter Chips -->
           <div class="pp-settings-category-tabs" id="settings-category-tabs" role="tablist" aria-label="配置分类导航">
-            <button type="button" class="pp-category-chip active" data-category="all">✨ 全部</button>
-            <button type="button" class="pp-category-chip" data-category="core">⚡ 核心模块</button>
-            <button type="button" class="pp-category-chip" data-category="buttons">🔘 界面按钮</button>
-            <button type="button" class="pp-category-chip" data-category="views">📊 留痕定制</button>
-            <button type="button" class="pp-category-chip" data-category="scholar">🎓 学术指标</button>
-            <button type="button" class="pp-category-chip" data-category="download">📁 下载外观</button>
-            <button type="button" class="pp-category-chip" data-category="ai">🤖 AI 引擎</button>
+            <button type="button" class="pp-category-chip active" data-category="all" role="tab" aria-selected="true" tabindex="0">全部</button>
+            <button type="button" class="pp-category-chip" data-category="core" role="tab" aria-selected="false" tabindex="-1">核心模块</button>
+            <button type="button" class="pp-category-chip" data-category="citation" role="tab" aria-selected="false" tabindex="-1">引用格式</button>
+            <button type="button" class="pp-category-chip" data-category="buttons" role="tab" aria-selected="false" tabindex="-1">界面按钮</button>
+            <button type="button" class="pp-category-chip" data-category="views" role="tab" aria-selected="false" tabindex="-1">留痕定制</button>
+            <button type="button" class="pp-category-chip" data-category="scholar" role="tab" aria-selected="false" tabindex="-1">学术指标</button>
+            <button type="button" class="pp-category-chip" data-category="download" role="tab" aria-selected="false" tabindex="-1">下载外观</button>
+            <button type="button" class="pp-category-chip" data-category="ai" role="tab" aria-selected="false" tabindex="-1">AI 引擎</button>
           </div>
+        </div>
+
           <!-- Scenario Presets Bar -->
-          <div class="pp-settings-presets-bar">
-            <span class="pp-presets-lbl">场景预设</span>
+          <details class="pp-settings-presets-bar">
+            <summary>场景预设 <span>按需一键配置</span></summary>
             <div class="pp-presets-btns">
               <button type="button" class="pp-preset-btn" data-preset="recommended" title="开启常用推荐功能与主流引用按钮">🌟 常用推荐</button>
               <button type="button" class="pp-preset-btn" data-preset="minimal" title="关闭冗余按钮与统计卡，极致清爽轻量">🍃 极简专注</button>
               <button type="button" class="pp-preset-btn" data-preset="expert" title="开启所有学术徽章、工具栏与研读分析">🚀 专家全能</button>
               <button type="button" class="pp-preset-btn pp-preset-btn-reset" data-preset="reset" title="恢复为默认出厂配置">🔄 恢复默认</button>
             </div>
-          </div>
-        </div>
+          </details>
 
         <!-- Search Empty State -->
         <div class="pp-settings-empty-state" id="settings-empty-state" style="display: none;">
@@ -388,6 +370,47 @@
         </div>
 
         <div class="pp-popup-settings-list" id="settings-cards-list">
+
+          <!-- Journal citation controls are grouped where users can find them. -->
+          <div class="pp-popup-settings-card" id="card-settings-citation" data-category="citation">
+            <div class="pp-popup-card-hdr pp-accordion-hdr" role="button" tabindex="0" aria-expanded="true">
+              <div class="pp-card-hdr-left"><span class="card-hdr-icon">❞</span><span class="card-hdr-title">学术引用格式</span></div>
+              <div class="pp-card-hdr-right"><span class="card-status-pill" id="badge-count-citation">0/3 开启</span><span class="card-hdr-chevron">▼</span></div>
+            </div>
+            <div class="pp-popup-card-body">
+              <div class="pp-popup-setting-item" data-keywords="期刊 悬浮卡 引用 格式 citation GB GBT 7714 BibTeX 总开关">
+                <div class="pp-popup-setting-row">
+                  <span class="pp-popup-setting-lbl">显示学术引用格式区域</span>
+                  <label class="pp-popup-switch"><input type="checkbox" id="setting-enable-journal-citation-tools"><span class="pp-popup-switch-slider"></span></label>
+                </div>
+                <p class="pp-popup-setting-desc">隐藏整个引用区块，保留下面两个按钮的设置。</p>
+              </div>
+                <!-- Switch: Enable Journal Copy GBT Button -->
+                <div class="pp-popup-setting-item" data-keywords="期刊 悬浮卡 元卡 gb gbt 7714 国标 引用 按钮" data-batch="citation-btns">
+                  <div class="pp-popup-setting-row">
+                    <span class="pp-popup-setting-lbl">GB/T 7714 国标引用按钮</span>
+                    <label class="pp-popup-switch">
+                      <input type="checkbox" id="setting-enable-journal-copy-gbt-btn">
+                      <span class="pp-popup-switch-slider"></span>
+                    </label>
+                  </div>
+                  <p class="pp-popup-setting-desc">在学术引用格式区域显示 GB/T 7714 按钮，一键复制国标引文。</p>
+                </div>
+
+                <!-- Switch: Enable Journal Copy Bib Button -->
+                <div class="pp-popup-setting-item" data-keywords="期刊 悬浮卡 元卡 bib bibtex 引用 按钮" data-batch="citation-btns">
+                  <div class="pp-popup-setting-row">
+                    <span class="pp-popup-setting-lbl">BibTeX 引用按钮</span>
+                    <label class="pp-popup-switch">
+                      <input type="checkbox" id="setting-enable-journal-copy-bib-btn">
+                      <span class="pp-popup-switch-slider"></span>
+                    </label>
+                  </div>
+                  <p class="pp-popup-setting-desc">在学术引用格式区域显示 BibTeX 按钮，便于 LaTeX 文献管理。</p>
+                </div>
+
+            </div>
+          </div>
 
           <!-- Card 1: 核心模块运行开关 -->
           <div class="pp-popup-settings-card" id="card-settings-core" data-category="core">
@@ -419,6 +442,14 @@
                     </label>
                   </div>
                   <p class="pp-popup-setting-desc">对 Nature Index 自然指数量级核心期刊论文条目进行左侧翠绿色边框高亮标注。</p>
+                </div>
+
+                <div class="pp-popup-setting-item" data-keywords="scholar 学术 排序 筛选 过滤 被引量 年份 来源 sorting filter">
+                  <div class="pp-popup-setting-row">
+                    <span class="pp-popup-setting-lbl">Scholar 排序与筛选工具</span>
+                    <label class="pp-popup-switch"><input type="checkbox" id="setting-enable-sorting-filter"><span class="pp-popup-switch-slider"></span></label>
+                  </div>
+                  <p class="pp-popup-setting-desc">按引用量或年份重排结果，并按来源和阈值筛选；保留当前检索的筛选偏好。</p>
                 </div>
 
                 <!-- Switch: Preprint folding deduplication -->
@@ -596,30 +627,6 @@
                     </label>
                   </div>
                   <p class="pp-popup-setting-desc">在期刊详情页悬浮卡中保留 DOI 字段复制与无 PDF 时的一键 DOI 复制入口。</p>
-                </div>
-
-                <!-- Switch: Enable Journal Copy GBT Button -->
-                <div class="pp-popup-setting-item" data-keywords="期刊 悬浮卡 元卡 gb gbt 7714 国标 引用 按钮" data-batch="journal-btns">
-                  <div class="pp-popup-setting-row">
-                    <span class="pp-popup-setting-lbl">详情悬浮卡复制 GB/T 7714 按钮</span>
-                    <label class="pp-popup-switch">
-                      <input type="checkbox" id="setting-enable-journal-copy-gbt-btn">
-                      <span class="pp-popup-switch-slider"></span>
-                    </label>
-                  </div>
-                  <p class="pp-popup-setting-desc">在期刊详情页悬浮卡元数据栏渲染「GB」一键复制国标引文按钮。</p>
-                </div>
-
-                <!-- Switch: Enable Journal Copy Bib Button -->
-                <div class="pp-popup-setting-item" data-keywords="期刊 悬浮卡 元卡 bib bibtex 引用 按钮" data-batch="journal-btns">
-                  <div class="pp-popup-setting-row">
-                    <span class="pp-popup-setting-lbl">详情悬浮卡复制 BibTeX 按钮</span>
-                    <label class="pp-popup-switch">
-                      <input type="checkbox" id="setting-enable-journal-copy-bib-btn">
-                      <span class="pp-popup-switch-slider"></span>
-                    </label>
-                  </div>
-                  <p class="pp-popup-setting-desc">在期刊详情页悬浮卡元数据栏渲染「Bib」一键复制 BibTeX 引用按钮。</p>
                 </div>
 
                 <!-- Switch: Enable Journal Open Landing Button -->
@@ -1168,6 +1175,7 @@
     </div>
   </div>
   <script src="../core/messaging.js"></script>
+  <script src="../core/ai.js"></script>
   <script src="../core/metadata.js"></script>
   <script src="../core/nature-index.js"></script>
   <script src="../core/citation.js"></script>

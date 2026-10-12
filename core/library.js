@@ -10,7 +10,6 @@
     if (!left || !right) return false;
     const a = doiKey(left.doi), b = doiKey(right.doi);
     if (a && b) return a === b;
-    if (left.id && right.id && left.id === right.id) return true;
     const title = titleKey(left.title);
     if (!title || title !== titleKey(right.title)) return false;
     if (left.year && right.year && Number(left.year) !== Number(right.year)) return false;
@@ -25,6 +24,7 @@
   }
 
   function normalizeRecord(record) {
+    record = record && typeof record === 'object' && !Array.isArray(record) ? record : {};
     const year = Number(record.year);
     const status = STATUSES.includes(record.status) ? record.status : 'visited';
     const rawTime = record.time || record.updatedAt || record.timestamp;
@@ -44,8 +44,23 @@
       pdfUrl: /^https?:\/\//i.test(String(record.pdfUrl || '')) ? String(record.pdfUrl) : '',
       pageUrl: /^https?:\/\//i.test(String(record.pageUrl || '')) ? String(record.pageUrl) : ''
     };
-    normalized.id = recordKey(normalized);
+    normalized.id = typeof record.id === 'string' && record.id.trim() ? record.id.trim().slice(0, 1000) : recordKey({...normalized,id:undefined});
     return normalized;
+  }
+
+  function normalizeRecords(records) {
+    const usedIds = new Set();
+    const normalized = (Array.isArray(records) ? records : []).map(normalizeRecord).filter(record => record.title || record.doi);
+    const reservedIds = new Set(normalized.map(record => record.id));
+    return normalized.map(record => {
+      const base = record.id;
+      let suffix = 2;
+      if (usedIds.has(record.id)) {
+        do { record.id = `${base}#${suffix++}`; } while (usedIds.has(record.id) || reservedIds.has(record.id));
+      }
+      usedIds.add(record.id);
+      return record;
+    });
   }
 
   function mergeRecord(existing, incoming, now = Date.now()) {
@@ -99,7 +114,7 @@
   }
 
   function importRecords(existing, incoming) {
-    const history = existing.map(normalizeRecord), byDoi = new Map(), byTitle = new Map();
+    const history = normalizeRecords(existing), byDoi = new Map(), byTitle = new Map();
     const index = record => {
       const doi = doiKey(record.doi), title = titleKey(record.title);
       if (doi) byDoi.set(doi, record);
@@ -107,16 +122,18 @@
     };
     history.forEach(index);
     const added = [];
-    for (const raw of incoming) {
+    for (const raw of Array.isArray(incoming) ? incoming : []) {
       const record = normalizeRecord(raw);
       if (!record.title && !record.doi) continue;
       const doi = doiKey(record.doi), title = titleKey(record.title);
       if (byDoi.has(doi) || (byTitle.get(title) || []).some(item => samePaper(item, record))) continue;
       added.push(record); index(record);
     }
-    return { history: [...added, ...history], added: added.length };
+    // Existing stable IDs retain priority when a backup contains copied IDs.
+    const normalized = normalizeRecords([...history, ...added]);
+    return { history: [...normalized.slice(history.length), ...normalized.slice(0, history.length)], added: added.length };
   }
 
-  root.library = { samePaper, recordKey, normalizeRecord, mergeRecord, hasAction, search, duplicateGroups, importRecords };
+  root.library = { samePaper, recordKey, normalizeRecord, normalizeRecords, mergeRecord, hasAction, search, duplicateGroups, importRecords };
   global.PaperPilotCore = root;
 })(globalThis);
