@@ -25,7 +25,7 @@ const PUBLIC_SETTING_KEYS = new Set([
   "auto_redirect", "pdf_download_save_as", "pdf_naming", "pdf_download_dir",
   "appearance_mode", "enable_ni", "enable_dedup",
   "enable_badges", "enable_metacard", "enable_markdown_note", "enable_metrics_display",
-  "enable_metrics_auto_detect", "enable_sorting_filter", "enable_bibtex_btn", "enable_scholar_copy_doi_btn",
+  "enable_metrics_auto_detect", "enable_bibtex_btn", "enable_scholar_copy_doi_btn",
   "enable_scholar_copy_gbt_btn", "enable_scholar_star_btn",
   "enable_journal_copy_doi_btn", "enable_journal_citation_tools", "enable_journal_copy_gbt_btn", "enable_journal_copy_bib_btn",
   "enable_journal_open_landing_btn", "pdf_landing_cache", "enable_pdf_download_btn",

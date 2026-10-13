@@ -155,7 +155,6 @@ const initPopup = () => {
 
   const configScholarCopyGbtBtn = document.getElementById("setting-enable-scholar-copy-gbt-btn");
   const configScholarStarBtn = document.getElementById("setting-enable-scholar-star-btn");
-  const configSortingFilter = document.getElementById("setting-enable-sorting-filter");
   const configJournalCitationTools = document.getElementById("setting-enable-journal-citation-tools");
   const configJournalCopyGbtBtn = document.getElementById("setting-enable-journal-copy-gbt-btn");
   const configJournalCopyBibBtn = document.getElementById("setting-enable-journal-copy-bib-btn");
@@ -738,7 +737,6 @@ const initPopup = () => {
     "appearance_mode",
     "overview_collapsed",
     "enable_ni",
-    "enable_sorting_filter",
     "enable_dedup",
     "enable_badges",
     "enable_metacard",
@@ -806,7 +804,6 @@ const initPopup = () => {
 
     // Set feature switches (default to true if undefined)
     configNi.checked = config.enable_ni !== false;
-    configSortingFilter.checked = config.enable_sorting_filter !== false;
     configDedup.checked = config.enable_dedup !== false;
     configBadges.checked = config.enable_badges !== false;
     configMetacard.checked = config.enable_metacard !== false;
@@ -1122,7 +1119,6 @@ const initPopup = () => {
   }
 
   // Scholar & Journal & Footprint custom toggles saves
-  configSortingFilter.onchange = () => saveSetting("enable_sorting_filter", configSortingFilter.checked, "Scholar 排序与筛选开关已同步");
   if (configScholarCopyGbtBtn) configScholarCopyGbtBtn.onchange = () => saveSetting("enable_scholar_copy_gbt_btn", configScholarCopyGbtBtn.checked, "谷歌学术 GB/T 7714 按钮开关已同步");
   if (configScholarStarBtn) configScholarStarBtn.onchange = () => saveSetting("enable_scholar_star_btn", configScholarStarBtn.checked, "谷歌学术收藏按钮开关已同步");
   if (configJournalCitationTools) configJournalCitationTools.onchange = () => saveSetting("enable_journal_citation_tools", configJournalCitationTools.checked, "学术引用格式区域开关已同步");
@@ -1450,7 +1446,6 @@ const initPopup = () => {
       if (!target) return;
 
       const keyToInput = {
-        enable_sorting_filter: configSortingFilter,
         enable_ni: configNi,
         enable_dedup: configDedup,
         enable_badges: configBadges,

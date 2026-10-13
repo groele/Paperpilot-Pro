@@ -6,7 +6,6 @@
     "pdf_download_save_as": false,
     "appearance_mode": "light",
     "enable_ni": true,
-    "enable_sorting_filter": true,
     "enable_dedup": true,
     "enable_badges": true,
     "enable_metacard": true,
@@ -62,7 +61,7 @@
     delete base.appearance_mode;
     delete base.metacard_pinned;
     delete base.enable_easyscholar;
-    if (name === "minimal") return {...base, enable_sorting_filter:false, enable_markdown_note:false, enable_bibtex_btn:false, enable_scholar_copy_gbt_btn:false, enable_footprint_heatmap:false, enable_footprint_stats:false};
+    if (name === "minimal") return {...base, enable_markdown_note:false, enable_bibtex_btn:false, enable_scholar_copy_gbt_btn:false, enable_footprint_heatmap:false, enable_footprint_stats:false};
     if (name === "expert") return {...base, enable_metrics_display:true, enable_metrics_auto_detect:true, enable_journal_citation_tools:true, enable_pdf_download_btn:true, enable_ai_summary_btn:true, enable_page_diagnostics:true};
     return null;
   }

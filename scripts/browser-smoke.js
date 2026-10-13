@@ -644,28 +644,16 @@ async function evaluateExtensionWorld(context, page, fn) {
     pass('Scholar GB and favorite switches update open results, persist across reload and restore');
     await scholar.locator('#pp-sort-citations').waitFor();
     await scholar.locator('#pp-sort-citations').click();
-    await scholar.locator('#pp-slider-cite').evaluate(el=>{el.value='10';el.dispatchEvent(new Event('input',{bubbles:true}));});
-    await until(()=>scholar.locator('.gs_r:visible').count().then(n=>n===3),'Scholar citation filtering');
     await scholar.reload();
-    await scholar.locator('#pp-slider-cite').waitFor();
-    assert.equal(await scholar.locator('#pp-slider-cite').inputValue(),'10');
-    assert.ok((await scholar.locator('#pp-sort-citations').getAttribute('class')).includes('active'));
-    await until(()=>scholar.locator('.gs_r:visible').count().then(n=>n===3),'Scholar restored filter');
-    await popup.locator('#setting-search-input').fill('排序');
-    await popup.locator('#setting-enable-sorting-filter').uncheck();
-    await scholar.locator('#pp-scholar-sorting-toolbar').waitFor({state:'detached'});
-    await scholar.locator('.pp-scholar-sidebar-panel').waitFor({state:'detached'});
-    assert.equal(await scholar.locator('.gs_r:visible').count(),4);
-    await popup.locator('#setting-enable-sorting-filter').check();
     await scholar.locator('#pp-sort-citations').waitFor();
-    await until(()=>scholar.locator('.gs_r:visible').count().then(n=>n===3),'Scholar filter re-enabled');
+    assert.ok((await scholar.locator('#pp-sort-citations').getAttribute('class')).includes('active'));
     await scholar.locator('#pp-scholar-sorting-toolbar').evaluate(el=>el.remove());
     await scholar.locator('#pp-sort-citations').waitFor();
     await scholar.goto('https://scholar.google.com/scholar?q=other-fixture-query');
-    await scholar.locator('#pp-slider-cite').waitFor();
-    assert.equal(await scholar.locator('#pp-slider-cite').inputValue(),'0');
-    assert.equal(await scholar.locator('.gs_r:visible').count(),4);
-    pass('Scholar sorting/filtering works, persists per query, disables/restores correctly and repairs a replaced toolbar');
+    await scholar.locator('#pp-sort-default').waitFor();
+    assert.ok((await scholar.locator('#pp-sort-default').getAttribute('class')).includes('active'));
+    pass('Scholar sorting persists per query and repairs a replaced toolbar');
+
 
     await popup.locator('#tab-btn-foot').click();
     const beforeClear=await worker.evaluate(async()=> (await chrome.storage.local.get('history')).history.length);

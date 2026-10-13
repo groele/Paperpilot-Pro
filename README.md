@@ -8,7 +8,7 @@
 ![Type](https://img.shields.io/badge/type-Chrome%20Extension-blue?style=flat-square)
 ![Workflow](https://img.shields.io/badge/workflow-literature%20engine-green?style=flat-square)
 ![Architecture](https://img.shields.io/badge/architecture-browser--native-purple?style=flat-square)
-![Version](https://img.shields.io/badge/version-4.0.6-6f42c1?style=flat-square)
+![Version](https://img.shields.io/badge/version-4.0.7-6f42c1?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
 
 Part of **ResearchFlow Lab** — a local-first research productivity ecosystem for literature, manuscripts, data, and scientific visualization.
@@ -220,3 +220,4 @@ Developed by **Shikun Hou / groele**.
 - V4.0.5 starts with a compact light article card matching the reference screenshot. Citation, metrics, download and AI sections are opt-in; reading heatmaps remain on. Existing preferences survive upgrades. Use **常用推荐** or **恢复默认** to adopt the new defaults; see the [detailed audit](docs/defaults-and-logic-audit-2026-10-12.md).
 
 - V4.0.6 saves text settings before popup closure, isolates cache resets and late results, strengthens bounded/literal DOI handling, preserves signed URL bytes and fixes Unicode DOI search and invalid dates. See the [system audit](docs/system-audit-2026-10-12.md) for reproductions, verification and limits.
+- V4.0.7 removes the custom Google Scholar sidebar filtering panel and its settings; the citation/year sorting toolbar, Google Scholar native filters, and PaperPilot annotations/actions remain available.

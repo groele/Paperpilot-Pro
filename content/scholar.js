@@ -17,7 +17,6 @@
   const SETTINGS_KEYS = [
     "appearance_mode",
     "enable_ni",
-    "enable_sorting_filter",
     "enable_dedup",
     "enable_badges",
     "enable_markdown_note",
@@ -37,10 +36,6 @@
     "enable_cite_badge"
   ];
 
-  let maxCites = 100;
-  let minYear = 2010;
-  let maxYear = new Date().getFullYear();
-  let venuesFound = new Map(); // Name -> Count
   let parsedPapers = [];
   let currentTheme = "system";
 
@@ -66,16 +61,10 @@
     easyScholarStatusCallbacks: [],
 
     lastUrl: location.href,
-    lastQueryKey: '',
     lastResultSetKey: '',
     lastArticleSignature: '',
-    lastSourceSignature: '',
 
     currentSortType: 'default',
-    currentExpanded: false,
-    citeThreshold: 0,
-    yearThreshold: 0,
-    sourceFilterState: new Map(),
 
     initRetryCount: 0,
     initialized: false,
@@ -90,9 +79,6 @@
 
   // Theme Update Helper
   function updateAllThemes() {
-    const panels = document.querySelectorAll(".pp-scholar-sidebar-panel");
-    panels.forEach(p => p.setAttribute("data-pp-theme", currentTheme));
-    
     const toasts = document.querySelectorAll(".pp-scholar-toast");
     toasts.forEach(t => t.setAttribute("data-pp-theme", currentTheme));
 
@@ -130,13 +116,6 @@
            document.getElementById("gs_res_ccl") ||
            document.querySelector(".gs_r.gs_or.gs_scl")?.parentElement ||
            document.querySelector(".gs_rt")?.closest(".gs_r")?.parentElement;
-  }
-
-  function getSidebar() {
-    return document.getElementById("gs_bdy_sb_in") || 
-           document.getElementById("gs_bdy_sb-in") || 
-           document.getElementById("gs_bdy_sb") || 
-           document.getElementById("gs_sidebar");
   }
 
   function getToolbar() {
@@ -192,10 +171,6 @@
 
   function loadPersistedState() {
     state.currentSortType = 'default';
-    state.currentExpanded = false;
-    state.sourceFilterState = new Map();
-    state.citeThreshold = 0;
-    state.yearThreshold = 0;
 
     try {
       const raw = localStorage.getItem(getStorageKey());
@@ -207,16 +182,6 @@
       if (['default', 'citations', 'year'].includes(data.sortType)) {
         state.currentSortType = data.sortType;
       }
-      state.currentExpanded = !!data.expanded;
-      if (Number.isFinite(data.citeThreshold)) {
-        state.citeThreshold = Math.max(0, data.citeThreshold);
-      }
-      if (Number.isFinite(data.yearThreshold)) {
-        state.yearThreshold = Math.max(0, data.yearThreshold);
-      }
-      if (data.filters && typeof data.filters === 'object') {
-        state.sourceFilterState = new Map(Object.entries(data.filters).filter(([, value]) => typeof value === 'boolean'));
-      }
     } catch (_) {}
   }
 
@@ -225,10 +190,6 @@
       const data = {
         updatedAt: Date.now(),
         sortType: state.currentSortType,
-        expanded: state.currentExpanded,
-        citeThreshold: state.citeThreshold,
-        yearThreshold: state.yearThreshold,
-        filters: Object.fromEntries(state.sourceFilterState)
       };
       localStorage.setItem(getStorageKey(), JSON.stringify(data));
     } catch (_) {}
@@ -273,34 +234,6 @@
     return ids.join('||');
   }
 
-  function getSourceStats() {
-    const stats = new Map();
-    getScholarArticles().forEach(article => {
-      const venue = article.dataset.venue || 'Other';
-      const niMatch = resolveNiJournalMatch(venue);
-      const matchedNormName = niMatch ? niMatch.canonicalName : "Other";
-      stats.set(matchedNormName, (stats.get(matchedNormName) || 0) + 1);
-    });
-    return stats;
-  }
-
-  function ensureSourceFilterState() {
-    venuesFound.forEach((_, source) => {
-      if (!state.sourceFilterState.has(source)) {
-        state.sourceFilterState.set(source, true);
-      }
-    });
-  }
-
-  function getSourceSignature() {
-    return JSON.stringify(
-      Array.from(getSourceStats().entries()).sort((a, b) => {
-        if (a[0] === b[0]) return 0;
-        return collator.compare(a[0], b[0]);
-      })
-    );
-  }
-
   // =========================================================
   // Life Cycle Engine & Re-rendering Loops
   // =========================================================
@@ -329,7 +262,6 @@
       state.settings = {
         appearance_mode: settings.appearance_mode || "system",
         enable_ni: settings.enable_ni !== false,
-        enable_sorting_filter: settings.enable_sorting_filter !== false,
         enable_dedup: settings.enable_dedup !== false,
         enable_badges: settings.enable_badges !== false,
         enable_markdown_note: settings.enable_markdown_note !== false,
@@ -369,14 +301,14 @@
     }
   }
 
-  function debounceRefresh(forcePanel = false) {
+  function debounceRefresh(forceRefresh = false) {
     clearTimeout(state.refreshTimer);
     state.refreshTimer = setTimeout(() => {
-      refreshPage(forcePanel);
+      refreshPage(forceRefresh);
     }, 140);
   }
 
-  function refreshPage(forcePanel = false) {
+  function refreshPage(forceRefresh = false) {
     if (state.isInternalUpdating) return;
 
     const container = getResultsContainer();
@@ -387,17 +319,16 @@
     const currentSignature = getArticleSignature(articles);
 
     const needReprocess =
-      forcePanel ||
+      forceRefresh ||
       currentResultSetKey !== state.lastResultSetKey ||
       currentSignature !== state.lastArticleSignature ||
       location.href !== state.lastUrl;
 
     if (needReprocess) {
       state.lastUrl = location.href;
-      processAllArticles(forcePanel, false);
+      processAllArticles();
     } else {
       applyCurrentSort();
-      applyFilters();
     }
 
     attachObserver();
@@ -415,14 +346,12 @@
     if (nextResultSetKey !== state.lastResultSetKey) {
       articles.forEach(article => {
         delete article.dataset.ppDefaultOrder;
-        article.classList.remove("pp-scholar-hidden-by-filter");
       });
       state.lastResultSetKey = nextResultSetKey;
-      state.lastSourceSignature = '';
     }
   }
 
-  function processAllArticles(forcePanel = false, skipPanel = false) {
+  function processAllArticles() {
     const container = getResultsContainer();
     if (!container) return false;
     
@@ -432,45 +361,11 @@
     withInternalUpdate(() => {
       refreshDefaultOrderIfNeeded(articles);
 
-      // Clear dynamic stats
-      maxCites = 100;
-      minYear = 2010;
-      maxYear = new Date().getFullYear();
-      venuesFound.clear();
-      parsedPapers = [];
-
       // Run card enhancement
       enhanceGoogleScholar(state.settings);
 
-      // Recalculate slider boundaries and stats
-      articles.forEach((card, index) => {
-        const cite = parseInt(card.dataset.cite || "0");
-        const year = parseInt(card.dataset.year || "0");
-        const venue = card.dataset.venue || "Other";
-
-        if (cite > maxCites) maxCites = cite;
-        if (year < minYear && year > 1900) minYear = year;
-
-        const niMatch = resolveNiJournalMatch(venue);
-        const matchedNormName = niMatch ? niMatch.canonicalName : "Other";
-        venuesFound.set(matchedNormName, (venuesFound.get(matchedNormName) || 0) + 1);
-      });
-
-      ensureSourceFilterState();
-      
-      if (state.settings.enable_sorting_filter) {
-        ensureSortingToolbar();
-        if (!skipPanel) {
-          try {
-            renderSourcePanel(forcePanel);
-          } catch (e) {
-            console.warn("PaperPilot Pro: source panel render failed", e);
-          }
-        }
-      }
-
+      ensureSortingToolbar();
       applyCurrentSort();
-      applyFilters();
     });
 
     state.lastArticleSignature = getArticleSignature(articles);
@@ -489,7 +384,7 @@
   }
 
   function ensureSortingToolbar(retryCount = 0) {
-    if (!state.settings || !state.settings.enable_sorting_filter) return;
+    if (!state.settings) return;
 
     const toolbar = getToolbar();
     const toolbarMount = getToolbarMountNode();
@@ -556,13 +451,6 @@
   }
 
   function applyCurrentSort() {
-    if (!state.settings?.enable_sorting_filter) {
-      getResultsContainer()?.classList.remove('pp-order-mode');
-      getScholarArticles().forEach(article => {
-        article.style.order = "";
-      });
-      return;
-    }
     ensureOrderMode();
     const articles = getScholarArticles();
     if (!articles.length) return;
@@ -619,312 +507,6 @@
   }
 
   // =========================================================
-  // Sidebar Filtering Panel
-  // =========================================================
-  function updateFoldState() {
-    const items = Array.from(document.querySelectorAll('.pp-scholar-source-item'));
-    const moreBtn = document.getElementById('pp-source-more');
-    if (!items.length || !moreBtn) return;
-
-    const FOLD_THRESHOLD = 9;
-    if (items.length <= FOLD_THRESHOLD) {
-      items.forEach(item => item.style.display = 'flex');
-      moreBtn.style.display = 'none';
-      return;
-    }
-
-    items.forEach((item, index) => {
-      item.style.display = (state.currentExpanded || index < FOLD_THRESHOLD) ? 'flex' : 'none';
-    });
-
-    moreBtn.style.display = 'block';
-    moreBtn.textContent = state.currentExpanded ? '收起 ▲' : '展开更多 ▼';
-  }
-
-  function renderSourcePanel(force = false, retryCount = 0) {
-    if (!state.settings || !state.settings.enable_sorting_filter) return;
-
-    const sidebar = getSidebar();
-    if (!sidebar) {
-      if (retryCount < 25) {
-        setTimeout(() => renderSourcePanel(force, retryCount + 1), 100);
-      }
-      return;
-    }
-
-    const nextSignature = getSourceSignature();
-    let panel = document.querySelector(".pp-scholar-sidebar-panel");
-
-    if (!force && panel && state.lastSourceSignature === nextSignature) {
-      syncCheckboxesAndSlidersFromState();
-      updateFoldState();
-      return;
-    }
-
-    state.lastSourceSignature = nextSignature;
-
-    if (!panel) {
-      panel = document.createElement("div");
-      panel.className = "pp-scholar-sidebar-panel";
-      panel.setAttribute("data-pp-theme", currentTheme);
-      
-      panel.innerHTML = `
-        <div class="pp-scholar-panel-header">
-          <div class="pp-scholar-panel-title">
-            ${window.PP_ICONS.filter}
-            <span>智能检索重排与过滤</span>
-          </div>
-          <span class="pp-scholar-panel-badge" id="pp-filter-count-badge">已展示全部</span>
-        </div>
-        <div class="pp-scholar-panel-subtitle">本地零开销无感过滤 • 实时动态重排</div>
-
-        <!-- Quick Filter Presets -->
-        <div class="pp-scholar-presets-bar">
-          <button type="button" class="pp-preset-btn" id="pp-preset-cite" title="快速筛选被引量≥100的文献">🔥 100+被引</button>
-          <button type="button" class="pp-preset-btn" id="pp-preset-year" title="快速筛选近3年发表文献">📅 近3年</button>
-          <button type="button" class="pp-preset-btn" id="pp-preset-ni" title="仅保留自然指数/核心期刊">🏆 仅NI顶刊</button>
-          <button type="button" class="pp-preset-btn pp-preset-reset" id="pp-preset-reset" title="重置所有筛选">🔄 重置</button>
-        </div>
-        
-        <div class="pp-scholar-slider-group">
-          <div class="pp-scholar-slider-label">
-            <span>被引量下限</span>
-            <span class="pp-scholar-slider-val" id="pp-val-cite">≥ 0 次</span>
-          </div>
-          <input type="range" class="pp-scholar-range-slider" id="pp-slider-cite" min="0" max="${Math.ceil(maxCites / 50) * 50}" value="${state.citeThreshold}" step="10">
-        </div>
-
-        <div class="pp-scholar-slider-group">
-          <div class="pp-scholar-slider-label">
-            <span>发表年份下限</span>
-            <span class="pp-scholar-slider-val" id="pp-val-year">≥ ${minYear} 年</span>
-          </div>
-          <input type="range" class="pp-scholar-range-slider" id="pp-slider-year" min="${minYear}" max="${maxYear}" value="${state.yearThreshold || minYear}" step="1">
-        </div>
-
-        <div class="pp-scholar-source-list">
-          <div class="pp-scholar-panel-title" style="font-size: 11.5px; margin-top: 4px; justify-content: space-between;">
-            <span>期刊来源匹配过滤</span>
-            <button type="button" class="pp-scholar-mini-toggle-link" id="pp-toggle-all">全选</button>
-          </div>
-          <div id="pp-source-items-wrap"></div>
-        </div>
-        <div id="pp-source-more" style="color: var(--pp-primary); font-size: 11px; cursor: pointer; user-select: none; text-align: center; margin-top: 4px; display: none;">展开更多 ▼</div>
-      `;
-      sidebar.insertBefore(panel, sidebar.firstChild);
-
-      // Presets event handlers
-      panel.querySelector("#pp-preset-cite").onclick = () => {
-        state.citeThreshold = 100;
-        syncCheckboxesAndSlidersFromState();
-        applyFilters();
-        savePersistedState();
-      };
-
-      panel.querySelector("#pp-preset-year").onclick = () => {
-        const targetYear = new Date().getFullYear() - 3;
-        state.yearThreshold = Math.max(minYear, targetYear);
-        syncCheckboxesAndSlidersFromState();
-        applyFilters();
-        savePersistedState();
-      };
-
-      panel.querySelector("#pp-preset-ni").onclick = () => {
-        state.sourceFilterState.forEach((_, key) => {
-          const isNi = Boolean(resolveNiJournalMatch(key));
-          state.sourceFilterState.set(key, isNi);
-        });
-        syncCheckboxesAndSlidersFromState();
-        applyFilters();
-        savePersistedState();
-      };
-
-      panel.querySelector("#pp-preset-reset").onclick = () => {
-        state.citeThreshold = 0;
-        state.yearThreshold = minYear;
-        state.sourceFilterState.forEach((_, key) => {
-          state.sourceFilterState.set(key, true);
-        });
-        syncCheckboxesAndSlidersFromState();
-        applyFilters();
-        savePersistedState();
-      };
-
-      // Event listener for toggle all / clear all
-      panel.querySelector("#pp-toggle-all").onclick = (e) => {
-        e.preventDefault();
-        const checkboxValues = Array.from(state.sourceFilterState.values());
-        const allChecked = checkboxValues.length > 0 && checkboxValues.every(v => v === true);
-
-        state.sourceFilterState.forEach((_, key) => {
-          state.sourceFilterState.set(key, !allChecked);
-        });
-
-        syncCheckboxesAndSlidersFromState();
-        applyFilters();
-        savePersistedState();
-      };
-
-      panel.querySelector("#pp-source-more").onclick = (e) => {
-        e.preventDefault();
-        state.currentExpanded = !state.currentExpanded;
-        updateFoldState();
-        savePersistedState();
-      };
-
-      // Set up slider changes
-      const citeSlider = panel.querySelector("#pp-slider-cite");
-      const yearSlider = panel.querySelector("#pp-slider-year");
-
-      const onSliderInput = () => {
-        state.citeThreshold = parseInt(citeSlider.value);
-        state.yearThreshold = parseInt(yearSlider.value);
-        
-        panel.querySelector("#pp-val-cite").innerText = `≥ ${state.citeThreshold} 次`;
-        panel.querySelector("#pp-val-year").innerText = `≥ ${state.yearThreshold} 年`;
-        
-        applyFilters();
-        savePersistedState();
-      };
-
-      citeSlider.oninput = onSliderInput;
-      yearSlider.oninput = onSliderInput;
-    } else {
-      panel.setAttribute("data-pp-theme", currentTheme);
-      // Update slider bounds if they changed
-      const citeSlider = panel.querySelector("#pp-slider-cite");
-      const yearSlider = panel.querySelector("#pp-slider-year");
-      citeSlider.max = String(Math.ceil(maxCites / 50) * 50);
-      yearSlider.min = String(minYear);
-      yearSlider.max = String(maxYear);
-    }
-
-    const itemsWrap = document.getElementById("pp-source-items-wrap");
-    if (itemsWrap) {
-      itemsWrap.innerHTML = "";
-
-      const stats = getSourceStats();
-      const sources = Array.from(stats.entries()).sort((a, b) => {
-        if (a[0] === 'Other') return 1;
-        if (b[0] === 'Other') return -1;
-        if (b[1] !== a[1]) return b[1] - a[1];
-        return collator.compare(a[0], b[0]);
-      });
-
-      sources.forEach(([source, count], index) => {
-        const displayName = source === "Other" ? "其他普通期刊" : 
-          (source.charAt(0).toUpperCase() + source.slice(1));
-        
-        const label = document.createElement("label");
-        label.className = "pp-scholar-source-item";
-        label.dataset.index = String(index);
-        label.dataset.source = source;
-
-        const isNi = Boolean(resolveNiJournalMatch(source));
-
-        label.innerHTML = `
-          <span class="source-item-name">
-            <input type="checkbox" class="pp-source-cb" value="${escapeAttr(source)}" ${state.sourceFilterState.get(source) !== false ? 'checked' : ''}> 
-            ${isNi ? '<span class="pp-ni-dot" title="Nature Index 顶级期刊">●</span>' : ''}
-            ${escapeHtml(displayName)}
-          </span>
-          <span class="pp-scholar-source-badge">${escapeHtml(count)}</span>
-        `;
-
-        const cb = label.querySelector(".pp-source-cb");
-        cb.onchange = () => {
-          state.sourceFilterState.set(source, cb.checked);
-          applyFilters();
-          savePersistedState();
-        };
-
-        itemsWrap.appendChild(label);
-      });
-    }
-
-    updateFoldState();
-    syncCheckboxesAndSlidersFromState();
-    applyFilters();
-  }
-
-  function syncCheckboxesAndSlidersFromState() {
-    const panel = document.querySelector(".pp-scholar-sidebar-panel");
-    if (!panel) return;
-
-    const citeSlider = panel.querySelector("#pp-slider-cite");
-    const yearSlider = panel.querySelector("#pp-slider-year");
-
-    if (citeSlider) {
-      citeSlider.value = String(state.citeThreshold);
-      panel.querySelector("#pp-val-cite").innerText = `≥ ${state.citeThreshold} 次`;
-    }
-    if (yearSlider) {
-      const yMin = parseInt(yearSlider.min);
-      const yMax = parseInt(yearSlider.max);
-      if (state.yearThreshold < yMin || state.yearThreshold > yMax) {
-        state.yearThreshold = yMin;
-      }
-      yearSlider.value = String(state.yearThreshold);
-      panel.querySelector("#pp-val-year").innerText = `≥ ${state.yearThreshold} 年`;
-    }
-
-    panel.querySelectorAll(".pp-source-cb").forEach(cb => {
-      cb.checked = state.sourceFilterState.get(cb.value) !== false;
-    });
-
-    const checkboxValues = Array.from(state.sourceFilterState.values());
-    const allChecked = checkboxValues.length > 0 && checkboxValues.every(v => v === true);
-    const toggleBtn = panel.querySelector("#pp-toggle-all");
-    if (toggleBtn) {
-      toggleBtn.textContent = allChecked ? "全不选" : "全选";
-    }
-  }
-
-  function applyFilters() {
-    const articles = getScholarArticles();
-    if (!state.settings?.enable_sorting_filter) {
-      articles.forEach(card => card.classList.remove("pp-scholar-hidden-by-filter"));
-      return;
-    }
-    let visibleCount = 0;
-    let totalCount = 0;
-
-    articles.forEach(card => {
-      if (card.dataset.foldedAsDuplicate === "true") return;
-      totalCount += 1;
-
-      const cite = parseInt(card._ppCite !== undefined ? card._ppCite : card.dataset.cite || "0", 10);
-      const year = parseInt(card._ppYear !== undefined ? card._ppYear : card.dataset.year || "0", 10);
-      const venue = card._ppVenue !== undefined ? card._ppVenue : card.dataset.venue || "Other";
-
-      const niMatch = resolveNiJournalMatch(venue);
-      const matchedNormName = niMatch ? niMatch.canonicalName : "Other";
-
-      const matchCite = cite >= state.citeThreshold;
-      const matchYear = year >= state.yearThreshold;
-      const matchVenue = state.sourceFilterState.get(matchedNormName) !== false;
-
-      if (matchCite && matchYear && matchVenue) {
-        card.classList.remove("pp-scholar-hidden-by-filter");
-        visibleCount += 1;
-      } else {
-        card.classList.add("pp-scholar-hidden-by-filter");
-      }
-    });
-
-    const badge = document.getElementById("pp-filter-count-badge");
-    if (badge) {
-      if (visibleCount === totalCount) {
-        badge.textContent = `已展示全部 (${totalCount})`;
-        badge.classList.remove("pp-filtered");
-      } else {
-        badge.textContent = `保留 ${visibleCount} / ${totalCount} 篇`;
-        badge.classList.add("pp-filtered");
-      }
-    }
-  }
-
-  // =========================================================
   // MutationObserver Bounded on Results Container
   // =========================================================
   function disconnectObserver() {
@@ -941,7 +523,7 @@
     if (state.toolbarRepairTimer) return;
     state.toolbarRepairTimer = setTimeout(() => {
       state.toolbarRepairTimer = null;
-      if (state.isInternalUpdating || !state.settings?.enable_sorting_filter) return;
+      if (state.isInternalUpdating) return;
       const toolbar = document.getElementById("pp-scholar-sorting-toolbar");
       const toolbarRoot = getToolbar();
       const toolbarContainer = getToolbarMountNode();
@@ -1022,16 +604,12 @@
   // =========================================================
   function handleRouteChange() {
     const newUrl = location.href;
-    const newQueryKey = getQueryKey();
-
-    if (newUrl === state.lastUrl && newQueryKey === state.lastQueryKey) return;
+    if (newUrl === state.lastUrl) return;
 
     state.lastUrl = newUrl;
-    if (newQueryKey !== state.lastQueryKey) loadPersistedState();
-    state.lastQueryKey = newQueryKey;
+    loadPersistedState();
     state.lastResultSetKey = '';
     state.lastArticleSignature = '';
-    state.lastSourceSignature = '';
 
     setTimeout(() => {
       debounceRefresh(true);
@@ -1068,7 +646,7 @@
     const tick = () => {
       state.urlWatchTimer = null;
       if (state.suspended || document.visibilityState === "hidden") return;
-      if (location.href !== state.lastUrl || getQueryKey() !== state.lastQueryKey) {
+      if (location.href !== state.lastUrl) {
         handleRouteChange();
         state.urlWatchDelay = 2000;
       } else {
@@ -1923,12 +1501,11 @@
     startUrlFallbackWatcher();
 
     state.lastUrl = location.href;
-    state.lastQueryKey = getQueryKey();
     if (!state.initialized) loadPersistedState();
     fetchSettingsAndRun(() => {
       state.initializing = false;
       if (state.suspended) return;
-      const ok = processAllArticles(true, false);
+      const ok = processAllArticles();
       attachObserver();
 
       if (!ok) {
@@ -1950,16 +1527,12 @@
     if (message?.action !== "PUBLIC_SETTINGS_CHANGED") return false;
     const keysChanged = (message.keys || []).some(key => SETTINGS_KEYS.includes(key));
     if (keysChanged) {
-      const oldPanel = document.querySelector(".pp-scholar-sidebar-panel");
-      if (oldPanel) oldPanel.remove();
-      
       const oldToolbar = document.getElementById("pp-scholar-sorting-toolbar");
       if (oldToolbar) oldToolbar.remove();
 
       document.querySelectorAll(".gs_r.gs_or.gs_scl").forEach(card => {
         delete card.dataset.ppEnhanced;
         card.classList.remove("pp-scholar-ni-card");
-        card.classList.remove("pp-scholar-hidden-by-filter");
         card.style.order = "";
         
         const badges = card.querySelector(".pp-scholar-badge-container");
@@ -1974,7 +1547,6 @@
 
       state.lastResultSetKey = '';
       state.lastArticleSignature = '';
-      state.lastSourceSignature = '';
 
       fetchSettingsAndRun(() => {
         refreshPage(true);

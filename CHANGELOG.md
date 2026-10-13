@@ -1,5 +1,10 @@
 # Changelog
 
+## v4.0.7 - 2026-10-13
+
+- Removed the custom Google Scholar sidebar filtering panel and its obsolete filter preferences/state. The citation/year sorting toolbar remains available, along with Google Scholar native filters and PaperPilot Scholar annotations, deduplication, and item actions.
+
+
 ## v4.0.6 - 2026-10-12
 
 ### Fixed
